@@ -1,0 +1,47 @@
+namespace Livt.Net
+
+/**
+ * RFC 894 — A Standard for the Transmission of IP Datagrams over Ethernet Networks
+ * https://www.rfc-editor.org/rfc/rfc894
+ *
+ * Builds Ethernet II reply headers by swapping request source/destination MACs.
+ */
+component EthernetFrameBuilder
+{
+	// Number of bytes emitted for an Ethernet II header.
+	public const HEADER_LENGTH: int = 14
+
+	/**
+	 * Returns one byte of a reply Ethernet II header.
+	 * Bytes 0–5: destination MAC (copied from request source MAC).
+	 * Bytes 6–11: source MAC (localMac).
+	 * Bytes 12–13: EtherType (etherTypeHigh / etherTypeLow).
+	 */
+	public fn GetReplyHeaderByte(
+		request: byte[128],
+		index: int,
+		localMac: byte[6],
+		etherTypeHigh: byte,
+		etherTypeLow: byte) byte
+	{
+		if (index < 6) {
+			var dstMacIndex = 6 + index
+			return request[dstMacIndex]
+		}
+
+		if (index < 12) {
+			var srcMacIndex = index - 6
+			return localMac[srcMacIndex]
+		}
+
+		if (index == 12) {
+			return etherTypeHigh
+		}
+
+		if (index == 13) {
+			return etherTypeLow
+		}
+
+		return 0x00
+	}
+}

@@ -1,0 +1,59 @@
+namespace Livt.Net
+
+/**
+ * RFC 9293 — Transmission Control Protocol (TCP) (section 3.5, Connection Establishment)
+ * https://www.rfc-editor.org/rfc/rfc9293
+ *
+ * Recognizes TCP SYN and ACK-only segments for the minimal three-way handshake FSM.
+ */
+component TcpConnectionRecognizer
+{
+	ipv4: Ipv4PacketParser
+	tcp: TcpHeaderParser
+
+	new()
+	{
+		this.ipv4 = new Ipv4PacketParser()
+		this.tcp = new TcpHeaderParser()
+	}
+
+	/**
+	 * Returns true for an IPv4/TCP SYN-only segment targeting localIp/localPort.
+	 * Does not require a fixed 20-byte TCP header because host stacks often include
+	 * TCP options in the SYN.
+	 */
+	public fn IsSynRequest(frame: byte[128], localIp: byte[4], localPort: byte[2]) bool
+	{
+		return frame[12] == 0x08
+			&& frame[13] == 0x00
+			&& this.ipv4.IsTcpForIpv4(frame, localIp[0], localIp[1], localIp[2], localIp[3])
+			&& this.tcp.IsForLocalPort(frame, localPort[0], localPort[1])
+			&& this.tcp.IsSynOnly(frame)
+	}
+
+	/**
+	 * Returns true for an IPv4/TCP ACK-only segment targeting localIp/localPort.
+	 */
+	public fn IsAckOnlyPacket(frame: byte[128], localIp: byte[4], localPort: byte[2]) bool
+	{
+		return frame[12] == 0x08
+			&& frame[13] == 0x00
+			&& this.ipv4.IsTcpForIpv4(frame, localIp[0], localIp[1], localIp[2], localIp[3])
+			&& this.tcp.IsFixedHeaderForLocalPort(frame, localPort[0], localPort[1])
+			&& this.tcp.IsAckOnly(frame)
+	}
+
+	/**
+	 * Returns true for an IPv4/TCP PSH+ACK segment targeting localIp/localPort.
+	 * Some host TCP stacks combine the three-way handshake ACK with the first
+	 * data segment (PSH+ACK, flags 0x18), skipping the ACK-only frame.
+	 */
+	public fn IsPshAckPacket(frame: byte[128], localIp: byte[4], localPort: byte[2]) bool
+	{
+		return frame[12] == 0x08
+			&& frame[13] == 0x00
+			&& this.ipv4.IsTcpForIpv4(frame, localIp[0], localIp[1], localIp[2], localIp[3])
+			&& this.tcp.IsFixedHeaderForLocalPort(frame, localPort[0], localPort[1])
+			&& this.tcp.IsPshAck(frame)
+	}
+}

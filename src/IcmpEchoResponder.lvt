@@ -1,0 +1,173 @@
+namespace Livt.Net
+
+/**
+ * RFC 792 — Internet Control Message Protocol
+ * https://www.rfc-editor.org/rfc/rfc792
+ *
+ * Recognizes IPv4 ICMP echo requests and emits echo reply bytes.
+ */
+component IcmpEchoResponder
+{
+	ethernet: EthernetFrameBuilder
+	ipv4: Ipv4PacketParser
+	ipv4Checksum: Ipv4HeaderChecksum
+
+	new()
+	{
+		this.ethernet = new EthernetFrameBuilder()
+		this.ipv4 = new Ipv4PacketParser()
+		this.ipv4Checksum = new Ipv4HeaderChecksum()
+	}
+
+	/**
+	 * Returns true for fixed-header, non-fragmented ICMP echo requests targeting localIp.
+	 */
+	public fn ShouldRespond(frame: byte[128], localIp: byte[4]) bool
+	{
+		var totalLengthHigh: int = this.ByteToInt(frame[16])
+		var totalLengthLow: int = this.ByteToInt(frame[17])
+
+		return frame[12] == 0x08
+			&& frame[13] == 0x00
+			&& this.ipv4.IsIcmpForIpv4(frame, localIp[0], localIp[1], localIp[2], localIp[3])
+			&& frame[34] == 0x08
+			&& frame[35] == 0x00
+			&& totalLengthHigh == 0
+			&& totalLengthLow <= 114
+	}
+
+	/**
+	 * Returns the Ethernet frame byte length for the echo reply, including minimum Ethernet padding.
+	 */
+	public fn GetReplyLength(request: byte[128]) int
+	{
+		var totalLengthHigh: int = this.ByteToInt(request[16])
+		var totalLengthLow: int = this.ByteToInt(request[17])
+		var totalLength = totalLengthHigh * 256 + totalLengthLow
+		var frameLength = totalLength + 14
+
+		if (frameLength < 60)
+		{
+			return 60
+		}
+
+		return frameLength
+	}
+
+	/**
+	 * Returns one byte of the ICMP echo reply frame for the supplied request and local endpoint.
+	 * Bytes 0-13: Ethernet II reply header.
+	 * Bytes 14-33: IPv4 header with source/destination addresses swapped.
+	 * Bytes 34-37: ICMP echo reply type, code, and adjusted checksum.
+	 * Bytes 38..N: copied ICMP identifier, sequence, and payload bytes.
+	 * Remaining bytes up to Ethernet minimum frame length are zero padding.
+	 */
+	public fn GetReplyByte(request: byte[128], index: int, localMac: byte[6], localIp: byte[4]) byte
+	{
+		var totalLengthHigh: int = this.ByteToInt(request[16])
+		var totalLengthLow: int = this.ByteToInt(request[17])
+		var identificationHigh: int = this.ByteToInt(request[18])
+		var identificationLow: int = this.ByteToInt(request[19])
+		var localIp0: int = this.ByteToInt(localIp[0])
+		var localIp1: int = this.ByteToInt(localIp[1])
+		var localIp2: int = this.ByteToInt(localIp[2])
+		var localIp3: int = this.ByteToInt(localIp[3])
+		var remoteIp0: int = this.ByteToInt(request[26])
+		var remoteIp1: int = this.ByteToInt(request[27])
+		var remoteIp2: int = this.ByteToInt(request[28])
+		var remoteIp3: int = this.ByteToInt(request[29])
+		var icmpChecksumHigh: int = this.ByteToInt(request[36])
+		var icmpChecksumLow: int = this.ByteToInt(request[37])
+		var totalLength = totalLengthHigh * 256 + totalLengthLow
+		var frameLength = totalLength + 14
+		var ipv4ChecksumValue = this.ipv4Checksum.CalculateFixedIcmpHeaderChecksum(
+			totalLengthHigh,
+			totalLengthLow,
+			identificationHigh,
+			identificationLow,
+			localIp0,
+			localIp1,
+			localIp2,
+			localIp3,
+			remoteIp0,
+			remoteIp1,
+			remoteIp2,
+			remoteIp3)
+		var icmpChecksumValue = this.AdjustEchoReplyChecksum(icmpChecksumHigh, icmpChecksumLow)
+		var ipv4ChecksumHighI = this.ipv4Checksum.GetHighByte(ipv4ChecksumValue)
+		var ipv4ChecksumLowI = this.ipv4Checksum.GetLowByte(ipv4ChecksumValue)
+		var icmpChecksumHighI = this.ipv4Checksum.GetHighByte(icmpChecksumValue)
+		var icmpChecksumLowI = this.ipv4Checksum.GetLowByte(icmpChecksumValue)
+		var ipv4ChecksumHigh: byte = ipv4ChecksumHighI as byte
+		var ipv4ChecksumLow: byte = ipv4ChecksumLowI as byte
+		var icmpChecksumReplyHigh: byte = icmpChecksumHighI as byte
+		var icmpChecksumReplyLow: byte = icmpChecksumLowI as byte
+
+		if (index < 14)
+		{
+			return this.ethernet.GetReplyHeaderByte(request, index, localMac, 0x08, 0x00)
+		}
+
+		if (index == 14) { return 0x45 }
+		if (index == 15) { return 0x00 }
+		if (index == 16) { return request[16] }
+		if (index == 17) { return request[17] }
+		if (index == 18) { return request[18] }
+		if (index == 19) { return request[19] }
+		if (index == 20) { return 0x40 }
+		if (index == 21) { return 0x00 }
+		if (index == 22) { return 0x40 }
+		if (index == 23) { return 0x01 }
+		if (index == 24) { return ipv4ChecksumHigh }
+		if (index == 25) { return ipv4ChecksumLow }
+		if (index == 26) { return localIp[0] }
+		if (index == 27) { return localIp[1] }
+		if (index == 28) { return localIp[2] }
+		if (index == 29) { return localIp[3] }
+		if (index == 30) { return request[26] }
+		if (index == 31) { return request[27] }
+		if (index == 32) { return request[28] }
+		if (index == 33) { return request[29] }
+		if (index == 34) { return 0x00 }
+		if (index == 35) { return 0x00 }
+		if (index == 36) { return icmpChecksumReplyHigh }
+		if (index == 37) { return icmpChecksumReplyLow }
+
+		if (index < frameLength)
+		{
+			return request[index]
+		}
+
+		return 0x00
+	}
+
+	fn ByteToInt(value: byte) int
+	{
+		var result = 0
+		var bits: logic[8] = value
+
+		if (bits[0] == 0b1) { result = result + 1 }
+		if (bits[1] == 0b1) { result = result + 2 }
+		if (bits[2] == 0b1) { result = result + 4 }
+		if (bits[3] == 0b1) { result = result + 8 }
+		if (bits[4] == 0b1) { result = result + 16 }
+		if (bits[5] == 0b1) { result = result + 32 }
+		if (bits[6] == 0b1) { result = result + 64 }
+		if (bits[7] == 0b1) { result = result + 128 }
+
+		return result
+	}
+
+	fn AdjustEchoReplyChecksum(high: int, low: int) int
+	{
+		var checksum = high * 256 + low
+		checksum = checksum + 0x0800
+
+		if (checksum > 65535)
+		{
+			checksum = (checksum % 65536) + 1
+		}
+
+		return checksum
+	}
+}

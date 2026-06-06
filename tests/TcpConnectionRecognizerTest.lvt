@@ -1,0 +1,110 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+@Test
+component TcpConnectionRecognizerTest
+{
+	recog: TcpConnectionRecognizer
+	rxFrame: byte[128]
+
+	new()
+	{
+		this.recog = new TcpConnectionRecognizer()
+	}
+
+	fn SetupIpv4TcpFrame(flags: byte)
+	{
+		this.rxFrame[12] = 0x08
+		this.rxFrame[13] = 0x00
+		this.rxFrame[14] = 0x45
+		this.rxFrame[20] = 0x40
+		this.rxFrame[21] = 0x00
+		this.rxFrame[23] = 0x06
+		this.rxFrame[30] = 0x0A
+		this.rxFrame[31] = 0x00
+		this.rxFrame[32] = 0x00
+		this.rxFrame[33] = 0x01
+		this.rxFrame[36] = 0x00
+		this.rxFrame[37] = 0x50
+		this.rxFrame[46] = 0x50
+		this.rxFrame[47] = flags
+	}
+
+	@Test
+	fn RecognizesSynRequest()
+	{
+		this.SetupIpv4TcpFrame(0x02)
+
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+
+		var localPort: byte[2]
+		localPort[0] = 0x00
+		localPort[1] = 0x50
+
+		assert this.recog.IsSynRequest(this.rxFrame, localIp, localPort) == true
+		assert this.recog.IsAckOnlyPacket(this.rxFrame, localIp, localPort) == false
+	}
+
+	@Test
+	fn RecognizesAckOnlyPacket()
+	{
+		this.SetupIpv4TcpFrame(0x10)
+
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+
+		var localPort: byte[2]
+		localPort[0] = 0x00
+		localPort[1] = 0x50
+
+		assert this.recog.IsSynRequest(this.rxFrame, localIp, localPort) == false
+		assert this.recog.IsAckOnlyPacket(this.rxFrame, localIp, localPort) == true
+	}
+
+	@Test
+	fn RejectsPshAckAsSynOrAck()
+	{
+		this.SetupIpv4TcpFrame(0x18)
+
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+
+		var localPort: byte[2]
+		localPort[0] = 0x00
+		localPort[1] = 0x50
+
+		assert this.recog.IsSynRequest(this.rxFrame, localIp, localPort) == false
+		assert this.recog.IsAckOnlyPacket(this.rxFrame, localIp, localPort) == false
+	}
+
+	@Test
+	fn DetectsPshAckPacket()
+	{
+		this.SetupIpv4TcpFrame(0x18)
+
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+
+		var localPort: byte[2]
+		localPort[0] = 0x00
+		localPort[1] = 0x50
+
+		assert this.recog.IsSynRequest(this.rxFrame, localIp, localPort) == false
+		assert this.recog.IsAckOnlyPacket(this.rxFrame, localIp, localPort) == false
+		assert this.recog.IsPshAckPacket(this.rxFrame, localIp, localPort) == true
+	}
+}

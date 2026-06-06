@@ -1,0 +1,85 @@
+namespace Livt.Net
+
+/**
+ * RFC 826 — An Ethernet Address Resolution Protocol
+ * https://www.rfc-editor.org/rfc/rfc826
+ *
+ * Recognizes local ARP requests and emits ARP reply bytes.
+ */
+component ArpResponder
+{
+	// Request frame offset of the ARP sender hardware (MAC) address.
+	const SENDER_MAC_OFFSET: int = 22
+
+	parser: ArpPacketParser
+
+	new()
+	{
+		this.parser = new ArpPacketParser()
+	}
+
+	/**
+	 * Returns true when the frame is an Ethernet/IPv4 ARP request for localIp.
+	 */
+	public fn ShouldRespond(frame: byte[64], localIp: byte[4]) bool
+	{
+		return this.parser.IsRequestForIpv4(frame, localIp[0], localIp[1], localIp[2], localIp[3])
+	}
+
+	/**
+	 * Returns one byte of the ARP reply frame for the supplied request and local endpoint.
+	 * Bytes 0–5: destination MAC (copied from request sender MAC).
+	 * Bytes 6–11: source MAC (localMac).
+	 * Bytes 12–13: EtherType 0x0806 (ARP).
+	 * Bytes 14–21: ARP fixed header (HTYPE=0x0001, PTYPE=0x0800, HLEN=6, PLEN=4, OPER=0x0002).
+	 * Bytes 22–27: sender hardware address (localMac).
+	 * Bytes 28–31: sender protocol address (localIp).
+	 * Bytes 32–41: target hardware and protocol address (copied from request sender MAC+IP).
+	 */
+	public fn GetReplyByte(
+		request: byte[64],
+		index: int,
+		localMac: byte[6],
+		localIp: byte[4]) byte
+	{
+		if (index < 6) {
+			var dstMacIndex = SENDER_MAC_OFFSET + index
+			return request[dstMacIndex]
+		}
+
+		if (index < 12) {
+			var srcMacIndex = index - 6
+			return localMac[srcMacIndex]
+		}
+
+		// EtherType ARP (0x0806)
+		if (index == 12) { return 0x08 }
+		if (index == 13) { return 0x06 }
+		// ARP fixed header: HTYPE=0x0001, PTYPE=0x0800, HLEN=6, PLEN=4, OPER=0x0002
+		if (index == 14) { return 0x00 }
+		if (index == 15) { return 0x01 }
+		if (index == 16) { return 0x08 }
+		if (index == 17) { return 0x00 }
+		if (index == 18) { return 0x06 }
+		if (index == 19) { return 0x04 }
+		if (index == 20) { return 0x00 }
+		if (index == 21) { return 0x02 }
+
+		if (index < 28) {
+			var senderMacIndex = index - 22
+			return localMac[senderMacIndex]
+		}
+
+		if (index < 32) {
+			var senderIpIndex = index - 28
+			return localIp[senderIpIndex]
+		}
+
+		if (index < 42) {
+			var targetIndex = SENDER_MAC_OFFSET + index - 32
+			return request[targetIndex]
+		}
+
+		return 0x00
+	}
+}

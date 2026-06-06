@@ -1,0 +1,35 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+@Test
+component TcpChecksumTest
+{
+	checksum: TcpChecksum
+
+	new()
+	{
+		this.checksum = new TcpChecksum()
+	}
+
+	@Test
+	fn CalculatesSynAckStyleFixedHeaderChecksum()
+	{
+		assert this.checksum.CalculateFixedHeaderChecksum(10, 0, 0, 1, 10, 0, 0, 2, 0, 80, 192, 1, 17, 34, 51, 68, 170, 187, 204, 221, 18, 4, 0) == 7039
+	}
+
+	@Test
+	fn CalculatesAckOnlyFixedHeaderChecksum()
+	{
+		assert this.checksum.CalculateFixedHeaderChecksum(192, 168, 0, 10, 192, 168, 0, 11, 0, 80, 18, 52, 0, 0, 0, 1, 0, 0, 0, 2, 16, 16, 0) == 3048
+	}
+
+	@Test
+	fn ExposesChecksumBytesAsIntegers()
+	{
+		assert this.checksum.GetHighByte(7039) == 27
+		assert this.checksum.GetLowByte(7039) == 127
+		assert this.checksum.GetHighByte(3048) == 11
+		assert this.checksum.GetLowByte(3048) == 232
+	}
+}

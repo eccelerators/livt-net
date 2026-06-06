@@ -1,0 +1,102 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+@Test
+component InternetChecksumTest
+{
+	cs: InternetChecksum
+
+	new()
+	{
+		this.cs = new InternetChecksum()
+	}
+
+	@Test
+	fn ReturnsZeroAfterReset()
+	{
+		this.cs.Reset()
+
+		assert this.cs.GetWordSum() == 0
+	}
+
+	@Test
+	fn ResetClearsAccumulatedSum()
+	{
+		this.cs.Reset()
+		this.cs.AddByte(0x3C)
+		this.cs.AddByte(0x21)
+		this.cs.Reset()
+
+		assert this.cs.GetWordSum() == 0
+	}
+
+	@Test
+	fn SingleByteIsTreatedAsHighByteOfWord()
+	{
+		// 0x3C alone -> word 0x3C00 = 15360
+		this.cs.Reset()
+		this.cs.AddByte(0x3C)
+
+		assert this.cs.GetWordSum() == 15360
+	}
+
+	@Test
+	fn TwoBytesFormOneWord()
+	{
+		// 0x3C, 0x21 -> word 0x3C21 = 60 * 256 + 33 = 15393
+		this.cs.Reset()
+		this.cs.AddByte(0x3C)
+		this.cs.AddByte(0x21)
+
+		assert this.cs.GetWordSum() == 15393
+	}
+
+	@Test
+	fn FourBytesFormTwoWords()
+	{
+		// 0x3C21 = 15393, 0x646F = 100 * 256 + 111 = 25711 -> sum = 41104
+		this.cs.Reset()
+		this.cs.AddByte(0x3C)
+		this.cs.AddByte(0x21)
+		this.cs.AddByte(0x64)
+		this.cs.AddByte(0x6F)
+
+		assert this.cs.GetWordSum() == 41104
+	}
+
+	@Test
+	fn ResetAllowsReuse()
+	{
+		this.cs.Reset()
+		this.cs.AddByte(0xFF)
+		this.cs.AddByte(0xFF)
+		this.cs.Reset()
+		this.cs.AddByte(0x3C)
+		this.cs.AddByte(0x21)
+
+		assert this.cs.GetWordSum() == 15393
+	}
+
+	@Test
+	fn GetChecksumFoldsAndInverts()
+	{
+		// 0x45, 0x00 -> word sum = 17664; invert: 0xFFFF - 17664 = 47871
+		this.cs.Reset()
+		this.cs.AddByte(0x45)
+		this.cs.AddByte(0x00)
+
+		assert this.cs.GetChecksum() == 47871
+	}
+
+	@Test
+	fn GetHighAndLowByteExtractCorrectly()
+	{
+		this.cs.Reset()
+		this.cs.AddByte(0x3C)
+		this.cs.AddByte(0x21)
+
+		assert this.cs.GetHighByte(15393) == 60
+		assert this.cs.GetLowByte(15393) == 33
+	}
+}

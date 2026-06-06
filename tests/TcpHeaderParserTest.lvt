@@ -1,0 +1,116 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+@Test
+component TcpHeaderParserTest
+{
+	parser: TcpHeaderParser
+
+	new()
+	{
+		this.parser = new TcpHeaderParser()
+	}
+
+	@Test
+	fn DetectsFixedTcpHeaderForLocalPort()
+	{
+		var frame: byte[128]
+		var clientPort: byte[2]
+		clientPort[0] = 0x12
+		clientPort[1] = 0x34
+		var localPort: byte[2]
+		localPort[0] = 0x00
+		localPort[1] = 0x50
+		var tcpSyn: byte[2]
+		tcpSyn[0] = 0x50
+		tcpSyn[1] = 0x02
+
+		frame[34] = clientPort[0]
+		frame[35] = clientPort[1]
+		frame[36] = localPort[0]
+		frame[37] = localPort[1]
+		frame[46] = tcpSyn[0]
+		frame[47] = tcpSyn[1]
+
+		assert this.parser.IsFixedHeader(frame) == true
+		assert this.parser.IsForLocalPort(frame, 0x00, 0x50) == true
+		assert this.parser.IsFixedHeaderForLocalPort(frame, 0x00, 0x50) == true
+		assert this.parser.IsFixedHeaderForLocalPort(frame, 0x01, 0x01) == false
+		assert this.parser.IsSynOnly(frame) == true
+		assert this.parser.GetPayloadOffset() == 54
+	}
+
+	@Test
+	fn DetectsMinimalFlagCombinations()
+	{
+		var frame: byte[128]
+		var tcpAck: byte[2]
+		tcpAck[0] = 0x50
+		tcpAck[1] = 0x10
+		var tcpPshAck: byte[2]
+		tcpPshAck[0] = 0x50
+		tcpPshAck[1] = 0x18
+		var tcpFinAck: byte[2]
+		tcpFinAck[0] = 0x50
+		tcpFinAck[1] = 0x11
+		var tcpSyn: byte[2]
+		tcpSyn[0] = 0x50
+		tcpSyn[1] = 0x02
+
+		frame[46] = tcpAck[0]
+		frame[47] = tcpAck[1]
+		assert this.parser.IsAckOnly(frame) == true
+
+		frame[46] = tcpPshAck[0]
+		frame[47] = tcpPshAck[1]
+		assert this.parser.IsPshAck(frame) == true
+
+		frame[46] = tcpFinAck[0]
+		frame[47] = tcpFinAck[1]
+		assert this.parser.IsFinAck(frame) == true
+
+		frame[46] = tcpSyn[0]
+		frame[47] = tcpSyn[1]
+		assert this.parser.IsAckOnly(frame) == false
+		assert this.parser.IsPshAck(frame) == false
+		assert this.parser.IsFinAck(frame) == false
+	}
+
+	@Test
+	fn ReadsPortsAndSequenceFields()
+	{
+		var frame: byte[128]
+		var clientPort: byte[2]
+		clientPort[0] = 0x12
+		clientPort[1] = 0x34
+		var sequenceNumber: byte[4]
+		sequenceNumber[0] = 0x01
+		sequenceNumber[1] = 0x02
+		sequenceNumber[2] = 0x03
+		sequenceNumber[3] = 0x04
+		var acknowledgment: byte[4]
+		acknowledgment[0] = 0x05
+		acknowledgment[1] = 0x06
+		acknowledgment[2] = 0x07
+		acknowledgment[3] = 0x08
+
+		frame[34] = clientPort[0]
+		frame[35] = clientPort[1]
+		frame[38] = sequenceNumber[0]
+		frame[39] = sequenceNumber[1]
+		frame[40] = sequenceNumber[2]
+		frame[41] = sequenceNumber[3]
+		frame[42] = acknowledgment[0]
+		frame[43] = acknowledgment[1]
+		frame[44] = acknowledgment[2]
+		frame[45] = acknowledgment[3]
+
+		assert this.parser.GetSourcePortHighByte(frame) == 0x12
+		assert this.parser.GetSourcePortLowByte(frame) == 0x34
+		assert this.parser.GetSequenceNumberByte(frame, 0) == 0x01
+		assert this.parser.GetSequenceNumberByte(frame, 3) == 0x04
+		assert this.parser.GetAcknowledgmentNumberByte(frame, 0) == 0x05
+		assert this.parser.GetAcknowledgmentNumberByte(frame, 3) == 0x08
+	}
+}

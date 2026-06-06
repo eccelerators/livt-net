@@ -1,0 +1,36 @@
+namespace Livt.Net.Tests
+
+// Standalone test for the inline RFC 1071 word-sum algorithm.
+//
+// Verifies that reading logic[8] bytes from a const byte[] into int via
+// implicit unsigned conversion and accumulating (hi * 256 + lo) over 32
+// big-endian words produces the correct unfolded word sum.
+//
+// This keeps the fixed HTTP body checksum fixture covered until the
+// package has a dedicated static-content abstraction.
+@Test
+component ChecksumWordSumTest
+{
+	const INDEX_CONTENT : byte[] = "<!doctype html><html><body><h1>Livt FPGA Web</h1></body></html>\n".Encode()
+
+	new()
+	{
+	}
+
+	@Test
+	fn ComputesWordSumOf64ByteHtmlContent()
+	{
+		// 64 bytes = 32 big-endian 16-bit words.
+		// Expected: sum of all 32 words = 717318.
+		var sum: int = 0
+
+		for (var i = 0; i < 32; i++)
+		{
+			var hi: int = INDEX_CONTENT[i * 2]
+			var lo: int = INDEX_CONTENT[i * 2 + 1]
+			sum = sum + hi * 256 + lo
+		}
+
+		assert sum == 717318
+	}
+}

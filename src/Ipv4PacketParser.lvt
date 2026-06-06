@@ -1,0 +1,133 @@
+namespace Livt.Net
+
+/**
+ * RFC 791 — Internet Protocol
+ * https://www.rfc-editor.org/rfc/rfc791
+ *
+ * Parses the fixed IPv4 header subset used for Ethernet/IPv4/TCP frames.
+ */
+component Ipv4PacketParser
+{
+	// Offset of the IPv4 header in an Ethernet II frame.
+	public const IPV4_OFFSET: int = 14
+	// Offset of the IPv4 source address.
+	public const SOURCE_IPV4_OFFSET: int = 26
+	// Offset of the IPv4 destination address.
+	public const DESTINATION_IPV4_OFFSET: int = 30
+	// Offset of the IPv4 payload for fixed 20-byte IPv4 headers.
+	public const PAYLOAD_OFFSET: int = 34
+
+	/**
+	 * Returns true when the IPv4 header has version 4 and IHL 5 (fixed 20-byte header).
+	 */
+	public fn IsFixedHeader(frame: byte[128]) bool
+	{
+		return frame[IPV4_OFFSET] == 0x45
+	}
+
+	/**
+	 * Returns true when the IPv4 protocol field is TCP (0x06).
+	 */
+	public fn IsTcp(frame: byte[128]) bool
+	{
+		return frame[IPV4_OFFSET + 9] == 0x06
+	}
+
+	/**
+	 * Returns true when the IPv4 protocol field is ICMP (0x01).
+	 */
+	public fn IsIcmp(frame: byte[128]) bool
+	{
+		return frame[IPV4_OFFSET + 9] == 0x01
+	}
+
+	/**
+	 * Returns true for the accepted no-fragment flags/offset combinations
+	 * (flags=0x00/offset=0 or Don't Fragment/offset=0).
+	 */
+	public fn IsNotFragmented(frame: byte[128]) bool
+	{
+		if (frame[IPV4_OFFSET + 6] == 0x00 && frame[IPV4_OFFSET + 7] == 0x00) {
+			return true
+		}
+
+		if (frame[IPV4_OFFSET + 6] == 0x40 && frame[IPV4_OFFSET + 7] == 0x00) {
+			return true
+		}
+
+		return false
+	}
+
+	/**
+	 * Returns true when the destination IPv4 address matches the supplied bytes.
+	 */
+	public fn IsForIpv4(frame: byte[128], ip0: byte, ip1: byte, ip2: byte, ip3: byte) bool
+	{
+		return frame[DESTINATION_IPV4_OFFSET] == ip0
+			&& frame[DESTINATION_IPV4_OFFSET + 1] == ip1
+			&& frame[DESTINATION_IPV4_OFFSET + 2] == ip2
+			&& frame[DESTINATION_IPV4_OFFSET + 3] == ip3
+	}
+
+	/**
+	 * Returns true for fixed-header, non-fragmented TCP packets targeting the supplied IPv4 address.
+	 */
+	public fn IsTcpForIpv4(frame: byte[128], ip0: byte, ip1: byte, ip2: byte, ip3: byte) bool
+	{
+		return this.IsFixedHeader(frame)
+			&& this.IsTcp(frame)
+			&& this.IsNotFragmented(frame)
+			&& this.IsForIpv4(frame, ip0, ip1, ip2, ip3)
+	}
+
+	/**
+	 * Returns true for fixed-header, non-fragmented ICMP packets targeting the supplied IPv4 address.
+	 */
+	public fn IsIcmpForIpv4(frame: byte[128], ip0: byte, ip1: byte, ip2: byte, ip3: byte) bool
+	{
+		return this.IsFixedHeader(frame)
+			&& this.IsIcmp(frame)
+			&& this.IsNotFragmented(frame)
+			&& this.IsForIpv4(frame, ip0, ip1, ip2, ip3)
+	}
+
+	/**
+	 * Returns the fixed IPv4 payload offset (Ethernet II + 20-byte IPv4 header = 34).
+	 */
+	public fn GetPayloadOffset() int
+	{
+		return PAYLOAD_OFFSET
+	}
+
+	/**
+	 * Reads one byte from the IPv4 source address.
+	 */
+	public fn GetSourceIpv4Byte(frame: byte[128], index: int) byte
+	{
+		return frame[SOURCE_IPV4_OFFSET + index]
+	}
+
+	/**
+	 * Reads one byte from the IPv4 destination address.
+	 */
+	public fn GetDestinationIpv4Byte(frame: byte[128], index: int) byte
+	{
+		return frame[DESTINATION_IPV4_OFFSET + index]
+	}
+
+	/**
+	 * Reads the high byte of the IPv4 total length field.
+	 */
+	public fn GetTotalLengthHighByte(frame: byte[128]) byte
+	{
+		return frame[IPV4_OFFSET + 2]
+	}
+
+	/**
+	 * Reads the low byte of the IPv4 total length field.
+	 */
+	public fn GetTotalLengthLowByte(frame: byte[128]) byte
+	{
+		return frame[IPV4_OFFSET + 3]
+	}
+}

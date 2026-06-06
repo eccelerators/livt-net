@@ -1,0 +1,99 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+@Test
+component Ipv4HeaderBuilderTest
+{
+	builder: Ipv4HeaderBuilder
+
+	new()
+	{
+		this.builder = new Ipv4HeaderBuilder()
+	}
+
+	@Test
+	fn BuildsFixedIpv4TcpResponseHeader()
+	{
+		var request: byte[128]
+		var clientIp: byte[4]
+		clientIp[0] = 0x0A
+		clientIp[1] = 0x00
+		clientIp[2] = 0x00
+		clientIp[3] = 0x02
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+		var totalLength: int = 40
+		var identification: byte[2]
+		identification[0] = 0x12
+		identification[1] = 0x34
+
+		request[26] = clientIp[0]
+		request[27] = clientIp[1]
+		request[28] = clientIp[2]
+		request[29] = clientIp[3]
+
+		assert this.builder.GetResponseHeaderByte(request, 0, totalLength, identification[0], identification[1], localIp) == 0x45
+		assert this.builder.GetResponseHeaderByte(request, 1, totalLength, identification[0], identification[1], localIp) == 0x00
+		assert this.builder.GetResponseHeaderByte(request, 2, totalLength, identification[0], identification[1], localIp) == 0x00
+		assert this.builder.GetResponseHeaderByte(request, 3, totalLength, identification[0], identification[1], localIp) == 0x28
+		assert this.builder.GetResponseHeaderByte(request, 4, totalLength, identification[0], identification[1], localIp) == 0x12
+		assert this.builder.GetResponseHeaderByte(request, 5, totalLength, identification[0], identification[1], localIp) == 0x34
+		assert this.builder.GetResponseHeaderByte(request, 6, totalLength, identification[0], identification[1], localIp) == 0x40
+		assert this.builder.GetResponseHeaderByte(request, 7, totalLength, identification[0], identification[1], localIp) == 0x00
+		assert this.builder.GetResponseHeaderByte(request, 8, totalLength, identification[0], identification[1], localIp) == 0x40
+		assert this.builder.GetResponseHeaderByte(request, 9, totalLength, identification[0], identification[1], localIp) == 0x06
+	}
+
+	@Test
+	fn LeavesChecksumForChecksumComponent()
+	{
+		var request: byte[128]
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+		var totalLength: int = 40
+		var identification: byte[2]
+		identification[0] = 0x12
+		identification[1] = 0x34
+
+		assert this.builder.GetResponseHeaderByte(request, 10, totalLength, identification[0], identification[1], localIp) == 0x00
+		assert this.builder.GetResponseHeaderByte(request, 11, totalLength, identification[0], identification[1], localIp) == 0x00
+	}
+
+	@Test
+	fn SwapsIpv4Addresses()
+	{
+		var request: byte[128]
+		var clientIp: byte[4]
+		clientIp[0] = 0x0A
+		clientIp[1] = 0x00
+		clientIp[2] = 0x00
+		clientIp[3] = 0x02
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+		var totalLength: int = 40
+		var identification: byte[2]
+		identification[0] = 0x12
+		identification[1] = 0x34
+
+		request[26] = clientIp[0]
+		request[27] = clientIp[1]
+		request[28] = clientIp[2]
+		request[29] = clientIp[3]
+
+		assert this.builder.GetResponseHeaderByte(request, 12, totalLength, identification[0], identification[1], localIp) == 0x0A
+		assert this.builder.GetResponseHeaderByte(request, 15, totalLength, identification[0], identification[1], localIp) == 0x01
+		assert this.builder.GetResponseHeaderByte(request, 16, totalLength, identification[0], identification[1], localIp) == 0x0A
+		assert this.builder.GetResponseHeaderByte(request, 19, totalLength, identification[0], identification[1], localIp) == 0x02
+		assert this.builder.GetResponseHeaderByte(request, 20, totalLength, identification[0], identification[1], localIp) == 0x00
+	}
+}

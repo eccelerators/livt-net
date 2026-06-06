@@ -1,0 +1,112 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+@Test
+component ArpResponderTest
+{
+	responder: ArpResponder
+
+	new()
+	{
+		this.responder = new ArpResponder()
+	}
+
+	@Test
+	fn RespondsOnlyToLocalIpv4Request()
+	{
+		var request: byte[64]
+		var arpEthernetIpv4Request: byte[8]
+		arpEthernetIpv4Request[0] = 0x00
+		arpEthernetIpv4Request[1] = 0x01
+		arpEthernetIpv4Request[2] = 0x08
+		arpEthernetIpv4Request[3] = 0x00
+		arpEthernetIpv4Request[4] = 0x06
+		arpEthernetIpv4Request[5] = 0x04
+		arpEthernetIpv4Request[6] = 0x00
+		arpEthernetIpv4Request[7] = 0x01
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+		var wrongIp: byte[4]
+		wrongIp[0] = 0x0A
+		wrongIp[1] = 0x00
+		wrongIp[2] = 0x00
+		wrongIp[3] = 0x02
+
+		request[14] = arpEthernetIpv4Request[0]
+		request[15] = arpEthernetIpv4Request[1]
+		request[16] = arpEthernetIpv4Request[2]
+		request[17] = arpEthernetIpv4Request[3]
+		request[18] = arpEthernetIpv4Request[4]
+		request[19] = arpEthernetIpv4Request[5]
+		request[20] = arpEthernetIpv4Request[6]
+		request[21] = arpEthernetIpv4Request[7]
+		request[38] = localIp[0]
+		request[39] = localIp[1]
+		request[40] = localIp[2]
+		request[41] = localIp[3]
+
+		assert this.responder.ShouldRespond(request, localIp) == true
+		assert this.responder.ShouldRespond(request, wrongIp) == false
+	}
+
+	@Test
+	fn BuildsArpReplyBytes()
+	{
+		var request: byte[64]
+		var localMac: byte[6]
+		localMac[0] = 0x02
+		localMac[1] = 0x55
+		localMac[2] = 0x66
+		localMac[3] = 0x77
+		localMac[4] = 0x11
+		localMac[5] = 0x22
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+		var senderMac: byte[6]
+		senderMac[0] = 0x02
+		senderMac[1] = 0x10
+		senderMac[2] = 0x20
+		senderMac[3] = 0x30
+		senderMac[4] = 0x40
+		senderMac[5] = 0x50
+		var senderIp: byte[4]
+		senderIp[0] = 0x0A
+		senderIp[1] = 0x00
+		senderIp[2] = 0x00
+		senderIp[3] = 0x02
+
+		request[22] = senderMac[0]
+		request[23] = senderMac[1]
+		request[24] = senderMac[2]
+		request[25] = senderMac[3]
+		request[26] = senderMac[4]
+		request[27] = senderMac[5]
+		request[28] = senderIp[0]
+		request[29] = senderIp[1]
+		request[30] = senderIp[2]
+		request[31] = senderIp[3]
+
+		assert this.responder.GetReplyByte(request, 0, localMac, localIp) == 0x02
+		assert this.responder.GetReplyByte(request, 5, localMac, localIp) == 0x50
+		assert this.responder.GetReplyByte(request, 6, localMac, localIp) == 0x02
+		assert this.responder.GetReplyByte(request, 11, localMac, localIp) == 0x22
+		assert this.responder.GetReplyByte(request, 12, localMac, localIp) == 0x08
+		assert this.responder.GetReplyByte(request, 13, localMac, localIp) == 0x06
+		assert this.responder.GetReplyByte(request, 21, localMac, localIp) == 0x02
+		assert this.responder.GetReplyByte(request, 22, localMac, localIp) == 0x02
+		assert this.responder.GetReplyByte(request, 27, localMac, localIp) == 0x22
+		assert this.responder.GetReplyByte(request, 28, localMac, localIp) == 0x0A
+		assert this.responder.GetReplyByte(request, 31, localMac, localIp) == 0x01
+		assert this.responder.GetReplyByte(request, 32, localMac, localIp) == 0x02
+		assert this.responder.GetReplyByte(request, 37, localMac, localIp) == 0x50
+		assert this.responder.GetReplyByte(request, 38, localMac, localIp) == 0x0A
+		assert this.responder.GetReplyByte(request, 41, localMac, localIp) == 0x02
+	}
+}

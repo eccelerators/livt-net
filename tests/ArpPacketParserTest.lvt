@@ -1,0 +1,125 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+@Test
+component ArpPacketParserTest
+{
+	parser: ArpPacketParser
+
+	new()
+	{
+		this.parser = new ArpPacketParser()
+	}
+
+	@Test
+	fn DetectsEthernetIpv4ArpRequest()
+	{
+		var frame: byte[64]
+		var arpEthernetIpv4Request: byte[8]
+		arpEthernetIpv4Request[0] = 0x00
+		arpEthernetIpv4Request[1] = 0x01
+		arpEthernetIpv4Request[2] = 0x08
+		arpEthernetIpv4Request[3] = 0x00
+		arpEthernetIpv4Request[4] = 0x06
+		arpEthernetIpv4Request[5] = 0x04
+		arpEthernetIpv4Request[6] = 0x00
+		arpEthernetIpv4Request[7] = 0x01
+
+		frame[14] = arpEthernetIpv4Request[0]
+		frame[15] = arpEthernetIpv4Request[1]
+		frame[16] = arpEthernetIpv4Request[2]
+		frame[17] = arpEthernetIpv4Request[3]
+		frame[18] = arpEthernetIpv4Request[4]
+		frame[19] = arpEthernetIpv4Request[5]
+		frame[20] = arpEthernetIpv4Request[6]
+		frame[21] = arpEthernetIpv4Request[7]
+
+		assert this.parser.IsEthernetIpv4(frame) == true
+		assert this.parser.IsRequest(frame) == true
+		assert this.parser.IsReply(frame) == false
+	}
+
+	@Test
+	fn DetectsRequestForLocalIpv4()
+	{
+		var frame: byte[64]
+		var arpEthernetIpv4Request: byte[8]
+		arpEthernetIpv4Request[0] = 0x00
+		arpEthernetIpv4Request[1] = 0x01
+		arpEthernetIpv4Request[2] = 0x08
+		arpEthernetIpv4Request[3] = 0x00
+		arpEthernetIpv4Request[4] = 0x06
+		arpEthernetIpv4Request[5] = 0x04
+		arpEthernetIpv4Request[6] = 0x00
+		arpEthernetIpv4Request[7] = 0x01
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+
+		frame[14] = arpEthernetIpv4Request[0]
+		frame[15] = arpEthernetIpv4Request[1]
+		frame[16] = arpEthernetIpv4Request[2]
+		frame[17] = arpEthernetIpv4Request[3]
+		frame[18] = arpEthernetIpv4Request[4]
+		frame[19] = arpEthernetIpv4Request[5]
+		frame[20] = arpEthernetIpv4Request[6]
+		frame[21] = arpEthernetIpv4Request[7]
+		frame[38] = localIp[0]
+		frame[39] = localIp[1]
+		frame[40] = localIp[2]
+		frame[41] = localIp[3]
+
+		assert this.parser.IsRequestForIpv4(frame, 0x0A, 0x00, 0x00, 0x01) == true
+		assert this.parser.IsRequestForIpv4(frame, 0x0A, 0x00, 0x00, 0x03) == false
+	}
+
+	@Test
+	fn ReadsSenderAndTargetFields()
+	{
+		var frame: byte[64]
+		var senderMac: byte[6]
+		senderMac[0] = 0x02
+		senderMac[1] = 0x10
+		senderMac[2] = 0x20
+		senderMac[3] = 0x30
+		senderMac[4] = 0x40
+		senderMac[5] = 0x50
+		var senderIp: byte[4]
+		senderIp[0] = 0x0A
+		senderIp[1] = 0x00
+		senderIp[2] = 0x00
+		senderIp[3] = 0x02
+		var targetIp: byte[4]
+		targetIp[0] = 0x0A
+		targetIp[1] = 0x00
+		targetIp[2] = 0x00
+		targetIp[3] = 0x01
+
+		frame[22] = senderMac[0]
+		frame[23] = senderMac[1]
+		frame[24] = senderMac[2]
+		frame[25] = senderMac[3]
+		frame[26] = senderMac[4]
+		frame[27] = senderMac[5]
+
+		frame[28] = senderIp[0]
+		frame[29] = senderIp[1]
+		frame[30] = senderIp[2]
+		frame[31] = senderIp[3]
+
+		frame[38] = targetIp[0]
+		frame[39] = targetIp[1]
+		frame[40] = targetIp[2]
+		frame[41] = targetIp[3]
+
+		assert this.parser.GetSenderMacByte(frame, 0) == 0x02
+		assert this.parser.GetSenderMacByte(frame, 5) == 0x50
+		assert this.parser.GetSenderIpv4Byte(frame, 0) == 0x0A
+		assert this.parser.GetSenderIpv4Byte(frame, 3) == 0x02
+		assert this.parser.GetTargetIpv4Byte(frame, 0) == 0x0A
+		assert this.parser.GetTargetIpv4Byte(frame, 3) == 0x01
+	}
+}

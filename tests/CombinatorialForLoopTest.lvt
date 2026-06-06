@@ -1,0 +1,53 @@
+namespace Livt.Net.Tests
+
+// Tests whether a plain public fn with a for loop over a const byte[]
+// computes its result combinatorially (no process state, no startup delay).
+// This keeps the fixed HTTP body checksum fixture covered until the package has
+// a dedicated static-content abstraction.
+@Test
+component CombinatorialForLoopTest
+{
+	const INDEX_CONTENT : byte[] = "<!doctype html><html><body><h1>Livt FPGA Web</h1></body></html>\n".Encode()
+
+	new()
+	{
+	}
+
+	// Computes the RFC 1071 unfolded word sum of INDEX_CONTENT using a for loop.
+	// This is a plain fn, not a process, so the loop should map to combinatorial VHDL.
+	public fn ComputeWordSumUsingSingleState() int
+	{
+        var sum: int = 0
+        state {
+            for (var i = 0; i < 32; i++)
+            {
+                var hi: int = INDEX_CONTENT[i * 2]
+                var lo: int = INDEX_CONTENT[i * 2 + 1]
+                sum = sum + hi * 256 + lo
+            }
+        }
+		return sum
+	}
+    
+	public fn ComputeWordSum() int
+	{
+        var sum: int = 0
+        for (var i = 0; i < 32; i++)
+        {
+            var hi: int = INDEX_CONTENT[i * 2]
+            var lo: int = INDEX_CONTENT[i * 2 + 1]
+            sum = sum + hi * 256 + lo
+        }
+		return sum
+	}
+
+	@Test
+	fn ComputesWordSumCombinatorially()
+	{
+        var checksum = this.ComputeWordSum()
+        
+        Simulation.Report("Computed word sum: {checksum}")
+        
+		assert this.ComputeWordSum() == 717318
+	}
+}

@@ -1,0 +1,40 @@
+namespace Livt.Net
+
+/**
+ * AXI4-Lite signal contract for the Xilinx/AMD AXI EthernetLite core (PG135).
+ *
+ * Implements the master-side AXI4-Lite bus: the component drives the address/
+ * data/control outputs and reads the ready/response/data inputs.
+ *
+ * Address bus width: 13 bits (covers the EthernetLite register map up to 0x1FFF).
+ * Data bus width: 32 bits.
+ */
+interface IAxi4LiteEthernetLiteMaster
+{
+	// ── Write-address channel ─────────────────────────────────────────────
+	m_axi_awready: in logic       // slave accepted the write address
+	m_axi_awaddr: out logic[13]   // write address driven by master
+	m_axi_awvalid: out logic      // write address valid from master
+
+	// ── Write-data channel ────────────────────────────────────────────────
+	m_axi_wready: in logic        // slave ready to accept write data
+	m_axi_wdata: out logic[32]    // write data from master
+	m_axi_wstrb: out logic[4]     // byte-enable strobes from master
+	m_axi_wvalid: out logic       // write data valid from master
+
+	// ── Write-response channel ────────────────────────────────────────────
+	m_axi_bresp: in logic[2]      // write response from slave
+	m_axi_bvalid: in logic        // write response valid from slave
+	m_axi_bready: out logic       // master ready to accept write response
+
+	// ── Read-address channel ──────────────────────────────────────────────
+	m_axi_arready: in logic       // slave accepted the read address
+	m_axi_araddr: out logic[13]   // read address driven by master
+	m_axi_arvalid: out logic      // read address valid from master
+
+	// ── Read-data channel ─────────────────────────────────────────────────
+	m_axi_rdata: in logic[32]     // read data from slave
+	m_axi_rresp: in logic[2]      // read response from slave
+	m_axi_rvalid: in logic        // read data valid from slave
+	m_axi_rready: out logic       // master ready to accept read data
+}

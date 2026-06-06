@@ -1,0 +1,79 @@
+namespace Livt.Net
+
+/**
+ * RFC 9293 — Transmission Control Protocol (TCP)
+ * https://www.rfc-editor.org/rfc/rfc9293
+ *
+ * Builds fixed 20-byte TCP response headers.
+ */
+component TcpSegmentBuilder
+{
+	// Number of bytes emitted for a fixed TCP header.
+	public const HEADER_LENGTH: int = 20
+	// Offset of the request source port in the Ethernet/IPv4 frame.
+	public const REQUEST_SOURCE_PORT_OFFSET: int = 34
+	// Offset of the request destination port in the Ethernet/IPv4 frame.
+	public const REQUEST_DESTINATION_PORT_OFFSET: int = 36
+
+	/**
+	 * Returns one byte of a fixed 20-byte TCP response header.
+	 * Bytes 0–1: destination port (copied from request source port).
+	 * Bytes 2–3: source port (copied from request destination port).
+	 * Bytes 4–7: sequence number.
+	 * Bytes 8–11: acknowledgment number.
+	 * Byte 12: data offset (0x50 = 20 bytes).
+	 * Byte 13: flags.
+	 * Bytes 14–15: window.
+	 * Bytes 16–17: checksum.
+	 * Bytes 18–19: urgent pointer (zero).
+	 */
+	public fn GetResponseHeaderByte(
+		request: byte[128],
+		index: int,
+		tcpSequence: byte[4],
+		acknowledgment: byte[4],
+		flags: byte,
+		window: byte[2],
+		checksum: byte[2]) byte
+	{
+		if (index < 2) {
+			var dstPortIndex = REQUEST_DESTINATION_PORT_OFFSET + index
+			return request[dstPortIndex]
+		}
+
+		if (index < 4) {
+			var srcPortIndex = REQUEST_SOURCE_PORT_OFFSET + index - 2
+			return request[srcPortIndex]
+		}
+
+		if (index < 8) {
+			var seqIndex = index - 4
+			return tcpSequence[seqIndex]
+		}
+
+		if (index < 12) {
+			var ackIndex = index - 8
+			return acknowledgment[ackIndex]
+		}
+
+		if (index == 12) {
+			return 0x50
+		}
+
+		if (index == 13) {
+			return flags
+		}
+
+		if (index < 16) {
+			var windowIndex = index - 14
+			return window[windowIndex]
+		}
+
+		if (index < 18) {
+			var checksumIndex = index - 16
+			return checksum[checksumIndex]
+		}
+
+		return 0x00
+	}
+}

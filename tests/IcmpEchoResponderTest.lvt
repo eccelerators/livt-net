@@ -1,0 +1,175 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+@Test
+component IcmpEchoResponderTest
+{
+	responder: IcmpEchoResponder
+
+	new()
+	{
+		this.responder = new IcmpEchoResponder()
+	}
+
+	fn GetRequestByte(index: int) byte
+	{
+		if (index == 0) { return 0x02 }
+		if (index == 1) { return 0x55 }
+		if (index == 2) { return 0x66 }
+		if (index == 3) { return 0x77 }
+		if (index == 4) { return 0x11 }
+		if (index == 5) { return 0x22 }
+		if (index == 6) { return 0x02 }
+		if (index == 7) { return 0x10 }
+		if (index == 8) { return 0x20 }
+		if (index == 9) { return 0x30 }
+		if (index == 10) { return 0x40 }
+		if (index == 11) { return 0x50 }
+		if (index == 12) { return 0x08 }
+		if (index == 13) { return 0x00 }
+		if (index == 14) { return 0x45 }
+		if (index == 15) { return 0x00 }
+		if (index == 16) { return 0x00 }
+		if (index == 17) { return 0x28 }
+		if (index == 18) { return 0x12 }
+		if (index == 19) { return 0x34 }
+		if (index == 20) { return 0x40 }
+		if (index == 21) { return 0x00 }
+		if (index == 22) { return 0x40 }
+		if (index == 23) { return 0x01 }
+		if (index == 24) { return 0x00 }
+		if (index == 25) { return 0x00 }
+		if (index == 26) { return 0x0A }
+		if (index == 27) { return 0x00 }
+		if (index == 28) { return 0x00 }
+		if (index == 29) { return 0x02 }
+		if (index == 30) { return 0x0A }
+		if (index == 31) { return 0x00 }
+		if (index == 32) { return 0x00 }
+		if (index == 33) { return 0x01 }
+		if (index == 34) { return 0x08 }
+		if (index == 35) { return 0x00 }
+		if (index == 36) { return 0x7F }
+		if (index == 37) { return 0x5E }
+		if (index == 38) { return 0x12 }
+		if (index == 39) { return 0x34 }
+		if (index == 40) { return 0x00 }
+		if (index == 41) { return 0x01 }
+		if (index == 42) { return 0x61 }
+		if (index == 43) { return 0x62 }
+		if (index == 44) { return 0x63 }
+		if (index == 45) { return 0x64 }
+		if (index == 46) { return 0x65 }
+		if (index == 47) { return 0x66 }
+		if (index == 48) { return 0x67 }
+		if (index == 49) { return 0x68 }
+		if (index == 50) { return 0x69 }
+		if (index == 51) { return 0x6A }
+		if (index == 52) { return 0x6B }
+		if (index == 53) { return 0x6C }
+		return 0x00
+	}
+
+	@Test
+	fn RecognizesEchoRequestForLocalIpv4()
+	{
+		var frame: byte[128]
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+
+		for (var i = 0; i < 128; i++)
+		{
+			var requestByte = this.GetRequestByte(i)
+			frame[i] = requestByte
+		}
+
+		assert this.responder.ShouldRespond(frame, localIp) == true
+		assert this.responder.GetReplyLength(frame) == 60
+
+		localIp[3] = 0x03
+		assert this.responder.ShouldRespond(frame, localIp) == false
+	}
+
+	@Test
+	fn BuildsEchoReplyBytes()
+	{
+		var frame: byte[128]
+		var localMac: byte[6]
+		localMac[0] = 0x02
+		localMac[1] = 0x55
+		localMac[2] = 0x66
+		localMac[3] = 0x77
+		localMac[4] = 0x11
+		localMac[5] = 0x22
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+
+		for (var i = 0; i < 128; i++)
+		{
+			var requestByte = this.GetRequestByte(i)
+			frame[i] = requestByte
+		}
+
+		assert this.responder.GetReplyByte(frame, 0, localMac, localIp) == 0x02
+		assert this.responder.GetReplyByte(frame, 5, localMac, localIp) == 0x50
+		assert this.responder.GetReplyByte(frame, 6, localMac, localIp) == 0x02
+		assert this.responder.GetReplyByte(frame, 11, localMac, localIp) == 0x22
+		assert this.responder.GetReplyByte(frame, 12, localMac, localIp) == 0x08
+		assert this.responder.GetReplyByte(frame, 13, localMac, localIp) == 0x00
+		assert this.responder.GetReplyByte(frame, 14, localMac, localIp) == 0x45
+		assert this.responder.GetReplyByte(frame, 17, localMac, localIp) == 0x28
+		assert this.responder.GetReplyByte(frame, 23, localMac, localIp) == 0x01
+		assert this.responder.GetReplyByte(frame, 24, localMac, localIp) == 0x14
+		assert this.responder.GetReplyByte(frame, 25, localMac, localIp) == 0x9F
+		assert this.responder.GetReplyByte(frame, 26, localMac, localIp) == 0x0A
+		assert this.responder.GetReplyByte(frame, 29, localMac, localIp) == 0x01
+		assert this.responder.GetReplyByte(frame, 30, localMac, localIp) == 0x0A
+		assert this.responder.GetReplyByte(frame, 33, localMac, localIp) == 0x02
+		assert this.responder.GetReplyByte(frame, 34, localMac, localIp) == 0x00
+		assert this.responder.GetReplyByte(frame, 36, localMac, localIp) == 0x87
+		assert this.responder.GetReplyByte(frame, 37, localMac, localIp) == 0x5E
+		assert this.responder.GetReplyByte(frame, 38, localMac, localIp) == 0x12
+		assert this.responder.GetReplyByte(frame, 53, localMac, localIp) == 0x6C
+		assert this.responder.GetReplyByte(frame, 59, localMac, localIp) == 0x00
+	}
+
+	@Test
+	fn TreatsHighBitBytesAsUnsigned()
+	{
+		var frame: byte[128]
+		var localMac: byte[6]
+		localMac[0] = 0x02
+		localMac[1] = 0x55
+		localMac[2] = 0x66
+		localMac[3] = 0x77
+		localMac[4] = 0x11
+		localMac[5] = 0x22
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+
+		for (var i = 0; i < 128; i++)
+		{
+			var requestByte = this.GetRequestByte(i)
+			frame[i] = requestByte
+		}
+
+		frame[18] = 0xAB
+		frame[36] = 0xF1
+		frame[37] = 0x02
+
+		assert this.responder.GetReplyByte(frame, 24, localMac, localIp) == 0x7B
+		assert this.responder.GetReplyByte(frame, 25, localMac, localIp) == 0x9E
+		assert this.responder.GetReplyByte(frame, 36, localMac, localIp) == 0xF9
+		assert this.responder.GetReplyByte(frame, 37, localMac, localIp) == 0x02
+	}
+}

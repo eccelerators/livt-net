@@ -1,0 +1,140 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+@Test
+component TcpSynAckFrameComposerTest
+{
+	composer: TcpSynAckFrameComposer
+	rxFrame: byte[128]
+
+	new()
+	{
+		this.composer = new TcpSynAckFrameComposer()
+	}
+
+	fn SetupSynRequest()
+	{
+		// Client MAC at bytes 6..11 (used for reply dst MAC)
+		this.rxFrame[6] = 0x02
+		this.rxFrame[7] = 0x10
+		this.rxFrame[8] = 0x20
+		this.rxFrame[9] = 0x30
+		this.rxFrame[10] = 0x40
+		this.rxFrame[11] = 0x50
+		// Client IP at bytes 26..29 (used for reply dst IP)
+		this.rxFrame[26] = 0x0A
+		this.rxFrame[27] = 0x00
+		this.rxFrame[28] = 0x00
+		this.rxFrame[29] = 0x02
+		// Client port at bytes 34..35 (used for reply dst port)
+		this.rxFrame[34] = 0xC0
+		this.rxFrame[35] = 0x01
+		// Local port at bytes 36..37 (used for reply src port)
+		this.rxFrame[36] = 0x00
+		this.rxFrame[37] = 0x50
+	}
+
+	fn GetTestByte(index: int) logic[8]
+	{
+		var localMac: byte[6]
+		localMac[0] = 0x02
+		localMac[1] = 0xAA
+		localMac[2] = 0xBB
+		localMac[3] = 0xCC
+		localMac[4] = 0xDD
+		localMac[5] = 0xEE
+
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+
+		var ipv4Cs: byte[2]
+		ipv4Cs[0] = 0x26
+		ipv4Cs[1] = 0xCC
+
+		var ourSeq: byte[4]
+		ourSeq[0] = 0x00
+		ourSeq[1] = 0x00
+		ourSeq[2] = 0x00
+		ourSeq[3] = 0x01
+
+		var ackNum: byte[4]
+		ackNum[0] = 0xAA
+		ackNum[1] = 0xBB
+		ackNum[2] = 0xCC
+		ackNum[3] = 0xDE
+
+		var window: byte[2]
+		window[0] = 0x04
+		window[1] = 0x00
+
+		var tcpCs: byte[2]
+		tcpCs[0] = 0x5F
+		tcpCs[1] = 0xE3
+
+		return this.composer.GetFrameByte(this.rxFrame, index, localMac, localIp, ipv4Cs, ourSeq, ackNum, window, tcpCs)
+	}
+
+	@Test
+	fn ComposesEthernetHeader()
+	{
+		this.SetupSynRequest()
+
+		// Ethernet: dst=clientMac, src=localMac, type=0x0800
+		assert this.GetTestByte(0) == 0x02
+		assert this.GetTestByte(1) == 0x10
+		assert this.GetTestByte(5) == 0x50
+		assert this.GetTestByte(6) == 0x02
+		assert this.GetTestByte(7) == 0xAA
+		assert this.GetTestByte(11) == 0xEE
+		assert this.GetTestByte(12) == 0x08
+		assert this.GetTestByte(13) == 0x00
+	}
+
+	@Test
+	fn ComposesIpv4Header()
+	{
+		this.SetupSynRequest()
+
+		// IPv4: version/IHL, total length=40, identification=2, checksum, src=localIp, dst=clientIp
+		assert this.GetTestByte(14) == 0x45
+		assert this.GetTestByte(16) == 0x00
+		assert this.GetTestByte(17) == 0x28
+		assert this.GetTestByte(18) == 0x00
+		assert this.GetTestByte(19) == 0x02
+		assert this.GetTestByte(24) == 0x26
+		assert this.GetTestByte(25) == 0xCC
+		assert this.GetTestByte(26) == 0x0A
+		assert this.GetTestByte(29) == 0x01
+		assert this.GetTestByte(30) == 0x0A
+		assert this.GetTestByte(33) == 0x02
+	}
+
+	@Test
+	fn ComposesTcpHeader()
+	{
+		this.SetupSynRequest()
+
+		// TCP: dst=localPort, src=clientPort, seq, ack, data offset, flags=SYN-ACK, window, checksum
+		assert this.GetTestByte(34) == 0x00
+		assert this.GetTestByte(35) == 0x50
+		assert this.GetTestByte(36) == 0xC0
+		assert this.GetTestByte(37) == 0x01
+		assert this.GetTestByte(38) == 0x00
+		assert this.GetTestByte(41) == 0x01
+		assert this.GetTestByte(42) == 0xAA
+		assert this.GetTestByte(45) == 0xDE
+		assert this.GetTestByte(46) == 0x50
+		assert this.GetTestByte(47) == 0x12
+		assert this.GetTestByte(48) == 0x04
+		assert this.GetTestByte(50) == 0x5F
+		assert this.GetTestByte(51) == 0xE3
+		assert this.GetTestByte(52) == 0x00
+		assert this.GetTestByte(53) == 0x00
+		assert this.GetTestByte(54) == 0x00
+		assert this.GetTestByte(59) == 0x00
+	}
+}

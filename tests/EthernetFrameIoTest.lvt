@@ -1,0 +1,227 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+@Test
+component EthernetFrameIoTest
+{
+	const AXI_RESP_OKAY: logic[2] = 0b00
+	const TX_PING_BASE: logic[13] = 0b0000000000000
+	const TX_PING_BASE_PLUS_4: logic[13] = 0b0000000000100
+	const TX_PING_CONTROL: logic[13] = 0b0011111111100
+	const TX_PING_IDLE: logic[32] = 0x00000000
+	const TX_PROGRAM_MAC: logic[32] = 0x00000003
+	const TX_PROGRAM_MAC_WORD0: logic[32] = 0x005E0000
+	const TX_PROGRAM_MAC_WORD1: logic[32] = 0x0000CEFA
+	const RX_PING_CONTROL: logic[13] = 0b1011111111100
+	const RX_PONG_CONTROL: logic[13] = 0b1111111111100
+	const RX_PING_NO_FRAME: logic[32] = 0x00000000
+
+	axi: Axi4LiteEthernetLiteAdapter
+
+	io: EthernetFrameIo
+
+	new()
+	{
+		var localMac: byte[6]
+		localMac[0] = 0x00
+		localMac[1] = 0x00
+		localMac[2] = 0x5E
+		localMac[3] = 0x00
+		localMac[4] = 0xFA
+		localMac[5] = 0xCE
+		this.axi = new Axi4LiteEthernetLiteAdapter()
+		this.io = new EthernetFrameIo(
+			this.axi,
+			localMac)
+	}
+
+	fn ProgramDefaultMac()
+	{
+		var hasReadAddress = false
+
+		for (var cycle = 0; cycle < 100; cycle++)
+		{
+			if (hasReadAddress == false)
+			{
+				if (this.io.GetAxiArvalid() == 0b1)
+				{
+					assert this.io.GetAxiAraddr() == TX_PING_CONTROL
+					assert this.io.GetAxiRready() == 0b0
+					hasReadAddress = true
+					this.axi.m_axi_arready = 0b1
+				}
+			}
+
+			this.axi.m_axi_arready = 0b0
+		}
+
+		assert hasReadAddress == true
+		assert this.io.GetAxiArvalid() == 0b0
+		assert this.io.GetAxiRready() == 0b1
+
+		this.axi.m_axi_rdata = TX_PING_IDLE
+		this.axi.m_axi_rresp = AXI_RESP_OKAY
+		this.axi.m_axi_rvalid = 0b1
+		var hasAcceptedMacDoneReadResponse = false
+		hasAcceptedMacDoneReadResponse = false
+
+		for (var cycle = 0; cycle < 100; cycle++)
+		{
+			if (hasAcceptedMacDoneReadResponse == false)
+			{
+				if (this.io.GetAxiRready() == 0b0)
+				{
+					hasAcceptedMacDoneReadResponse = true
+				}
+			}
+
+			Simulation.Wait(1)
+		}
+
+		assert hasAcceptedMacDoneReadResponse == true
+		this.axi.m_axi_rvalid = 0b0
+
+		for (var writeIndex = 0; writeIndex < 3; writeIndex++)
+		{
+			var expectedAddress: logic[13] = TX_PING_CONTROL
+			var expectedData: logic[32] = TX_PROGRAM_MAC
+
+			if (writeIndex == 0)
+			{
+				expectedAddress = TX_PING_BASE
+				expectedData = TX_PROGRAM_MAC_WORD0
+			}
+
+			if (writeIndex == 1)
+			{
+				expectedAddress = TX_PING_BASE_PLUS_4
+				expectedData = TX_PROGRAM_MAC_WORD1
+			}
+
+			var hasAcceptedAddress = false
+			var hasAcceptedData = false
+			hasAcceptedAddress = false
+			hasAcceptedData = false
+
+			for (var cycle = 0; cycle < 100; cycle++)
+			{
+				if (hasAcceptedAddress == false)
+				{
+					if (this.io.GetAxiAwvalid() == 0b1)
+					{
+						assert this.io.GetAxiAwaddr() == expectedAddress
+						hasAcceptedAddress = true
+						this.axi.m_axi_awready = 0b1
+					}
+				}
+
+				if (hasAcceptedData == false)
+				{
+					if (this.io.GetAxiWvalid() == 0b1)
+					{
+						assert this.io.GetAxiWdata() == expectedData
+						hasAcceptedData = true
+						this.axi.m_axi_wready = 0b1
+					}
+				}
+
+				this.axi.m_axi_awready = 0b0
+				this.axi.m_axi_wready = 0b0
+			}
+
+			assert hasAcceptedAddress == true
+			assert hasAcceptedData == true
+
+			var hasAcceptedWriteResponse = false
+			hasAcceptedWriteResponse = false
+
+			for (var cycle = 0; cycle < 100; cycle++)
+			{
+				if (hasAcceptedWriteResponse == false)
+				{
+					if (this.io.GetAxiBready() == 0b1)
+					{
+						hasAcceptedWriteResponse = true
+						this.axi.m_axi_bvalid = 0b1
+					}
+				}
+
+				if (hasAcceptedWriteResponse == true)
+				{
+					this.axi.m_axi_bvalid = 0b0
+				}
+			}
+
+			assert hasAcceptedWriteResponse == true
+		}
+
+		Simulation.Wait(10)
+		var hasDrainedTxControlRead = false
+		hasDrainedTxControlRead = false
+
+		for (var cycle = 0; cycle < 50; cycle++)
+		{
+			if (hasDrainedTxControlRead == false)
+			{
+				if (this.io.GetAxiArvalid() == 0b1)
+				{
+					if (this.io.GetAxiAraddr() == TX_PING_CONTROL)
+					{
+						hasDrainedTxControlRead = true
+						this.axi.m_axi_arready = 0b1
+					}
+				}
+			}
+
+			this.axi.m_axi_arready = 0b0
+		}
+
+		if (hasDrainedTxControlRead == true)
+		{
+			this.axi.m_axi_rdata = TX_PING_IDLE
+			this.axi.m_axi_rresp = AXI_RESP_OKAY
+			this.axi.m_axi_rvalid = 0b1
+			Simulation.Wait(20)
+			this.axi.m_axi_rvalid = 0b0
+			Simulation.Wait(10)
+		}
+
+		assert this.io.HasProgrammedMac() == true
+	}
+
+	@Test
+	fn DoesNotExposeFrameOrReleaseWriteWhenNoFrameIsReady()
+	{
+		this.axi.m_axi_awready = 0b0
+		this.axi.m_axi_wready = 0b0
+		this.axi.m_axi_bresp = AXI_RESP_OKAY
+		this.axi.m_axi_bvalid = 0b0
+		this.axi.m_axi_arready = 0b0
+		this.axi.m_axi_rdata = 0x00000000
+		this.axi.m_axi_rresp = AXI_RESP_OKAY
+		this.axi.m_axi_rvalid = 0b0
+
+		this.ProgramDefaultMac()
+
+		var sawRxReleaseWrite = false
+
+		for (var cycle = 0; cycle < 400; cycle++)
+		{
+			if (this.io.GetAxiAwvalid() == 0b1)
+			{
+				if (this.io.GetAxiAwaddr() == RX_PING_CONTROL || this.io.GetAxiAwaddr() == RX_PONG_CONTROL)
+				{
+					sawRxReleaseWrite = true
+				}
+			}
+
+			Simulation.Wait(1)
+		}
+
+		assert sawRxReleaseWrite == false
+		assert this.io.IsFrameAvailable() == false
+		assert this.io.HasSentFrameToAxi() == false
+		assert this.io.HasTxFrame() == false
+	}
+}

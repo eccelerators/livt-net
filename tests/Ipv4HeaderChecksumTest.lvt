@@ -1,0 +1,39 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+@Test
+component Ipv4HeaderChecksumTest
+{
+	checksum: Ipv4HeaderChecksum
+
+	new()
+	{
+		this.checksum = new Ipv4HeaderChecksum()
+	}
+
+	@Test
+	fn CalculatesFixedShowcaseResponseHeaderChecksum()
+	{
+		assert this.checksum.CalculateFixedTcpHeaderChecksum(0, 187, 0, 1, 10, 0, 0, 1, 10, 0, 0, 2) == 9786
+	}
+
+	@Test
+	fn CalculatesFixedIcmpEchoResponseHeaderChecksum()
+	{
+		assert this.checksum.CalculateFixedIcmpHeaderChecksum(0, 40, 18, 52, 10, 0, 0, 1, 10, 0, 0, 2) == 5279
+	}
+
+	@Test
+	fn IncludesLengthAndIdentificationFields()
+	{
+		assert this.checksum.CalculateFixedTcpHeaderChecksum(0, 40, 18, 52, 10, 0, 0, 1, 10, 0, 0, 2) == 5274
+	}
+
+	@Test
+	fn ExposesChecksumBytesAsIntegers()
+	{
+		assert this.checksum.GetHighByte(9786) == 38
+		assert this.checksum.GetLowByte(9786) == 58
+	}
+}

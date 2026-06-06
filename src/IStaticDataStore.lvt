@@ -1,0 +1,28 @@
+namespace Livt.Net
+
+/**
+ * Contract for a static byte store that pre-computes its RFC 1071 word sum.
+ * Callers must wait for IsReady() before reading length, checksum, or bytes.
+ */
+interface IStaticDataStore
+{
+	/**
+	 * Returns true after length, checksum, and byte contents are ready to read.
+	 */
+	fn IsReady() bool
+
+	/**
+	 * Returns the number of bytes in the static store.
+	 */
+	fn GetLength() int
+
+	/**
+	 * Returns the unfolded RFC 1071 word sum for the stored bytes.
+	 */
+	fn GetChecksumWordSum() int
+
+	/**
+	 * Returns one stored byte at index.
+	 */
+	fn GetByte(index: int) logic[8]
+}

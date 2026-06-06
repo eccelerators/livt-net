@@ -1,0 +1,84 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+@Test
+component EthernetFrameParserTest
+{
+	parser: EthernetFrameParser
+
+	new()
+	{
+		this.parser = new EthernetFrameParser()
+	}
+
+	@Test
+	fn DetectsIpv4EtherType()
+	{
+		var frame: byte[64]
+		var etherTypeIpv4: byte[2]
+		etherTypeIpv4[0] = 0x08
+		etherTypeIpv4[1] = 0x00
+
+		frame[12] = etherTypeIpv4[0]
+		frame[13] = etherTypeIpv4[1]
+
+		assert this.parser.IsIpv4(frame) == true
+		assert this.parser.IsArp(frame) == false
+		assert this.parser.GetPayloadOffset() == 14
+	}
+
+	@Test
+	fn DetectsArpEtherType()
+	{
+		var frame: byte[64]
+		var etherTypeArp: byte[2]
+		etherTypeArp[0] = 0x08
+		etherTypeArp[1] = 0x06
+
+		frame[12] = etherTypeArp[0]
+		frame[13] = etherTypeArp[1]
+
+		assert this.parser.IsArp(frame) == true
+		assert this.parser.IsIpv4(frame) == false
+	}
+
+	@Test
+	fn ReadsMacAddressBytes()
+	{
+		var frame: byte[64]
+		var destinationMac: byte[6]
+		destinationMac[0] = 0x02
+		destinationMac[1] = 0x11
+		destinationMac[2] = 0x22
+		destinationMac[3] = 0x33
+		destinationMac[4] = 0x44
+		destinationMac[5] = 0x55
+		var sourceMac: byte[6]
+		sourceMac[0] = 0x0A
+		sourceMac[1] = 0x0B
+		sourceMac[2] = 0x0C
+		sourceMac[3] = 0x0D
+		sourceMac[4] = 0x0E
+		sourceMac[5] = 0x0F
+
+		frame[0] = destinationMac[0]
+		frame[1] = destinationMac[1]
+		frame[2] = destinationMac[2]
+		frame[3] = destinationMac[3]
+		frame[4] = destinationMac[4]
+		frame[5] = destinationMac[5]
+
+		frame[6] = sourceMac[0]
+		frame[7] = sourceMac[1]
+		frame[8] = sourceMac[2]
+		frame[9] = sourceMac[3]
+		frame[10] = sourceMac[4]
+		frame[11] = sourceMac[5]
+
+		assert this.parser.GetDestinationMacByte(frame, 0) == 0x02
+		assert this.parser.GetDestinationMacByte(frame, 5) == 0x55
+		assert this.parser.GetSourceMacByte(frame, 0) == 0x0A
+		assert this.parser.GetSourceMacByte(frame, 5) == 0x0F
+	}
+}

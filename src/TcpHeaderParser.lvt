@@ -1,0 +1,125 @@
+namespace Livt.Net
+
+/**
+ * RFC 9293 — Transmission Control Protocol (TCP)
+ * https://www.rfc-editor.org/rfc/rfc9293
+ *
+ * Parses fixed 20-byte TCP headers without options.
+ */
+component TcpHeaderParser
+{
+	// Offset of the TCP header in the Ethernet/IPv4 frame.
+	public const TCP_OFFSET: int = 34
+	// Offset of the TCP payload for fixed IPv4 and TCP headers.
+	public const PAYLOAD_OFFSET: int = 54
+	// Offset of the TCP source port.
+	public const SOURCE_PORT_OFFSET: int = 34
+	// Offset of the TCP destination port.
+	public const DESTINATION_PORT_OFFSET: int = 36
+	// Offset of the TCP sequence number.
+	public const SEQUENCE_NUMBER_OFFSET: int = 38
+	// Offset of the TCP acknowledgment number.
+	public const ACKNOWLEDGMENT_NUMBER_OFFSET: int = 42
+	// Offset of the TCP data-offset byte.
+	public const DATA_OFFSET_BYTE: int = 46
+	// Offset of the TCP flags byte.
+	public const FLAGS_BYTE: int = 47
+
+	/**
+	 * Returns true when the TCP data offset indicates a fixed 20-byte header (0x50).
+	 */
+	public fn IsFixedHeader(frame: byte[128]) bool
+	{
+		return frame[DATA_OFFSET_BYTE] == 0x50
+	}
+
+	/**
+	 * Returns true when the destination port matches the supplied local port.
+	 */
+	public fn IsForLocalPort(frame: byte[128], portHigh: byte, portLow: byte) bool
+	{
+		return frame[DESTINATION_PORT_OFFSET] == portHigh
+			&& frame[DESTINATION_PORT_OFFSET + 1] == portLow
+	}
+
+	/**
+	 * Returns true when the TCP flags byte contains only SYN (0x02).
+	 */
+	public fn IsSynOnly(frame: byte[128]) bool
+	{
+		return frame[FLAGS_BYTE] == 0x02
+	}
+
+	/**
+	 * Returns true when the TCP flags byte contains only ACK (0x10).
+	 */
+	public fn IsAckOnly(frame: byte[128]) bool
+	{
+		return frame[FLAGS_BYTE] == 0x10
+	}
+
+	/**
+	 * Returns true when the TCP flags byte contains PSH and ACK (0x18).
+	 */
+	public fn IsPshAck(frame: byte[128]) bool
+	{
+		return frame[FLAGS_BYTE] == 0x18
+	}
+
+	/**
+	 * Returns true when the TCP flags byte contains FIN and ACK (0x11).
+	 */
+	public fn IsFinAck(frame: byte[128]) bool
+	{
+		return frame[FLAGS_BYTE] == 0x11
+	}
+
+	/**
+	 * Returns true for a fixed-header TCP segment targeting the supplied local port.
+	 */
+	public fn IsFixedHeaderForLocalPort(frame: byte[128], portHigh: byte, portLow: byte) bool
+	{
+		return this.IsFixedHeader(frame)
+			&& this.IsForLocalPort(frame, portHigh, portLow)
+	}
+
+	/**
+	 * Returns the fixed TCP payload offset (Ethernet II + 20-byte IPv4 + 20-byte TCP = 54).
+	 */
+	public fn GetPayloadOffset() int
+	{
+		return PAYLOAD_OFFSET
+	}
+
+	/**
+	 * Reads the high byte of the TCP source port.
+	 */
+	public fn GetSourcePortHighByte(frame: byte[128]) byte
+	{
+		return frame[SOURCE_PORT_OFFSET]
+	}
+
+	/**
+	 * Reads the low byte of the TCP source port.
+	 */
+	public fn GetSourcePortLowByte(frame: byte[128]) byte
+	{
+		return frame[SOURCE_PORT_OFFSET + 1]
+	}
+
+	/**
+	 * Reads one byte from the TCP sequence number.
+	 */
+	public fn GetSequenceNumberByte(frame: byte[128], index: int) byte
+	{
+		return frame[SEQUENCE_NUMBER_OFFSET + index]
+	}
+
+	/**
+	 * Reads one byte from the TCP acknowledgment number.
+	 */
+	public fn GetAcknowledgmentNumberByte(frame: byte[128], index: int) byte
+	{
+		return frame[ACKNOWLEDGMENT_NUMBER_OFFSET + index]
+	}
+}

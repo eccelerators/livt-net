@@ -1,0 +1,150 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+@Test
+component Ipv4PacketParserTest
+{
+	parser: Ipv4PacketParser
+
+	new()
+	{
+		this.parser = new Ipv4PacketParser()
+	}
+
+	@Test
+	fn DetectsTcpIpv4PacketForLocalAddress()
+	{
+		var frame: byte[128]
+		var fixedIpv4TcpHeader: byte[6]
+		fixedIpv4TcpHeader[0] = 0x45
+		fixedIpv4TcpHeader[1] = 0x00
+		fixedIpv4TcpHeader[2] = 0x28
+		fixedIpv4TcpHeader[3] = 0x40
+		fixedIpv4TcpHeader[4] = 0x00
+		fixedIpv4TcpHeader[5] = 0x06
+		var sourceIp: byte[4]
+		sourceIp[0] = 0x0A
+		sourceIp[1] = 0x00
+		sourceIp[2] = 0x00
+		sourceIp[3] = 0x02
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+
+		frame[14] = fixedIpv4TcpHeader[0]
+		frame[16] = fixedIpv4TcpHeader[1]
+		frame[17] = fixedIpv4TcpHeader[2]
+		frame[20] = fixedIpv4TcpHeader[3]
+		frame[21] = fixedIpv4TcpHeader[4]
+		frame[23] = fixedIpv4TcpHeader[5]
+		frame[26] = sourceIp[0]
+		frame[27] = sourceIp[1]
+		frame[28] = sourceIp[2]
+		frame[29] = sourceIp[3]
+		frame[30] = localIp[0]
+		frame[31] = localIp[1]
+		frame[32] = localIp[2]
+		frame[33] = localIp[3]
+
+		assert this.parser.IsFixedHeader(frame) == true
+		assert this.parser.IsTcp(frame) == true
+		assert this.parser.IsIcmp(frame) == false
+		assert this.parser.IsNotFragmented(frame) == true
+		assert this.parser.IsTcpForIpv4(frame, 0x0A, 0x00, 0x00, 0x01) == true
+		assert this.parser.IsIcmpForIpv4(frame, 0x0A, 0x00, 0x00, 0x01) == false
+		assert this.parser.IsTcpForIpv4(frame, 0x0A, 0x00, 0x00, 0x03) == false
+		assert this.parser.GetPayloadOffset() == 34
+	}
+
+	@Test
+	fn DetectsIcmpIpv4PacketForLocalAddress()
+	{
+		var frame: byte[128]
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+
+		frame[14] = 0x45
+		frame[20] = 0x40
+		frame[21] = 0x00
+		frame[23] = 0x01
+		frame[30] = localIp[0]
+		frame[31] = localIp[1]
+		frame[32] = localIp[2]
+		frame[33] = localIp[3]
+
+		assert this.parser.IsIcmp(frame) == true
+		assert this.parser.IsIcmpForIpv4(frame, 0x0A, 0x00, 0x00, 0x01) == true
+		assert this.parser.IsIcmpForIpv4(frame, 0x0A, 0x00, 0x00, 0x03) == false
+	}
+
+	@Test
+	fn RejectsFragmentedPacket()
+	{
+		var frame: byte[128]
+		var fragmentedIpv4TcpHeader: byte[4]
+		fragmentedIpv4TcpHeader[0] = 0x45
+		fragmentedIpv4TcpHeader[1] = 0x20
+		fragmentedIpv4TcpHeader[2] = 0x00
+		fragmentedIpv4TcpHeader[3] = 0x06
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+
+		frame[14] = fragmentedIpv4TcpHeader[0]
+		frame[20] = fragmentedIpv4TcpHeader[1]
+		frame[21] = fragmentedIpv4TcpHeader[2]
+		frame[23] = fragmentedIpv4TcpHeader[3]
+		frame[30] = localIp[0]
+		frame[31] = localIp[1]
+		frame[32] = localIp[2]
+		frame[33] = localIp[3]
+
+		assert this.parser.IsNotFragmented(frame) == false
+		assert this.parser.IsTcpForIpv4(frame, 0x0A, 0x00, 0x00, 0x01) == false
+	}
+
+	@Test
+	fn ReadsIpv4HeaderFields()
+	{
+		var frame: byte[128]
+		var totalLength: byte[2]
+		totalLength[0] = 0x00
+		totalLength[1] = 0x28
+		var sourceIp: byte[4]
+		sourceIp[0] = 0x0A
+		sourceIp[1] = 0x00
+		sourceIp[2] = 0x00
+		sourceIp[3] = 0x02
+		var destinationIp: byte[4]
+		destinationIp[0] = 0x0A
+		destinationIp[1] = 0x00
+		destinationIp[2] = 0x00
+		destinationIp[3] = 0x01
+
+		frame[16] = totalLength[0]
+		frame[17] = totalLength[1]
+		frame[26] = sourceIp[0]
+		frame[27] = sourceIp[1]
+		frame[28] = sourceIp[2]
+		frame[29] = sourceIp[3]
+		frame[30] = destinationIp[0]
+		frame[31] = destinationIp[1]
+		frame[32] = destinationIp[2]
+		frame[33] = destinationIp[3]
+
+		assert this.parser.GetTotalLengthHighByte(frame) == 0x00
+		assert this.parser.GetTotalLengthLowByte(frame) == 0x28
+		assert this.parser.GetSourceIpv4Byte(frame, 0) == 0x0A
+		assert this.parser.GetSourceIpv4Byte(frame, 3) == 0x02
+		assert this.parser.GetDestinationIpv4Byte(frame, 0) == 0x0A
+		assert this.parser.GetDestinationIpv4Byte(frame, 3) == 0x01
+	}
+}

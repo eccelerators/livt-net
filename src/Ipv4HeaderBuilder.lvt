@@ -1,0 +1,76 @@
+namespace Livt.Net
+
+/**
+ * RFC 791 — Internet Protocol
+ * https://www.rfc-editor.org/rfc/rfc791
+ *
+ * Builds fixed 20-byte IPv4 response headers for TCP packets.
+ */
+component Ipv4HeaderBuilder
+{
+	// Number of bytes in the fixed IPv4 header.
+	public const HEADER_LENGTH: int = 20
+	// Offset of the source IPv4 address in the received Ethernet frame.
+	public const REQUEST_SOURCE_IPV4_OFFSET: int = 26
+
+	/**
+	 * Returns one byte of a fixed 20-byte IPv4/TCP response header.
+	 * Bytes 0–19 cover version/IHL, DSCP, total-length, identification, flags,
+	 * TTL=64, protocol=TCP, checksum placeholder, source IP (localIp),
+	 * and destination IP (copied from request source IP).
+	 */
+	public fn GetResponseHeaderByte(
+		request: byte[128],
+		index: int,
+		totalLength: int,
+		identificationHigh: byte,
+		identificationLow: byte,
+		localIp: byte[4]) byte
+	{
+		if (index == 0) {
+			return 0x45
+		}
+
+		if (index == 1) {
+			return 0x00
+		}
+
+		if (index == 2) {
+			var totalLengthHigh: byte = (totalLength / 256) as byte
+			return totalLengthHigh
+		}
+
+		if (index == 3) {
+			var totalLengthLow: byte = (totalLength % 256) as byte
+			return totalLengthLow
+		}
+
+		if (index == 4) {
+			return identificationHigh
+		}
+
+		if (index == 5) {
+			return identificationLow
+		}
+
+		// Flags: DF=1, frag-offset=0; TTL=64; proto=TCP; checksum placeholder
+		if (index == 6) { return 0x40 }
+		if (index == 7) { return 0x00 }
+		if (index == 8) { return 0x40 }
+		if (index == 9) { return 0x06 }
+		if (index == 10) { return 0x00 }
+		if (index == 11) { return 0x00 }
+
+		if (index < 16) {
+			var localIpIndex = index - 12
+			return localIp[localIpIndex]
+		}
+
+		if (index < 20) {
+			var remoteIpIndex = REQUEST_SOURCE_IPV4_OFFSET + index - 16
+			return request[remoteIpIndex]
+		}
+
+		return 0x00
+	}
+}

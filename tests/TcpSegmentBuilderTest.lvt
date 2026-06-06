@@ -1,0 +1,113 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+@Test
+component TcpSegmentBuilderTest
+{
+	builder: TcpSegmentBuilder
+
+	new()
+	{
+		this.builder = new TcpSegmentBuilder()
+	}
+
+	@Test
+	fn SwapsPortsForResponse()
+	{
+		var request: byte[128]
+		var clientPort: byte[2]
+		clientPort[0] = 0xC0
+		clientPort[1] = 0x01
+		var localPort: byte[2]
+		localPort[0] = 0x00
+		localPort[1] = 0x50
+		var tcpSequence: byte[4]
+		tcpSequence[0] = 0x11
+		tcpSequence[1] = 0x22
+		tcpSequence[2] = 0x33
+		tcpSequence[3] = 0x44
+		var acknowledgment: byte[4]
+		acknowledgment[0] = 0xAA
+		acknowledgment[1] = 0xBB
+		acknowledgment[2] = 0xCC
+		acknowledgment[3] = 0xDD
+		var window: byte[2]
+		window[0] = 0x04
+		window[1] = 0x00
+		var checksum: byte[2]
+		checksum[0] = 0xBE
+		checksum[1] = 0xEF
+
+		request[34] = clientPort[0]
+		request[35] = clientPort[1]
+		request[36] = localPort[0]
+		request[37] = localPort[1]
+
+		assert this.builder.GetResponseHeaderByte(request, 0, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x00
+		assert this.builder.GetResponseHeaderByte(request, 1, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x50
+		assert this.builder.GetResponseHeaderByte(request, 2, tcpSequence, acknowledgment, 0x12, window, checksum) == 0xC0
+		assert this.builder.GetResponseHeaderByte(request, 3, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x01
+	}
+
+	@Test
+	fn WritesSequenceAndAcknowledgmentNumbers()
+	{
+		var request: byte[128]
+		var tcpSequence: byte[4]
+		tcpSequence[0] = 0x11
+		tcpSequence[1] = 0x22
+		tcpSequence[2] = 0x33
+		tcpSequence[3] = 0x44
+		var acknowledgment: byte[4]
+		acknowledgment[0] = 0xAA
+		acknowledgment[1] = 0xBB
+		acknowledgment[2] = 0xCC
+		acknowledgment[3] = 0xDD
+		var window: byte[2]
+		window[0] = 0x04
+		window[1] = 0x00
+		var checksum: byte[2]
+		checksum[0] = 0xBE
+		checksum[1] = 0xEF
+
+		assert this.builder.GetResponseHeaderByte(request, 4, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x11
+		assert this.builder.GetResponseHeaderByte(request, 5, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x22
+		assert this.builder.GetResponseHeaderByte(request, 6, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x33
+		assert this.builder.GetResponseHeaderByte(request, 7, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x44
+		assert this.builder.GetResponseHeaderByte(request, 8, tcpSequence, acknowledgment, 0x12, window, checksum) == 0xAA
+		assert this.builder.GetResponseHeaderByte(request, 11, tcpSequence, acknowledgment, 0x12, window, checksum) == 0xDD
+	}
+
+	@Test
+	fn WritesFixedHeaderControlFields()
+	{
+		var request: byte[128]
+		var tcpSequence: byte[4]
+		tcpSequence[0] = 0x11
+		tcpSequence[1] = 0x22
+		tcpSequence[2] = 0x33
+		tcpSequence[3] = 0x44
+		var acknowledgment: byte[4]
+		acknowledgment[0] = 0xAA
+		acknowledgment[1] = 0xBB
+		acknowledgment[2] = 0xCC
+		acknowledgment[3] = 0xDD
+		var window: byte[2]
+		window[0] = 0x04
+		window[1] = 0x00
+		var checksum: byte[2]
+		checksum[0] = 0xBE
+		checksum[1] = 0xEF
+
+		assert this.builder.GetResponseHeaderByte(request, 12, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x50
+		assert this.builder.GetResponseHeaderByte(request, 13, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x12
+		assert this.builder.GetResponseHeaderByte(request, 14, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x04
+		assert this.builder.GetResponseHeaderByte(request, 15, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x00
+		assert this.builder.GetResponseHeaderByte(request, 16, tcpSequence, acknowledgment, 0x12, window, checksum) == 0xBE
+		assert this.builder.GetResponseHeaderByte(request, 17, tcpSequence, acknowledgment, 0x12, window, checksum) == 0xEF
+		assert this.builder.GetResponseHeaderByte(request, 18, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x00
+		assert this.builder.GetResponseHeaderByte(request, 19, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x00
+		assert this.builder.GetResponseHeaderByte(request, 20, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x00
+	}
+}

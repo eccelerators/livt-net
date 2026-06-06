@@ -1,0 +1,966 @@
+namespace Livt.Net
+
+using Livt.IO
+
+/**
+ * RFC 894 — A Standard for the Transmission of IP Datagrams over Ethernet Networks
+ * https://www.rfc-editor.org/rfc/rfc894
+ *
+ * Complete-frame byte buffer used as a small platform-neutral Ethernet I/O boundary.
+ */
+component EthernetFrameIo
+{
+	const AXI_STRB_ALL: logic[4] = 0b1111
+	const AXI_STRB_NONE: logic[4] = 0b0000
+	const RX_FRAME_WORDS: int = 32
+	const TX_BUFFER_WORDS: int = 511
+	const TX_PING_BASE: logic[13] = 0b0000000000000
+	const TX_PING_LENGTH: logic[13] = 0b0011111110100
+	const TX_PING_CONTROL: logic[13] = 0b0011111111100
+	const TX_CONTROL_START: logic[32] = 0x00000001
+	const TX_CONTROL_PROGRAM_MAC: logic[32] = 0x00000003
+	const RX_PING_BASE: logic[13] = 0b1000000000000
+	const RX_PING_CONTROL: logic[13] = 0b1011111111100
+	const RX_PONG_BASE: logic[13] = 0b1100000000000
+	const RX_PONG_CONTROL: logic[13] = 0b1111111111100
+
+	axi: IAxi4LiteEthernetLiteMaster
+	localMac0: logic[8]
+	localMac1: logic[8]
+	localMac2: logic[8]
+	localMac3: logic[8]
+	localMac4: logic[8]
+	localMac5: logic[8]
+	hasProgrammedMac: bool
+	rxFrame: byte[128]
+	rxFrameFromAxi: bool
+	rxWords: Ram
+	hasRxFrame: bool
+	txWords: Ram
+	hasTxFrame: bool
+	txFrameSent: bool
+	txLength: int
+
+	new(axi: IAxi4LiteEthernetLiteMaster, local_mac: in byte[6])
+	{
+		this.axi = axi
+		this.localMac0 = local_mac[0]
+		this.localMac1 = local_mac[1]
+		this.localMac2 = local_mac[2]
+		this.localMac3 = local_mac[3]
+		this.localMac4 = local_mac[4]
+		this.localMac5 = local_mac[5]
+		this.rxWords = new Ram()
+		this.txWords = new Ram()
+		this.hasProgrammedMac = false
+		this.rxFrameFromAxi = false
+		this.hasRxFrame = false
+		this.hasTxFrame = false
+		this.txFrameSent = false
+		this.txLength = 0
+	}
+
+	/**
+	 * Packs four frame bytes into one 32-bit EthernetLite transmit word.
+	 * Bits 31..24: byte0; bits 23..16: byte1; bits 15..8: byte2; bits 7..0: byte3.
+	 */
+	public fn PackTxWord(byte0: logic[8], byte1: logic[8], byte2: logic[8], byte3: logic[8]) logic[32]
+	{
+		var word: logic[32] = 0x00000000
+
+		for (var i = 0; i < 8; i++)
+		{
+			word[i]      = byte0[i]
+			word[i + 8]  = byte1[i]
+			word[i + 16] = byte2[i]
+			word[i + 24] = byte3[i]
+		}
+
+		return word
+	}
+
+	process AccessEthernetLite()
+	{
+		var readAddress: logic[13] = 0b0000000000000
+		var readData: logic[32] = 0x00000000
+		var readPurpose = 0
+		var writeAddress: logic[13] = 0b0000000000000
+		var writeData: logic[32] = 0x00000000
+		var writePurpose = 0
+		var writeAddressDone = false
+		var writeDataDone = false
+		var rxBaseAddress: logic[13] = 0b0000000000000
+		var rxControlAddress: logic[13] = 0b0000000000000
+		var rxWordIndex = 0
+		var rxByteAddr = 0
+		var rxByte0: logic[8] = 0x00
+		var rxByte1: logic[8] = 0x00
+		var rxByte2: logic[8] = 0x00
+		var rxByte3: logic[8] = 0x00
+		var txWordIndex = 0
+		var txWordCount = 0
+		var macProgramWordIndex = 0
+		var txByteAddr = 0
+		var txByte0: logic[8] = 0x00
+		var txByte1: logic[8] = 0x00
+		var txByte2: logic[8] = 0x00
+		var txByte3: logic[8] = 0x00
+
+		state Idle {
+			this.axi.m_axi_awaddr = 0b0000000000000
+			this.axi.m_axi_awvalid = 0b0
+			this.axi.m_axi_wdata = 0x00000000
+			this.axi.m_axi_wstrb = AXI_STRB_NONE
+			this.axi.m_axi_wvalid = 0b0
+			this.axi.m_axi_bready = 0b0
+			this.axi.m_axi_araddr = 0b0000000000000
+			this.axi.m_axi_arvalid = 0b0
+			this.axi.m_axi_rready = 0b0
+			writeAddressDone = false
+			writeDataDone = false
+
+			if (this.hasProgrammedMac == false)
+			{
+				readAddress = TX_PING_CONTROL
+				readPurpose = 5
+				goto ReadStart
+			}
+			else
+			{
+				if (this.hasTxFrame == true)
+				{
+					readAddress = TX_PING_CONTROL
+					readPurpose = 3
+					goto ReadStart
+				}
+				else
+				{
+					if (this.hasRxFrame == false)
+					{
+						readAddress = RX_PING_CONTROL
+						readPurpose = 1
+						goto ReadStart
+					}
+					else
+					{
+						goto Idle
+					}
+				}
+			}
+		}
+
+		state ReadStart {
+			this.axi.m_axi_araddr = readAddress
+			this.axi.m_axi_arvalid = 0b1
+			this.axi.m_axi_rready = 0b0
+			goto ReadAddress
+		}
+
+		state ReadAddress {
+			this.axi.m_axi_araddr = readAddress
+			this.axi.m_axi_rready = 0b0
+
+			if (this.axi.m_axi_arready)
+			{
+				this.axi.m_axi_arvalid = 0b0
+				goto ReadData
+			}
+			else
+			{
+				this.axi.m_axi_arvalid = 0b1
+				goto ReadAddress
+			}
+		}
+
+		state ReadData {
+			this.axi.m_axi_arvalid = 0b0
+			this.axi.m_axi_rready = 0b1
+			goto WaitReadData
+		}
+
+		state WaitReadData {
+			this.axi.m_axi_arvalid = 0b0
+			this.axi.m_axi_rready = 0b1
+
+			if (this.axi.m_axi_rvalid)
+			{
+				readData = this.axi.m_axi_rdata
+				goto ReadComplete
+			}
+			else
+			{
+				goto WaitReadData
+			}
+		}
+
+		state ReadComplete {
+			this.axi.m_axi_arvalid = 0b0
+			this.axi.m_axi_rready = 0b0
+
+			if (readPurpose == 1)
+			{
+				goto HandleRxPingStatus
+			}
+			else
+			{
+				goto ReadCompleteCheckPong
+			}
+		}
+
+		state ReadCompleteCheckPong {
+			if (readPurpose == 2)
+			{
+				goto HandleRxPongStatus
+			}
+			else
+			{
+				goto ReadCompleteCheckTx
+			}
+		}
+
+		state ReadCompleteCheckTx {
+			if (readPurpose == 3)
+			{
+				goto HandleTxStatus
+			}
+			else
+			{
+				goto ReadCompleteCheckRxWord
+			}
+		}
+
+		state ReadCompleteCheckRxWord {
+			if (readPurpose == 4)
+			{
+				goto RxStoreWord
+			}
+			else
+			{
+				goto ReadCompleteCheckMacProgramIdle
+			}
+		}
+
+		state ReadCompleteCheckMacProgramIdle {
+			if (readPurpose == 5)
+			{
+				goto HandleMacProgramIdleStatus
+			}
+			else
+			{
+				goto ReadCompleteCheckMacProgramDone
+			}
+		}
+
+		state ReadCompleteCheckMacProgramDone {
+			if (readPurpose == 6)
+			{
+				goto HandleMacProgramDoneStatus
+			}
+			else
+			{
+				goto Idle
+			}
+		}
+
+		state HandleMacProgramIdleStatus {
+			if (readData[0] == 0b0)
+			{
+				macProgramWordIndex = 0
+				goto MacProgramWriteDataStart
+			}
+			else
+			{
+				goto Idle
+			}
+		}
+
+		state HandleMacProgramDoneStatus {
+			if (readData[0] == 0b0)
+			{
+				this.hasProgrammedMac = true
+				goto Idle
+			}
+			else
+			{
+				readAddress = TX_PING_CONTROL
+				readPurpose = 6
+				goto ReadStart
+			}
+		}
+
+		state HandleRxPingStatus {
+			if (readData[0] == 0b1)
+			{
+				rxBaseAddress = RX_PING_BASE
+				rxControlAddress = RX_PING_CONTROL
+				rxWordIndex = 0
+				goto RxReadWordStart
+			}
+			else
+			{
+				readAddress = RX_PONG_CONTROL
+				readPurpose = 2
+				goto ReadStart
+			}
+		}
+
+		state HandleRxPongStatus {
+			if (readData[0] == 0b1)
+			{
+				rxBaseAddress = RX_PONG_BASE
+				rxControlAddress = RX_PONG_CONTROL
+				rxWordIndex = 0
+				goto RxReadWordStart
+			}
+			else
+			{
+				goto Idle
+			}
+		}
+
+		state HandleTxStatus {
+			if (readData[0] == 0b0)
+			{
+				txWordIndex = 0
+				txWordCount = (this.txLength + 3) / 4
+
+				if (txWordCount > TX_BUFFER_WORDS)
+				{
+					txWordCount = TX_BUFFER_WORDS
+				}
+
+				goto TxWriteDataStart
+			}
+			else
+			{
+				goto Idle
+			}
+		}
+
+		state RxReadWordStart {
+			readPurpose = 4
+			readAddress = ((rxBaseAddress as int) + (rxWordIndex * 4)) as logic[13]
+			goto ReadStart
+		}
+
+		state RxStoreWord {
+			rxByte0[0] = readData[0]
+			rxByte0[1] = readData[1]
+			rxByte0[2] = readData[2]
+			rxByte0[3] = readData[3]
+			rxByte0[4] = readData[4]
+			rxByte0[5] = readData[5]
+			rxByte0[6] = readData[6]
+			rxByte0[7] = readData[7]
+			rxByte1[0] = readData[8]
+			rxByte1[1] = readData[9]
+			rxByte1[2] = readData[10]
+			rxByte1[3] = readData[11]
+			rxByte1[4] = readData[12]
+			rxByte1[5] = readData[13]
+			rxByte1[6] = readData[14]
+			rxByte1[7] = readData[15]
+			rxByte2[0] = readData[16]
+			rxByte2[1] = readData[17]
+			rxByte2[2] = readData[18]
+			rxByte2[3] = readData[19]
+			rxByte2[4] = readData[20]
+			rxByte2[5] = readData[21]
+			rxByte2[6] = readData[22]
+			rxByte2[7] = readData[23]
+			rxByte3[0] = readData[24]
+			rxByte3[1] = readData[25]
+			rxByte3[2] = readData[26]
+			rxByte3[3] = readData[27]
+			rxByte3[4] = readData[28]
+			rxByte3[5] = readData[29]
+			rxByte3[6] = readData[30]
+			rxByte3[7] = readData[31]
+			rxByteAddr = rxWordIndex * 4
+			goto RxStoreWordByte0
+		}
+
+		state RxStoreWordByte0 {
+			this.rxWords.WriteByte(rxByteAddr, rxByte0)
+			goto RxStoreWordByte1
+		}
+
+		state RxStoreWordByte1 {
+			rxByteAddr = rxByteAddr + 1
+			this.rxWords.WriteByte(rxByteAddr, rxByte1)
+			goto RxStoreWordByte2
+		}
+
+		state RxStoreWordByte2 {
+			rxByteAddr = rxByteAddr + 1
+			this.rxWords.WriteByte(rxByteAddr, rxByte2)
+			goto RxStoreWordByte3
+		}
+
+		state RxStoreWordByte3 {
+			rxByteAddr = rxByteAddr + 1
+			this.rxWords.WriteByte(rxByteAddr, rxByte3)
+			goto RxAdvanceWord
+		}
+
+		state RxAdvanceWord {
+			rxWordIndex = rxWordIndex + 1
+
+			if (rxWordIndex < RX_FRAME_WORDS)
+			{
+				goto RxReadWordStart
+			}
+			else
+			{
+				goto RxClearControlStart
+			}
+		}
+
+		state RxClearControlStart {
+			writeAddress = rxControlAddress
+			writeData = 0x00000000
+			writePurpose = 1
+			goto WriteStart
+		}
+
+		state TxWriteDataStart {
+			if (txWordIndex < txWordCount)
+			{
+				goto TxPrepareWriteAddress
+			}
+			else
+			{
+				goto TxWriteLengthStart
+			}
+		}
+
+		state TxPrepareWriteAddress {
+			writeAddress = ((TX_PING_BASE as int) + (txWordIndex * 4)) as logic[13]
+			goto TxPrepareWriteData
+		}
+
+		state TxPrepareWriteData {
+			txByteAddr = txWordIndex * 4
+			goto TxReadByte0
+		}
+
+		state TxReadByte0 {
+			txByte0 = this.txWords.ReadByte(txByteAddr)
+			goto TxReadByte1
+		}
+
+		state TxReadByte1 {
+			txByteAddr = txByteAddr + 1
+			txByte1 = this.txWords.ReadByte(txByteAddr)
+			goto TxReadByte2
+		}
+
+		state TxReadByte2 {
+			txByteAddr = txByteAddr + 1
+			txByte2 = this.txWords.ReadByte(txByteAddr)
+			goto TxReadByte3
+		}
+
+		state TxReadByte3 {
+			txByteAddr = txByteAddr + 1
+			txByte3 = this.txWords.ReadByte(txByteAddr)
+			goto TxPackWord
+		}
+
+		state TxPackWord {
+			writePurpose = 2
+			writeData = 0x00000000
+			writeData[0] = txByte0[0]
+			writeData[1] = txByte0[1]
+			writeData[2] = txByte0[2]
+			writeData[3] = txByte0[3]
+			writeData[4] = txByte0[4]
+			writeData[5] = txByte0[5]
+			writeData[6] = txByte0[6]
+			writeData[7] = txByte0[7]
+			writeData[8] = txByte1[0]
+			writeData[9] = txByte1[1]
+			writeData[10] = txByte1[2]
+			writeData[11] = txByte1[3]
+			writeData[12] = txByte1[4]
+			writeData[13] = txByte1[5]
+			writeData[14] = txByte1[6]
+			writeData[15] = txByte1[7]
+			writeData[16] = txByte2[0]
+			writeData[17] = txByte2[1]
+			writeData[18] = txByte2[2]
+			writeData[19] = txByte2[3]
+			writeData[20] = txByte2[4]
+			writeData[21] = txByte2[5]
+			writeData[22] = txByte2[6]
+			writeData[23] = txByte2[7]
+			writeData[24] = txByte3[0]
+			writeData[25] = txByte3[1]
+			writeData[26] = txByte3[2]
+			writeData[27] = txByte3[3]
+			writeData[28] = txByte3[4]
+			writeData[29] = txByte3[5]
+			writeData[30] = txByte3[6]
+			writeData[31] = txByte3[7]
+			goto WriteStart
+		}
+
+		state MacProgramWriteDataStart {
+			if (macProgramWordIndex < 2)
+			{
+				goto MacProgramPrepareWriteAddress
+			}
+			else
+			{
+				goto MacProgramWriteControlStart
+			}
+		}
+
+		state MacProgramPrepareWriteAddress {
+			writeAddress = ((TX_PING_BASE as int) + (macProgramWordIndex * 4)) as logic[13]
+			goto MacProgramPrepareWriteData
+		}
+
+		state MacProgramPrepareWriteData {
+			writePurpose = 5
+			writeData = 0x00000000
+
+			if (macProgramWordIndex == 0)
+			{
+				writeData[0] = this.localMac0[0]
+				writeData[1] = this.localMac0[1]
+				writeData[2] = this.localMac0[2]
+				writeData[3] = this.localMac0[3]
+				writeData[4] = this.localMac0[4]
+				writeData[5] = this.localMac0[5]
+				writeData[6] = this.localMac0[6]
+				writeData[7] = this.localMac0[7]
+				writeData[8] = this.localMac1[0]
+				writeData[9] = this.localMac1[1]
+				writeData[10] = this.localMac1[2]
+				writeData[11] = this.localMac1[3]
+				writeData[12] = this.localMac1[4]
+				writeData[13] = this.localMac1[5]
+				writeData[14] = this.localMac1[6]
+				writeData[15] = this.localMac1[7]
+				writeData[16] = this.localMac2[0]
+				writeData[17] = this.localMac2[1]
+				writeData[18] = this.localMac2[2]
+				writeData[19] = this.localMac2[3]
+				writeData[20] = this.localMac2[4]
+				writeData[21] = this.localMac2[5]
+				writeData[22] = this.localMac2[6]
+				writeData[23] = this.localMac2[7]
+				writeData[24] = this.localMac3[0]
+				writeData[25] = this.localMac3[1]
+				writeData[26] = this.localMac3[2]
+				writeData[27] = this.localMac3[3]
+				writeData[28] = this.localMac3[4]
+				writeData[29] = this.localMac3[5]
+				writeData[30] = this.localMac3[6]
+				writeData[31] = this.localMac3[7]
+			}
+			else
+			{
+				writeData[0] = this.localMac4[0]
+				writeData[1] = this.localMac4[1]
+				writeData[2] = this.localMac4[2]
+				writeData[3] = this.localMac4[3]
+				writeData[4] = this.localMac4[4]
+				writeData[5] = this.localMac4[5]
+				writeData[6] = this.localMac4[6]
+				writeData[7] = this.localMac4[7]
+				writeData[8] = this.localMac5[0]
+				writeData[9] = this.localMac5[1]
+				writeData[10] = this.localMac5[2]
+				writeData[11] = this.localMac5[3]
+				writeData[12] = this.localMac5[4]
+				writeData[13] = this.localMac5[5]
+				writeData[14] = this.localMac5[6]
+				writeData[15] = this.localMac5[7]
+			}
+
+			goto WriteStart
+		}
+
+		state TxWriteLengthStart {
+			writeAddress = TX_PING_LENGTH
+			writeData = this.txLength as logic[32]
+			writePurpose = 3
+			goto WriteStart
+		}
+
+		state TxWriteControlStart {
+			writeAddress = TX_PING_CONTROL
+			writeData = TX_CONTROL_START
+			writePurpose = 4
+			goto WriteStart
+		}
+
+		state MacProgramWriteControlStart {
+			writeAddress = TX_PING_CONTROL
+			writeData = TX_CONTROL_PROGRAM_MAC
+			writePurpose = 6
+			goto WriteStart
+		}
+
+		state WriteStart {
+			this.axi.m_axi_awaddr = writeAddress
+			this.axi.m_axi_awvalid = 0b1
+			this.axi.m_axi_wdata = writeData
+			this.axi.m_axi_wstrb = AXI_STRB_ALL
+			this.axi.m_axi_wvalid = 0b1
+			this.axi.m_axi_bready = 0b0
+			writeAddressDone = false
+			writeDataDone = false
+			goto WriteAddressAndData
+		}
+
+		state WriteAddressAndData {
+			this.axi.m_axi_awaddr = writeAddress
+			this.axi.m_axi_wdata = writeData
+			this.axi.m_axi_wstrb = AXI_STRB_ALL
+			this.axi.m_axi_bready = 0b0
+
+			if (writeAddressDone == false)
+			{
+				this.axi.m_axi_awvalid = 0b1
+			}
+			else
+			{
+				this.axi.m_axi_awvalid = 0b0
+			}
+
+			if (writeDataDone == false)
+			{
+				this.axi.m_axi_wvalid = 0b1
+			}
+			else
+			{
+				this.axi.m_axi_wvalid = 0b0
+			}
+
+			if (this.axi.m_axi_awready)
+			{
+				writeAddressDone = true
+			}
+
+			if (this.axi.m_axi_wready)
+			{
+				writeDataDone = true
+			}
+
+			if (writeAddressDone && writeDataDone)
+			{
+				goto WriteResponse
+			}
+			else
+			{
+				goto WriteAddressAndData
+			}
+		}
+
+		state WriteResponse {
+			this.axi.m_axi_awvalid = 0b0
+			this.axi.m_axi_wvalid = 0b0
+			this.axi.m_axi_wstrb = AXI_STRB_NONE
+			this.axi.m_axi_bready = 0b1
+			goto WaitWriteResponse
+		}
+
+		state WaitWriteResponse {
+			this.axi.m_axi_awvalid = 0b0
+			this.axi.m_axi_wvalid = 0b0
+			this.axi.m_axi_wstrb = AXI_STRB_NONE
+			this.axi.m_axi_bready = 0b1
+
+			if (this.axi.m_axi_bvalid)
+			{
+				goto WriteComplete
+			}
+			else
+			{
+				goto WaitWriteResponse
+			}
+		}
+
+		state WriteComplete {
+			this.axi.m_axi_bready = 0b0
+
+			if (writePurpose == 1)
+			{
+				goto CompleteRxWrite
+			}
+			else
+			{
+				goto WriteCompleteCheckTxData
+			}
+		}
+
+		state WriteCompleteCheckTxData {
+			if (writePurpose == 2)
+			{
+				goto CompleteTxDataWrite
+			}
+			else
+			{
+				goto WriteCompleteCheckTxLength
+			}
+		}
+
+		state WriteCompleteCheckTxLength {
+			if (writePurpose == 3)
+			{
+				goto TxWriteControlStart
+			}
+			else
+			{
+				goto WriteCompleteCheckTxControl
+			}
+		}
+
+		state WriteCompleteCheckTxControl {
+			if (writePurpose == 4)
+			{
+				goto CompleteTxControlWrite
+			}
+			else
+			{
+				goto WriteCompleteCheckMacProgramData
+			}
+		}
+
+		state WriteCompleteCheckMacProgramData {
+			if (writePurpose == 5)
+			{
+				goto CompleteMacProgramDataWrite
+			}
+			else
+			{
+				goto WriteCompleteCheckMacProgramControl
+			}
+		}
+
+		state WriteCompleteCheckMacProgramControl {
+			if (writePurpose == 6)
+			{
+				goto CompleteMacProgramControlWrite
+			}
+			else
+			{
+				goto Idle
+			}
+		}
+
+		state CompleteRxWrite {
+			this.rxFrameFromAxi = true
+			this.hasRxFrame = true
+			goto WaitForRxFrameFlag
+		}
+
+		state WaitForRxFrameFlag {
+			goto WaitForRxFrameConsumed
+		}
+
+		state WaitForRxFrameConsumed {
+			if (this.hasRxFrame == true)
+			{
+				goto WaitForRxFrameConsumed
+			}
+			else
+			{
+				goto Idle
+			}
+		}
+
+		state CompleteTxDataWrite {
+			txWordIndex = txWordIndex + 1
+			goto TxWriteDataStart
+		}
+
+		state CompleteMacProgramDataWrite {
+			macProgramWordIndex = macProgramWordIndex + 1
+			goto MacProgramWriteDataStart
+		}
+
+		state CompleteTxControlWrite {
+			this.hasTxFrame = false
+			this.txFrameSent = true
+			readAddress = RX_PING_CONTROL
+			readPurpose = 1
+			goto ReadStart
+		}
+
+		state CompleteMacProgramControlWrite {
+			this.hasProgrammedMac = true
+			this.hasTxFrame = false
+			this.txFrameSent = false
+			goto Idle
+		}
+	}
+
+	/**
+	 * Stores one received frame byte at the given frame index.
+	 */
+	public fn LoadRxByte(index: int, value: byte)
+	{
+		this.rxFrameFromAxi = false
+		this.rxFrame[index] = value
+	}
+
+	/**
+	 * Marks the receive buffer as containing one complete frame.
+	 */
+	public fn SubmitRxFrame()
+	{
+		this.rxFrameFromAxi = false
+		this.hasRxFrame = true
+	}
+
+	/**
+	 * Returns true while a complete received frame is waiting to be consumed.
+	 */
+	public fn IsFrameAvailable() bool
+	{
+		return this.hasRxFrame
+	}
+
+	/**
+	 * Reads one byte from the current received frame.
+	 */
+	public fn GetRxByte(index: int) byte
+	{
+		if (this.rxFrameFromAxi == true)
+		{
+			return this.rxWords.ReadByte(index)
+		}
+
+		return this.rxFrame[index]
+	}
+
+	/**
+	 * Clears the frame-available flag after the current frame has been copied.
+	 */
+	public fn ConsumeRxFrame()
+	{
+		this.hasRxFrame = false
+	}
+
+	/**
+	 * Starts a transmitted frame with the given byte length.
+	 */
+	public fn BeginTxFrame(length: int)
+	{
+		this.txLength = length
+		this.hasTxFrame = false
+		this.txFrameSent = false
+	}
+
+	/**
+	 * Stores one transmitted frame byte at the given frame index.
+	 */
+	public fn WriteTxByte(index: int, value: logic[8])
+	{
+		this.txWords.WriteByte(index, value)
+	}
+
+	/**
+	 * Marks the transmit buffer as containing one complete frame.
+	 */
+	public fn SubmitTxFrame()
+	{
+		this.hasTxFrame = true
+	}
+
+	/**
+	 * Returns true while a complete transmitted frame is waiting to be consumed.
+	 */
+	public fn HasTxFrame() bool
+	{
+		return this.hasTxFrame
+	}
+
+	/**
+	 * Returns true after the current TX frame has been written to EthernetLite.
+	 */
+	public fn HasSentFrameToAxi() bool
+	{
+		return this.txFrameSent
+	}
+
+	/**
+	 * Returns true after EthernetLite's internal MAC address RAM was programmed.
+	 */
+	public fn HasProgrammedMac() bool
+	{
+		return this.hasProgrammedMac
+	}
+
+	/**
+	 * Returns the byte length of the current transmitted frame.
+	 */
+	public fn GetTxLength() int
+	{
+		return this.txLength
+	}
+
+	/**
+	 * Reads one byte from the current transmitted frame.
+	 */
+	public fn GetTxByte(index: int) logic[8]
+	{
+		return this.txWords.ReadByte(index)
+	}
+
+	/**
+	 * Clears the transmit-frame-available flag after the frame has been copied out.
+	 */
+	public fn ConsumeTxFrame()
+	{
+		this.hasTxFrame = false
+	}
+
+	// AXI test accessors — expose the internal AXI interface signals for simulation tests.
+	// Master getters (read signals that EthernetFrameIo drives toward the AXI slave).
+	/**
+	 * Returns the AXI read-address valid signal driven toward the EthernetLite slave.
+	 */
+	public fn GetAxiArvalid() logic { return this.axi.m_axi_arvalid }
+	/**
+	 * Returns the AXI read address driven toward the EthernetLite slave.
+	 */
+	public fn GetAxiAraddr() logic[13] { return this.axi.m_axi_araddr }
+	/**
+	 * Returns the AXI read-data ready signal driven toward the EthernetLite slave.
+	 */
+	public fn GetAxiRready() logic { return this.axi.m_axi_rready }
+	/**
+	 * Returns the AXI write-address valid signal driven toward the EthernetLite slave.
+	 */
+	public fn GetAxiAwvalid() logic { return this.axi.m_axi_awvalid }
+	/**
+	 * Returns the AXI write address driven toward the EthernetLite slave.
+	 */
+	public fn GetAxiAwaddr() logic[13] { return this.axi.m_axi_awaddr }
+	/**
+	 * Returns the AXI write-data valid signal driven toward the EthernetLite slave.
+	 */
+	public fn GetAxiWvalid() logic { return this.axi.m_axi_wvalid }
+	/**
+	 * Returns the AXI write-data word driven toward the EthernetLite slave.
+	 */
+	public fn GetAxiWdata() logic[32] { return this.axi.m_axi_wdata }
+	/**
+	 * Returns the AXI write strobe bits driven toward the EthernetLite slave.
+	 */
+	public fn GetAxiWstrb() logic[4] { return this.axi.m_axi_wstrb }
+	/**
+	 * Returns the AXI write-response ready signal driven toward the EthernetLite slave.
+	 */
+	public fn GetAxiBready() logic { return this.axi.m_axi_bready }
+	// Slave-side input getter retained for simulation visibility.
+	/**
+	 * Returns the AXI read-data valid signal received from the EthernetLite slave.
+	 */
+	public fn GetAxiRvalid() logic { return this.axi.m_axi_rvalid }
+}

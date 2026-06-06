@@ -1,0 +1,145 @@
+namespace Livt.Net
+
+/**
+ * RFC 9293 — Transmission Control Protocol (TCP) (section 3.1, Checksum)
+ * https://www.rfc-editor.org/rfc/rfc9293
+ *
+ * Calculates one's-complement TCP checksums for fixed 20-byte TCP headers.
+ */
+component TcpChecksum
+{
+	/**
+	 * Calculates a TCP checksum over the pseudo-header and fixed 20-byte TCP header without payload.
+	 * Returns the 16-bit one's-complement checksum as an int.
+	 */
+	public fn CalculateFixedHeaderChecksum(
+		localIp0: int,
+		localIp1: int,
+		localIp2: int,
+		localIp3: int,
+		remoteIp0: int,
+		remoteIp1: int,
+		remoteIp2: int,
+		remoteIp3: int,
+		localPortHigh: int,
+		localPortLow: int,
+		remotePortHigh: int,
+		remotePortLow: int,
+		sequence0: int,
+		sequence1: int,
+		sequence2: int,
+		sequence3: int,
+		acknowledgment0: int,
+		acknowledgment1: int,
+		acknowledgment2: int,
+		acknowledgment3: int,
+		flags: int,
+		windowHigh: int,
+		windowLow: int) int
+	{
+		var sum: int = 0
+
+		sum = sum + this.Word(localIp0, localIp1)
+		sum = sum + this.Word(localIp2, localIp3)
+		sum = sum + this.Word(remoteIp0, remoteIp1)
+		sum = sum + this.Word(remoteIp2, remoteIp3)
+		sum = sum + 0x0006
+		sum = sum + 0x0014
+		sum = sum + this.Word(localPortHigh, localPortLow)
+		sum = sum + this.Word(remotePortHigh, remotePortLow)
+		sum = sum + this.Word(sequence0, sequence1)
+		sum = sum + this.Word(sequence2, sequence3)
+		sum = sum + this.Word(acknowledgment0, acknowledgment1)
+		sum = sum + this.Word(acknowledgment2, acknowledgment3)
+		sum = sum + 0x5000 + flags
+		sum = sum + this.Word(windowHigh, windowLow)
+
+		sum = this.Fold(sum)
+		sum = this.Fold(sum)
+
+		return 0xFFFF - sum
+	}
+
+	/**
+	 * Calculates a TCP checksum over the pseudo-header, fixed 20-byte TCP header,
+	 * and the supplied payload word sum (from InternetChecksum.GetWordSum()).
+	 * Returns the 16-bit one's-complement checksum as an int.
+	 */
+	public fn CalculatePayloadChecksum(
+		localIp0: int,
+		localIp1: int,
+		localIp2: int,
+		localIp3: int,
+		remoteIp0: int,
+		remoteIp1: int,
+		remoteIp2: int,
+		remoteIp3: int,
+		localPortHigh: int,
+		localPortLow: int,
+		remotePortHigh: int,
+		remotePortLow: int,
+		sequence0: int,
+		sequence1: int,
+		sequence2: int,
+		sequence3: int,
+		acknowledgment0: int,
+		acknowledgment1: int,
+		acknowledgment2: int,
+		acknowledgment3: int,
+		flags: int,
+		windowHigh: int,
+		windowLow: int,
+		tcpLength: int,
+		payloadWordSum: int) int
+	{
+		var sum: int = 0
+
+		sum = sum + this.Word(localIp0, localIp1)
+		sum = sum + this.Word(localIp2, localIp3)
+		sum = sum + this.Word(remoteIp0, remoteIp1)
+		sum = sum + this.Word(remoteIp2, remoteIp3)
+		sum = sum + 0x0006
+		sum = sum + tcpLength
+		sum = sum + this.Word(localPortHigh, localPortLow)
+		sum = sum + this.Word(remotePortHigh, remotePortLow)
+		sum = sum + this.Word(sequence0, sequence1)
+		sum = sum + this.Word(sequence2, sequence3)
+		sum = sum + this.Word(acknowledgment0, acknowledgment1)
+		sum = sum + this.Word(acknowledgment2, acknowledgment3)
+		sum = sum + 0x5000 + flags
+		sum = sum + this.Word(windowHigh, windowLow)
+		sum = sum + payloadWordSum
+
+		sum = this.Fold(sum)
+		sum = this.Fold(sum)
+		sum = this.Fold(sum)
+
+		return 0xFFFF - sum
+	}
+
+	/**
+	 * Returns the high byte of a 16-bit checksum value.
+	 */
+	public fn GetHighByte(checksum: int) int
+	{
+		return checksum / 256
+	}
+
+	/**
+	 * Returns the low byte of a 16-bit checksum value.
+	 */
+	public fn GetLowByte(checksum: int) int
+	{
+		return checksum % 256
+	}
+
+	fn Word(high: int, low: int) int
+	{
+		return high * 256 + low
+	}
+
+	fn Fold(value: int) int
+	{
+		return (value % 65536) + (value / 65536)
+	}
+}

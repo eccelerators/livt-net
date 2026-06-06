@@ -1,0 +1,99 @@
+namespace Livt.Net
+
+/**
+ * Computes the RFC 1071 one's-complement word sum over a byte stream.
+ *
+ * Feed bytes in network (big-endian) order using AddByte(). Odd-length data
+ * is treated as if padded with a trailing zero byte.
+ *
+ * GetWordSum() returns the unfolded accumulated sum, compatible with the
+ * payloadWordSum parameter of TcpChecksum.CalculatePayloadChecksum.
+ *
+ * GetChecksum() returns the final RFC 1071 checksum value (folded and
+ * one's-complemented) ready to be written into an IPv4, ICMP, TCP, or UDP
+ * header field. Use GetHighByte() and GetLowByte() to extract the two bytes.
+ */
+component InternetChecksum
+{
+	sum: int
+	pendingByte: int
+	hasPendingByte: bool
+
+	new()
+	{
+	}
+
+	/**
+	 * Clears the accumulated sum and resets the byte-pairing state.
+	 */
+	public fn Reset()
+	{
+		this.sum = 0
+		this.pendingByte = 0
+		this.hasPendingByte = false
+	}
+
+	/**
+	 * Accumulates one byte into the running word sum.
+	 * Bytes are paired in network order: the first byte of each pair is the
+	 * high byte of the 16-bit word, the second is the low byte.
+	 */
+	public fn AddByte(b: logic[8])
+	{
+		var bi: int = b as int
+
+		if (this.hasPendingByte == false)
+		{
+			this.pendingByte = bi
+			this.hasPendingByte = true
+			return
+		}
+
+		this.sum = this.sum + this.pendingByte * 256 + bi
+		this.pendingByte = 0
+		this.hasPendingByte = false
+	}
+
+	/**
+	 * Returns the accumulated unfolded one's-complement word sum.
+	 * Odd-length streams are treated as if padded with a trailing zero byte.
+	 * Compatible with TcpChecksum.CalculatePayloadChecksum(payloadWordSum).
+	 */
+	public fn GetWordSum() int
+	{
+		if (this.hasPendingByte == true)
+		{
+			return this.sum + this.pendingByte * 256
+		}
+
+		return this.sum
+	}
+
+	/**
+	 * Returns the final RFC 1071 checksum (folded and one's-complemented).
+	 * Use GetHighByte() and GetLowByte() to extract the two header bytes.
+	 */
+	public fn GetChecksum() int
+	{
+		var s: int = this.GetWordSum()
+		s = (s % 65536) + (s / 65536)
+		s = (s % 65536) + (s / 65536)
+		return 0xFFFF - s
+	}
+
+	/**
+	 * Returns the high byte of a 16-bit checksum or word-sum value.
+	 */
+	public fn GetHighByte(value: int) int
+	{
+		return value / 256
+	}
+
+	/**
+	 * Returns the low byte of a 16-bit checksum or word-sum value.
+	 */
+	public fn GetLowByte(value: int) int
+	{
+		return value % 256
+	}
+}

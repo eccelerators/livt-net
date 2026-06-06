@@ -1,0 +1,100 @@
+namespace Livt.Net
+
+/**
+ * RFC 826 — An Ethernet Address Resolution Protocol
+ * https://www.rfc-editor.org/rfc/rfc826
+ *
+ * Parses Ethernet/IPv4 ARP packets (hardware type 0x0001, protocol type 0x0800,
+ * 6-byte hardware address, 4-byte protocol address).
+ */
+component ArpPacketParser
+{
+	// Offset of the ARP payload inside an Ethernet II frame.
+	public const ARP_OFFSET: int = 14
+	// Offset of the ARP hardware type field.
+	public const HARDWARE_TYPE_OFFSET: int = 14
+	// Offset of the ARP protocol type field.
+	public const PROTOCOL_TYPE_OFFSET: int = 16
+	// Offset of the ARP hardware address length field.
+	public const HARDWARE_LENGTH_OFFSET: int = 18
+	// Offset of the ARP protocol address length field.
+	public const PROTOCOL_LENGTH_OFFSET: int = 19
+	// Offset of the ARP operation field.
+	public const OPERATION_OFFSET: int = 20
+	// Offset of the sender hardware address.
+	public const SENDER_MAC_OFFSET: int = 22
+	// Offset of the sender IPv4 address.
+	public const SENDER_IPV4_OFFSET: int = 28
+	// Offset of the target hardware address.
+	public const TARGET_MAC_OFFSET: int = 32
+	// Offset of the target IPv4 address.
+	public const TARGET_IPV4_OFFSET: int = 38
+
+	/**
+	 * Returns true for Ethernet hardware, IPv4 protocol, 6-byte MAC, and 4-byte IPv4 ARP packets.
+	 */
+	public fn IsEthernetIpv4(frame: byte[64]) bool
+	{
+		return frame[HARDWARE_TYPE_OFFSET] == 0x00
+			&& frame[HARDWARE_TYPE_OFFSET + 1] == 0x01
+			&& frame[PROTOCOL_TYPE_OFFSET] == 0x08
+			&& frame[PROTOCOL_TYPE_OFFSET + 1] == 0x00
+			&& frame[HARDWARE_LENGTH_OFFSET] == 0x06
+			&& frame[PROTOCOL_LENGTH_OFFSET] == 0x04
+	}
+
+	/**
+	 * Returns true when the ARP operation is request (opcode 1).
+	 */
+	public fn IsRequest(frame: byte[64]) bool
+	{
+		return frame[OPERATION_OFFSET] == 0x00
+			&& frame[OPERATION_OFFSET + 1] == 0x01
+	}
+
+	/**
+	 * Returns true when the ARP operation is reply (opcode 2).
+	 */
+	public fn IsReply(frame: byte[64]) bool
+	{
+		return frame[OPERATION_OFFSET] == 0x00
+			&& frame[OPERATION_OFFSET + 1] == 0x02
+	}
+
+	/**
+	 * Returns true for an Ethernet/IPv4 ARP request targeting the supplied IPv4 address.
+	 */
+	public fn IsRequestForIpv4(frame: byte[64], ip0: byte, ip1: byte, ip2: byte, ip3: byte) bool
+	{
+		return this.IsEthernetIpv4(frame)
+			&& this.IsRequest(frame)
+			&& frame[TARGET_IPV4_OFFSET] == ip0
+			&& frame[TARGET_IPV4_OFFSET + 1] == ip1
+			&& frame[TARGET_IPV4_OFFSET + 2] == ip2
+			&& frame[TARGET_IPV4_OFFSET + 3] == ip3
+	}
+
+	/**
+	 * Reads one byte from the sender MAC address.
+	 */
+	public fn GetSenderMacByte(frame: byte[64], index: int) byte
+	{
+		return frame[SENDER_MAC_OFFSET + index]
+	}
+
+	/**
+	 * Reads one byte from the sender IPv4 address.
+	 */
+	public fn GetSenderIpv4Byte(frame: byte[64], index: int) byte
+	{
+		return frame[SENDER_IPV4_OFFSET + index]
+	}
+
+	/**
+	 * Reads one byte from the target IPv4 address.
+	 */
+	public fn GetTargetIpv4Byte(frame: byte[64], index: int) byte
+	{
+		return frame[TARGET_IPV4_OFFSET + index]
+	}
+}

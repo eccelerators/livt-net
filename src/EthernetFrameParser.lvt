@@ -1,0 +1,57 @@
+namespace Livt.Net
+
+/**
+ * RFC 894 — A Standard for the Transmission of IP Datagrams over Ethernet Networks
+ * https://www.rfc-editor.org/rfc/rfc894
+ *
+ * Parses fixed Ethernet II frame headers (destination MAC, source MAC, EtherType).
+ */
+component EthernetFrameParser
+{
+	// Number of bytes in an Ethernet II header.
+	public const HEADER_LENGTH: int = 14
+	// Offset where the Ethernet payload starts.
+	public const PAYLOAD_OFFSET: int = 14
+	// Number of bytes in a MAC address.
+	public const MAC_LENGTH: int = 6
+
+	/**
+	 * Returns true when the frame EtherType is IPv4 (0x0800).
+	 */
+	public fn IsIpv4(frame: byte[64]) bool
+	{
+		return frame[12] == 0x08 && frame[13] == 0x00
+	}
+
+	/**
+	 * Returns true when the frame EtherType is ARP (0x0806).
+	 */
+	public fn IsArp(frame: byte[64]) bool
+	{
+		return frame[12] == 0x08 && frame[13] == 0x06
+	}
+
+	/**
+	 * Returns the fixed Ethernet II payload offset.
+	 */
+	public fn GetPayloadOffset() int
+	{
+		return PAYLOAD_OFFSET
+	}
+
+	/**
+	 * Reads one byte from the destination MAC address.
+	 */
+	public fn GetDestinationMacByte(frame: byte[64], index: int) byte
+	{
+		return frame[index]
+	}
+
+	/**
+	 * Reads one byte from the source MAC address.
+	 */
+	public fn GetSourceMacByte(frame: byte[64], index: int) byte
+	{
+		return frame[index + MAC_LENGTH]
+	}
+}
