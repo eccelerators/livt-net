@@ -11,6 +11,7 @@ component WebServer
 	ws_r1b3: byte
 	ws_r1b4: byte
 	ws_r1b5: byte
+	ws_r1b6: byte
 	ws_r1len: int
 	ws_r2b0: byte
 	ws_r2b1: byte
@@ -18,7 +19,16 @@ component WebServer
 	ws_r2b3: byte
 	ws_r2b4: byte
 	ws_r2b5: byte
+	ws_r2b6: byte
 	ws_r2len: int
+	ws_r3b0: byte
+	ws_r3b1: byte
+	ws_r3b2: byte
+	ws_r3b3: byte
+	ws_r3b4: byte
+	ws_r3b5: byte
+	ws_r3b6: byte
+	ws_r3len: int
 	endpoint: NetworkEndpoint
 
 	new(
@@ -34,6 +44,7 @@ component WebServer
 		this.ws_r1b3 = 0x00
 		this.ws_r1b4 = 0x00
 		this.ws_r1b5 = 0x00
+		this.ws_r1b6 = 0x00
 		this.ws_r1len = 1
 		this.ws_r2b0 = 0x00
 		this.ws_r2b1 = 0x00
@@ -41,12 +52,21 @@ component WebServer
 		this.ws_r2b3 = 0x00
 		this.ws_r2b4 = 0x00
 		this.ws_r2b5 = 0x00
+		this.ws_r2b6 = 0x00
 		this.ws_r2len = 0
+		this.ws_r3b0 = 0x00
+		this.ws_r3b1 = 0x00
+		this.ws_r3b2 = 0x00
+		this.ws_r3b3 = 0x00
+		this.ws_r3b4 = 0x00
+		this.ws_r3b5 = 0x00
+		this.ws_r3b6 = 0x00
+		this.ws_r3len = 0
 	}
 
 	/**
 	 * Sets the HTTP body length and checksum word sum for a route.
-	 * route=1 for GET /, route=2 for GET /about.
+	 * route=1 for GET /, route=2 for GET /about, route=3 for GET /status.
 	 */
 	public fn SetBodyConfig(route: int, length: int, checksumWordSum: int)
 	{
@@ -55,7 +75,7 @@ component WebServer
 
 	/**
 	 * Configures the path for a route.
-	 * route=1 or route=2; path=1 selects "/" and path=2 selects "/about".
+	 * route=1, route=2, or route=3; path=1 selects "/", path=2 selects "/about", and path=3 selects "/status".
 	 */
 	public fn SetRoutePath(route: int, path: int)
 	{
@@ -124,6 +144,14 @@ component WebServer
 	public fn AcceptedAboutRequest() bool
 	{
 		return this.endpoint.AcceptedAboutRequest()
+	}
+
+	/**
+	 * Returns true when the loaded frame was accepted as GET /status.
+	 */
+	public fn AcceptedStatusRequest() bool
+	{
+		return this.endpoint.AcceptedStatusRequest()
 	}
 
 	/**

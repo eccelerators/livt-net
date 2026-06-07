@@ -11,6 +11,7 @@ component NetworkEndpoint
 	public const ENDPOINT_RESPONSE_TCP_SYN_ACK: int = 3
 	public const ENDPOINT_RESPONSE_HTTP: int = 4
 	public const ENDPOINT_RESPONSE_HTTP_ABOUT: int = 5
+	public const ENDPOINT_RESPONSE_HTTP_STATUS: int = 6
 	public const ENDPOINT_ARP_RESPONSE_LENGTH: int = 60
 
 	rxFrame64: byte[64]
@@ -29,6 +30,7 @@ component NetworkEndpoint
 	ne_r1b3: byte
 	ne_r1b4: byte
 	ne_r1b5: byte
+	ne_r1b6: byte
 	ne_r1len: int
 	ne_r2b0: byte
 	ne_r2b1: byte
@@ -36,7 +38,16 @@ component NetworkEndpoint
 	ne_r2b3: byte
 	ne_r2b4: byte
 	ne_r2b5: byte
+	ne_r2b6: byte
 	ne_r2len: int
+	ne_r3b0: byte
+	ne_r3b1: byte
+	ne_r3b2: byte
+	ne_r3b3: byte
+	ne_r3b4: byte
+	ne_r3b5: byte
+	ne_r3b6: byte
+	ne_r3len: int
 	http: HttpServer
 
 	arpRequestSeen: bool
@@ -51,6 +62,7 @@ component NetworkEndpoint
 	synRequestSeen: bool
 	httpRequestSeen: bool
 	aboutRequestSeen: bool
+	statusRequestSeen: bool
 
 	new(
 		localMac: byte[6],
@@ -78,6 +90,7 @@ component NetworkEndpoint
 		this.ne_r1b3 = 0x00
 		this.ne_r1b4 = 0x00
 		this.ne_r1b5 = 0x00
+		this.ne_r1b6 = 0x00
 		this.ne_r1len = 1
 		this.ne_r2b0 = 0x00
 		this.ne_r2b1 = 0x00
@@ -85,12 +98,21 @@ component NetworkEndpoint
 		this.ne_r2b3 = 0x00
 		this.ne_r2b4 = 0x00
 		this.ne_r2b5 = 0x00
+		this.ne_r2b6 = 0x00
 		this.ne_r2len = 0
+		this.ne_r3b0 = 0x00
+		this.ne_r3b1 = 0x00
+		this.ne_r3b2 = 0x00
+		this.ne_r3b3 = 0x00
+		this.ne_r3b4 = 0x00
+		this.ne_r3b5 = 0x00
+		this.ne_r3b6 = 0x00
+		this.ne_r3len = 0
 		this.http = new HttpServer(localMac, localIp, localPort)
 	}
 
 	/**
-	 * Sets the HTTP body config for a route (route=1 for GET /, route=2 for GET /about).
+	 * Sets the HTTP body config for a route (route=1 for GET /, route=2 for GET /about, route=3 for GET /status).
 	 * Must be called before the first response frame is emitted.
 	 */
 	public fn SetBodyConfig(route: int, length: int, checksumWordSum: int)
@@ -100,7 +122,7 @@ component NetworkEndpoint
 
 	/**
 	 * Configures the path for a route. route=1 for primary, route=2 for secondary.
-	 * path=1 means "/" (root), path=2 means "/about".
+	 * path=1 means "/" (root), path=2 means "/about", path=3 means "/status".
 	 */
 	public fn SetRoutePath(route: int, path: int)
 	{
@@ -127,6 +149,7 @@ component NetworkEndpoint
 		this.synRequestSeen = false
 		this.httpRequestSeen = false
 		this.aboutRequestSeen = false
+		this.statusRequestSeen = false
 		this.http.BeginFrame()
 	}
 
@@ -250,11 +273,17 @@ component NetworkEndpoint
 				this.responseKind = ENDPOINT_RESPONSE_HTTP
 			}
 
-			if (this.http.AcceptedAboutRequest() == true)
-			{
-				this.aboutRequestSeen = true
-				this.responseKind = ENDPOINT_RESPONSE_HTTP_ABOUT
-			}
+				if (this.http.AcceptedAboutRequest() == true)
+				{
+					this.aboutRequestSeen = true
+					this.responseKind = ENDPOINT_RESPONSE_HTTP_ABOUT
+				}
+
+				if (this.http.AcceptedStatusRequest() == true)
+				{
+					this.statusRequestSeen = true
+					this.responseKind = ENDPOINT_RESPONSE_HTTP_STATUS
+				}
 
 			var httpResponseLength = this.http.GetResponseLength()
 			this.responseLength = httpResponseLength
@@ -277,16 +306,21 @@ component NetworkEndpoint
 		return this.responseKind == ENDPOINT_RESPONSE_HTTP
 	}
 
-	/**
-	 * Returns true when the loaded frame was accepted as the HTTP GET /about request.
-	 */
-	/**
-	 * Returns true when the loaded frame was accepted as the HTTP GET /about request.
-	 */
+		/**
+		 * Returns true when the loaded frame was accepted as the HTTP GET /about request.
+		 */
 	public fn AcceptedAboutRequest() bool
-	{
-		return this.responseKind == ENDPOINT_RESPONSE_HTTP_ABOUT
-	}
+		{
+			return this.responseKind == ENDPOINT_RESPONSE_HTTP_ABOUT
+		}
+
+		/**
+		 * Returns true when the loaded frame was accepted as the HTTP GET /status request.
+		 */
+		public fn AcceptedStatusRequest() bool
+		{
+			return this.responseKind == ENDPOINT_RESPONSE_HTTP_STATUS
+		}
 
 	/**
 	 * Returns the selected response kind constant.
@@ -309,7 +343,7 @@ component NetworkEndpoint
 	 */
 	public fn IsHttpBodyFrameIndex(index: int) bool
 	{
-		return (this.responseKind == ENDPOINT_RESPONSE_HTTP || this.responseKind == ENDPOINT_RESPONSE_HTTP_ABOUT) && this.http.IsHttpBodyFrameIndex(index)
+		return (this.responseKind == ENDPOINT_RESPONSE_HTTP || this.responseKind == ENDPOINT_RESPONSE_HTTP_ABOUT || this.responseKind == ENDPOINT_RESPONSE_HTTP_STATUS) && this.http.IsHttpBodyFrameIndex(index)
 	}
 
 	/**
@@ -335,7 +369,7 @@ component NetworkEndpoint
 			return this.icmp.GetReplyByte(this.rxFrame128, index, this.localMac, this.localIp)
 		}
 
-		if (this.responseKind == ENDPOINT_RESPONSE_TCP_SYN_ACK || this.responseKind == ENDPOINT_RESPONSE_HTTP || this.responseKind == ENDPOINT_RESPONSE_HTTP_ABOUT)
+		if (this.responseKind == ENDPOINT_RESPONSE_TCP_SYN_ACK || this.responseKind == ENDPOINT_RESPONSE_HTTP || this.responseKind == ENDPOINT_RESPONSE_HTTP_ABOUT || this.responseKind == ENDPOINT_RESPONSE_HTTP_STATUS)
 		{
 			return this.http.GetResponseByte(index, httpBodyByte)
 		}
@@ -404,5 +438,21 @@ component NetworkEndpoint
 	public fn SawHttpRequest() bool
 	{
 		return this.httpRequestSeen
+	}
+
+	/**
+	 * Returns true when the last handled frame was accepted as GET /about.
+	 */
+	public fn SawAboutRequest() bool
+	{
+		return this.aboutRequestSeen
+	}
+
+	/**
+	 * Returns true when the last handled frame was accepted as GET /status.
+	 */
+	public fn SawStatusRequest() bool
+	{
+		return this.statusRequestSeen
 	}
 }

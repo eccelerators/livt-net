@@ -13,6 +13,8 @@ component HttpServer
 	public const RESPONSE_SYN_ACK: int = 3
 	// The selected response is an HTTP response for GET /about.
 	public const RESPONSE_HTTP_ABOUT: int = 4
+	// The selected response is an HTTP response for GET /status.
+	public const RESPONSE_HTTP_STATUS: int = 5
 	// Number of bytes in an Ethernet/IPv4/TCP SYN-ACK, padded to Ethernet minimum.
 	public const SYN_ACK_RESPONSE_LENGTH: int = 60
 	// TCP connection state: no active connection.
@@ -33,9 +35,12 @@ component HttpServer
 	httpBodyChecksumWordSum: int
 	aboutBodyLength: int
 	aboutBodyChecksumWordSum: int
+	statusBodyLength: int
+	statusBodyChecksumWordSum: int
 	responseBodyLength: int
 	responseBodyChecksumWordSum: int
 	route2Configured: bool
+	route3Configured: bool
 	ackNum0: byte
 	ackNum1: byte
 	ackNum2: byte
@@ -59,6 +64,7 @@ component HttpServer
 	r1b3: byte
 	r1b4: byte
 	r1b5: byte
+	r1b6: byte
 	r1len: int
 	r2b0: byte
 	r2b1: byte
@@ -66,9 +72,19 @@ component HttpServer
 	r2b3: byte
 	r2b4: byte
 	r2b5: byte
+	r2b6: byte
 	r2len: int
+	r3b0: byte
+	r3b1: byte
+	r3b2: byte
+	r3b3: byte
+	r3b4: byte
+	r3b5: byte
+	r3b6: byte
+	r3len: int
 	request: HttpRequestRecognizer
 	request2: HttpRequestRecognizer
+	request3: HttpRequestRecognizer
 	response: HttpResponseFrameComposer
 	responseGenerator: HttpResponseGenerator
 	conn: TcpConnectionRecognizer
@@ -97,15 +113,19 @@ component HttpServer
 		this.httpBodyChecksumWordSum = 0
 		this.aboutBodyLength = 0
 		this.aboutBodyChecksumWordSum = 0
+		this.statusBodyLength = 0
+		this.statusBodyChecksumWordSum = 0
 		this.responseBodyLength = 0
 		this.responseBodyChecksumWordSum = 0
 		this.route2Configured = false
+		this.route3Configured = false
 		this.r1b0 = 0x2F
 		this.r1b1 = 0x00
 		this.r1b2 = 0x00
 		this.r1b3 = 0x00
 		this.r1b4 = 0x00
 		this.r1b5 = 0x00
+		this.r1b6 = 0x00
 		this.r1len = 1
 		this.r2b0 = 0x00
 		this.r2b1 = 0x00
@@ -113,7 +133,16 @@ component HttpServer
 		this.r2b3 = 0x00
 		this.r2b4 = 0x00
 		this.r2b5 = 0x00
+		this.r2b6 = 0x00
 		this.r2len = 0
+		this.r3b0 = 0x00
+		this.r3b1 = 0x00
+		this.r3b2 = 0x00
+		this.r3b3 = 0x00
+		this.r3b4 = 0x00
+		this.r3b5 = 0x00
+		this.r3b6 = 0x00
+		this.r3len = 0
 
 		this.connState = CONN_CLOSED
 		this.ackNum0 = 0x00
@@ -135,6 +164,7 @@ component HttpServer
 
 		this.request = new HttpRequestRecognizer()
 		this.request2 = new HttpRequestRecognizer()
+		this.request3 = new HttpRequestRecognizer()
 		this.response = new HttpResponseFrameComposer()
 		this.responseGenerator = new HttpResponseGenerator()
 		this.conn = new TcpConnectionRecognizer()
@@ -145,7 +175,7 @@ component HttpServer
 
 	/**
 	 * Sets the HTTP body length and checksum word sum for a route.
-	 * route=1 for GET /, route=2 for GET /about.
+	 * route=1 for GET /, route=2 for GET /about, route=3 for GET /status.
 	 * Must be called before the first HTTP response frame is emitted.
 	 */
 	public fn SetBodyConfig(route: int, length: int, checksumWordSum: int)
@@ -160,12 +190,17 @@ component HttpServer
 			this.aboutBodyLength = length
 			this.aboutBodyChecksumWordSum = checksumWordSum
 		}
+		if (route == 3)
+		{
+			this.statusBodyLength = length
+			this.statusBodyChecksumWordSum = checksumWordSum
+		}
 	}
 
 	/**
 	 * Configures the path matched by a route. Use route=1 for the primary path,
 	 * route=2 to activate and configure the secondary route.
-	 * Paths: 1=root ("/"), 2=about ("/about").
+	 * Paths: 1=root ("/"), 2=about ("/about"), 3=status ("/status").
 	 */
 	public fn SetRoutePath(route: int, path: int)
 	{
@@ -176,52 +211,123 @@ component HttpServer
 				this.r1b0 = 0x2F
 				this.r1b1 = 0x00
 				this.r1b2 = 0x00
-				this.r1b3 = 0x00
-				this.r1b4 = 0x00
-				this.r1b5 = 0x00
-				this.r1len = 1
-				this.request.SetPath(this.r1b0, this.r1b1, this.r1b2, this.r1b3, this.r1b4, this.r1b5, this.r1len)
-			}
-			if (route == 2)
-			{
+					this.r1b3 = 0x00
+					this.r1b4 = 0x00
+					this.r1b5 = 0x00
+					this.r1b6 = 0x00
+					this.r1len = 1
+					this.request.SetPath(this.r1b0, this.r1b1, this.r1b2, this.r1b3, this.r1b4, this.r1b5, this.r1b6, this.r1len)
+				}
+				if (route == 2)
+				{
 				this.r2b0 = 0x2F
 				this.r2b1 = 0x00
 				this.r2b2 = 0x00
-				this.r2b3 = 0x00
-				this.r2b4 = 0x00
-				this.r2b5 = 0x00
-				this.r2len = 1
-				this.request2.SetPath(this.r2b0, this.r2b1, this.r2b2, this.r2b3, this.r2b4, this.r2b5, this.r2len)
-				this.route2Configured = true
+					this.r2b3 = 0x00
+					this.r2b4 = 0x00
+					this.r2b5 = 0x00
+					this.r2b6 = 0x00
+					this.r2len = 1
+					this.request2.SetPath(this.r2b0, this.r2b1, this.r2b2, this.r2b3, this.r2b4, this.r2b5, this.r2b6, this.r2len)
+					this.route2Configured = true
+				}
+				if (route == 3)
+				{
+					this.r3b0 = 0x2F
+					this.r3b1 = 0x00
+					this.r3b2 = 0x00
+					this.r3b3 = 0x00
+					this.r3b4 = 0x00
+					this.r3b5 = 0x00
+					this.r3b6 = 0x00
+					this.r3len = 1
+					this.request3.SetPath(this.r3b0, this.r3b1, this.r3b2, this.r3b3, this.r3b4, this.r3b5, this.r3b6, this.r3len)
+					this.route3Configured = true
+				}
 			}
-		}
-		if (path == 2)
-		{
+			if (path == 2)
+			{
 			if (route == 1)
 			{
 				this.r1b0 = 0x2F
 				this.r1b1 = 0x61
 				this.r1b2 = 0x62
-				this.r1b3 = 0x6F
-				this.r1b4 = 0x75
-				this.r1b5 = 0x74
-				this.r1len = 6
-				this.request.SetPath(this.r1b0, this.r1b1, this.r1b2, this.r1b3, this.r1b4, this.r1b5, this.r1len)
-			}
-			if (route == 2)
-			{
+					this.r1b3 = 0x6F
+					this.r1b4 = 0x75
+					this.r1b5 = 0x74
+					this.r1b6 = 0x00
+					this.r1len = 6
+					this.request.SetPath(this.r1b0, this.r1b1, this.r1b2, this.r1b3, this.r1b4, this.r1b5, this.r1b6, this.r1len)
+				}
+				if (route == 2)
+				{
 				this.r2b0 = 0x2F
 				this.r2b1 = 0x61
 				this.r2b2 = 0x62
-				this.r2b3 = 0x6F
-				this.r2b4 = 0x75
-				this.r2b5 = 0x74
-				this.r2len = 6
-				this.request2.SetPath(this.r2b0, this.r2b1, this.r2b2, this.r2b3, this.r2b4, this.r2b5, this.r2len)
-				this.route2Configured = true
+					this.r2b3 = 0x6F
+					this.r2b4 = 0x75
+					this.r2b5 = 0x74
+					this.r2b6 = 0x00
+					this.r2len = 6
+					this.request2.SetPath(this.r2b0, this.r2b1, this.r2b2, this.r2b3, this.r2b4, this.r2b5, this.r2b6, this.r2len)
+					this.route2Configured = true
+				}
+				if (route == 3)
+				{
+					this.r3b0 = 0x2F
+					this.r3b1 = 0x61
+					this.r3b2 = 0x62
+					this.r3b3 = 0x6F
+					this.r3b4 = 0x75
+					this.r3b5 = 0x74
+					this.r3b6 = 0x00
+					this.r3len = 6
+					this.request3.SetPath(this.r3b0, this.r3b1, this.r3b2, this.r3b3, this.r3b4, this.r3b5, this.r3b6, this.r3len)
+					this.route3Configured = true
+				}
+			}
+			if (path == 3)
+			{
+				if (route == 1)
+				{
+					this.r1b0 = 0x2F
+					this.r1b1 = 0x73
+					this.r1b2 = 0x74
+					this.r1b3 = 0x61
+					this.r1b4 = 0x74
+					this.r1b5 = 0x75
+					this.r1b6 = 0x73
+					this.r1len = 7
+					this.request.SetPath(this.r1b0, this.r1b1, this.r1b2, this.r1b3, this.r1b4, this.r1b5, this.r1b6, this.r1len)
+				}
+				if (route == 2)
+				{
+					this.r2b0 = 0x2F
+					this.r2b1 = 0x73
+					this.r2b2 = 0x74
+					this.r2b3 = 0x61
+					this.r2b4 = 0x74
+					this.r2b5 = 0x75
+					this.r2b6 = 0x73
+					this.r2len = 7
+					this.request2.SetPath(this.r2b0, this.r2b1, this.r2b2, this.r2b3, this.r2b4, this.r2b5, this.r2b6, this.r2len)
+					this.route2Configured = true
+				}
+				if (route == 3)
+				{
+					this.r3b0 = 0x2F
+					this.r3b1 = 0x73
+					this.r3b2 = 0x74
+					this.r3b3 = 0x61
+					this.r3b4 = 0x74
+					this.r3b5 = 0x75
+					this.r3b6 = 0x73
+					this.r3len = 7
+					this.request3.SetPath(this.r3b0, this.r3b1, this.r3b2, this.r3b3, this.r3b4, this.r3b5, this.r3b6, this.r3len)
+					this.route3Configured = true
+				}
 			}
 		}
-	}
 
 	/**
 	 * Clears previous response state before loading a new received frame.
@@ -350,19 +456,32 @@ component HttpServer
 						httpRouteAccepted = true
 				}
 
-				if (this.route2Configured == true)
-				{
-						if (this.request2.IsGetRequest(this.rxFrame128, this.localIp, this.localPort))
-						{
-								this.responseBodyLength = this.aboutBodyLength
-								this.responseBodyChecksumWordSum = this.aboutBodyChecksumWordSum
-								this.responseKind = RESPONSE_HTTP_ABOUT
-								httpBodyLengthFwd = this.aboutBodyLength
-								httpBodyChecksumFwd = this.aboutBodyChecksumWordSum
-								httpRouteAccepted = true
-						}
-				}
-		}
+					if (this.route2Configured == true)
+					{
+							if (this.request2.IsGetRequest(this.rxFrame128, this.localIp, this.localPort))
+							{
+									this.responseBodyLength = this.aboutBodyLength
+									this.responseBodyChecksumWordSum = this.aboutBodyChecksumWordSum
+									this.responseKind = RESPONSE_HTTP_ABOUT
+									httpBodyLengthFwd = this.aboutBodyLength
+									httpBodyChecksumFwd = this.aboutBodyChecksumWordSum
+									httpRouteAccepted = true
+							}
+					}
+
+					if (this.route3Configured == true)
+					{
+							if (this.request3.IsGetRequest(this.rxFrame128, this.localIp, this.localPort))
+							{
+									this.responseBodyLength = this.statusBodyLength
+									this.responseBodyChecksumWordSum = this.statusBodyChecksumWordSum
+									this.responseKind = RESPONSE_HTTP_STATUS
+									httpBodyLengthFwd = this.statusBodyLength
+									httpBodyChecksumFwd = this.statusBodyChecksumWordSum
+									httpRouteAccepted = true
+							}
+					}
+			}
 
 		if (httpRouteAccepted == true)
 		{
@@ -477,6 +596,14 @@ component HttpServer
 	}
 
 	/**
+	 * Returns true when the loaded frame was accepted as a GET /status (route 3) request.
+	 */
+	public fn AcceptedStatusRequest() bool
+	{
+		return this.responseKind == RESPONSE_HTTP_STATUS
+	}
+
+	/**
 	 * Returns the selected response kind constant.
 	 */
 	public fn GetResponseKind() int
@@ -544,7 +671,7 @@ component HttpServer
 			return this.synAckComposer.GetFrameByte(this.rxFrame128, index, this.localMac, this.localIp, synAckIpv4Cs, ourSeq, ackNum, synAckWindow, synAckTcpCs)
 		}
 
-		if (this.responseKind == RESPONSE_HTTP || this.responseKind == RESPONSE_HTTP_ABOUT) {
+		if (this.responseKind == RESPONSE_HTTP || this.responseKind == RESPONSE_HTTP_ABOUT || this.responseKind == RESPONSE_HTTP_STATUS) {
 			var httpIpv4Cs: byte[2]
 			httpIpv4Cs[0] = this.httpIpv4CsHigh
 			httpIpv4Cs[1] = this.httpIpv4CsLow

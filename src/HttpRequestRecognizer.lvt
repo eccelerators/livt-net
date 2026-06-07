@@ -5,7 +5,7 @@ namespace Livt.Net
  * https://www.rfc-editor.org/rfc/rfc1945
  *
  * Recognizes a minimal Ethernet/IPv4/TCP/HTTP GET request on a configured port.
- * The path (e.g. "/" or "/about") is stored as a field and set at startup via
+	 * The path (e.g. "/" or "/status") is stored as a field and set at startup via
  * SetPath().  Defaults to "/" so existing callers that omit configuration still
  * work correctly.
  */
@@ -16,7 +16,7 @@ component HttpRequestRecognizer
 
 	ipv4: Ipv4PacketParser
 	tcp: TcpHeaderParser
-	path: byte[6]
+	path: byte[7]
 	pathLength: int
 
 	new()
@@ -28,10 +28,10 @@ component HttpRequestRecognizer
 	}
 
 	/**
-	 * Configures the path to match (e.g. "/" or "/about").
-	 * Only the first 6 bytes of path are used; length must be 1-6.
+	 * Configures the path to match (e.g. "/" or "/status").
+	 * Only the first 7 bytes of path are used; length must be 1-7.
 	 */
-	public fn SetPath(b0: byte, b1: byte, b2: byte, b3: byte, b4: byte, b5: byte, length: int)
+	public fn SetPath(b0: byte, b1: byte, b2: byte, b3: byte, b4: byte, b5: byte, b6: byte, length: int)
 	{
 		this.pathLength = length
 		this.path[0] = b0
@@ -40,6 +40,7 @@ component HttpRequestRecognizer
 		this.path[3] = b3
 		this.path[4] = b4
 		this.path[5] = b5
+		this.path[6] = b6
 	}
 
 	/**
@@ -68,11 +69,13 @@ component HttpRequestRecognizer
 			&& (this.pathLength < 4 || frame[TCP_PAYLOAD_OFFSET + 7] == this.path[3])
 			&& (this.pathLength < 5 || frame[TCP_PAYLOAD_OFFSET + 8] == this.path[4])
 			&& (this.pathLength < 6 || frame[TCP_PAYLOAD_OFFSET + 9] == this.path[5])
+			&& (this.pathLength < 7 || frame[TCP_PAYLOAD_OFFSET + 10] == this.path[6])
 			&& (   (this.pathLength == 1 && frame[TCP_PAYLOAD_OFFSET + 5] == 0x20)
 				|| (this.pathLength == 2 && frame[TCP_PAYLOAD_OFFSET + 6] == 0x20)
 				|| (this.pathLength == 3 && frame[TCP_PAYLOAD_OFFSET + 7] == 0x20)
 				|| (this.pathLength == 4 && frame[TCP_PAYLOAD_OFFSET + 8] == 0x20)
 				|| (this.pathLength == 5 && frame[TCP_PAYLOAD_OFFSET + 9] == 0x20)
-				|| (this.pathLength == 6 && frame[TCP_PAYLOAD_OFFSET + 10] == 0x20))
+				|| (this.pathLength == 6 && frame[TCP_PAYLOAD_OFFSET + 10] == 0x20)
+				|| (this.pathLength == 7 && frame[TCP_PAYLOAD_OFFSET + 11] == 0x20))
 	}
 }

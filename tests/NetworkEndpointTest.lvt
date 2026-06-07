@@ -233,6 +233,46 @@ component NetworkEndpointTest
 	}
 
 	@Test
+	fn DispatchesHttpStatusAfterHandshake()
+	{
+		this.endpoint.SetBodyConfig(1, 64, 717318)
+		this.endpoint.SetBodyConfig(3, 451, 4784892)
+		this.endpoint.SetRoutePath(3, 3)
+
+		this.BeginEmptyFrame()
+		this.LoadTcpBaseFrame()
+		this.endpoint.LoadRxByte(47, 0x02)
+		this.endpoint.HandleFrame()
+
+		this.BeginEmptyFrame()
+		this.LoadTcpBaseFrame()
+		this.endpoint.LoadRxByte(47, 0x10)
+		this.endpoint.HandleFrame()
+
+		this.BeginEmptyFrame()
+		this.LoadTcpBaseFrame()
+		this.endpoint.LoadRxByte(47, 0x18)
+		var httpGetStatus = "GET /status ".Encode()
+		for (var i = 0; i < 12; i++)
+		{
+			this.endpoint.LoadRxByte(54 + i, httpGetStatus[i])
+		}
+		this.endpoint.HandleFrame()
+
+		var expectedResponseLength = 570
+		var bodyOffset = 119
+
+		assert this.endpoint.HasResponse() == true
+		assert this.endpoint.AcceptedStatusRequest() == true
+		assert this.endpoint.GetResponseKind() == 6
+		assert this.endpoint.GetResponseLength() == expectedResponseLength
+		assert this.endpoint.SawStatusRequest() == true
+		assert this.endpoint.IsHttpBodyFrameIndex(bodyOffset) == true
+		assert this.endpoint.GetHttpBodyIndex(bodyOffset) == 0
+		assert this.endpoint.GetResponseByte(bodyOffset, 0x3C) == 0x3C
+	}
+
+	@Test
 	fn DispatchesHttpAfterHandshake()
 	{
 		this.endpoint.SetBodyConfig(1, 64, 717318)

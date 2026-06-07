@@ -63,7 +63,7 @@ component HttpGetRecognizerTest
 	@Test
 	fn DetectsGetAboutAfterSetPath()
 	{
-		this.recognizer.SetPath(0x2F, 0x61, 0x62, 0x6F, 0x75, 0x74, 6)
+		this.recognizer.SetPath(0x2F, 0x61, 0x62, 0x6F, 0x75, 0x74, 0x00, 6)
 
 		var frame: byte[128]
 		var httpGetAbout = "GET /about ".Encode()
@@ -86,7 +86,7 @@ component HttpGetRecognizerTest
 	@Test
 	fn RejectsGetRootAfterSetPath()
 	{
-		this.recognizer.SetPath(0x2F, 0x61, 0x62, 0x6F, 0x75, 0x74, 6)
+		this.recognizer.SetPath(0x2F, 0x61, 0x62, 0x6F, 0x75, 0x74, 0x00, 6)
 
 		var frame: byte[128]
 		var httpGetRoot = "GET / ".Encode()
@@ -99,5 +99,21 @@ component HttpGetRecognizerTest
 		frame[59] = httpGetRoot[5]
 
 		assert this.recognizer.IsGetRequest(frame, 54) == false
+	}
+
+	@Test
+	fn DetectsGetStatusAfterSetPath()
+	{
+		this.recognizer.SetPath(0x2F, 0x73, 0x74, 0x61, 0x74, 0x75, 0x73, 7)
+
+		var frame: byte[128]
+		var httpGetStatus = "GET /status ".Encode()
+
+		for (var i = 0; i < 12; i++)
+		{
+			frame[54 + i] = httpGetStatus[i]
+		}
+
+		assert this.recognizer.IsGetRequest(frame, 54) == true
 	}
 }
