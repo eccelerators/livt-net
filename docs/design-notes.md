@@ -16,14 +16,14 @@ Reusable networking logic belongs in `Livt.Net`:
 
 Application packages should own:
 
-- page content and static data stores
-- route policy beyond the small configured route IDs
+- application payload content and data stores
+- application protocol policy
 - board-specific wiring
 - LEDs, buttons, and showcase behavior
 - deployment-specific MAC, IP, and port choices
 
-`WebServer` remains in `Livt.Net` for the current package because it is a compact
-adapter over `NetworkEndpoint` and is covered by existing tests. Applications
+Web-server components live in `Livt.Web`; `Livt.Net` keeps only reusable packet and frame-I/O primitives.
+
 still own the response body bytes and body checksum metadata.
 
 ## Naming and Namespaces
@@ -62,8 +62,8 @@ The current package contract is fixed-size:
 - 128-byte endpoint/request frames
 - 20-byte IPv4 headers
 - 20-byte TCP headers
-- short configured HTTP paths
-- externally supplied HTTP body bytes
+
+
 
 Future releases may introduce domain folders, clearer app-package separation,
-larger frame buffers, route tables, UDP, and streaming response adapters.
+larger frame buffers, UDP, and streaming response adapters.

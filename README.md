@@ -19,13 +19,9 @@ The 0.24.1 package surface is intentionally narrow and hardware-oriented:
 - `Livt.Net.TcpSegmentBuilder`: TCP response-header byte builder.
 - `Livt.Net.TcpSynAckFrameComposer`: Ethernet/IPv4/TCP SYN-ACK frame composer.
 - `Livt.Net.TcpChecksum`: checksum helper for fixed TCP responses.
-- `Livt.Net.HttpGetRecognizer`: route-aware HTTP GET recognizer.
-- `Livt.Net.HttpRequestRecognizer`: Ethernet/IPv4/TCP/HTTP GET recognizer.
-- `Livt.Net.HttpResponseGenerator`: HTTP/1.0 response byte generator.
-- `Livt.Net.HttpResponseFrameComposer`: Ethernet/IPv4/TCP/HTTP response composer.
-- `Livt.Net.HttpServer`: stateful HTTP response selector over loaded frames.
-- `Livt.Net.NetworkEndpoint`: ARP, ICMP, TCP, and HTTP endpoint dispatcher.
-- `Livt.Net.WebServer`: compact wrapper around `NetworkEndpoint`.
+- `Livt.Net.EthernetFrameIo`: complete-frame RX/TX buffer.
+- `Livt.Net.Axi4LiteEthernetLiteAdapter`: AXI4-Lite EthernetLite signal adapter.
+- `Livt.Net.IAxi4LiteEthernetLiteMaster`: AXI4-Lite EthernetLite interface.
 - `Livt.Net.EthernetFrameIo`: frame buffer and AXI4-Lite EthernetLite boundary.
 - `Livt.Net.Axi4LiteEthernetLiteAdapter`: AXI4-Lite EthernetLite signal adapter.
 - `Livt.Net.IAxi4LiteEthernetLiteMaster`: AXI4-Lite EthernetLite interface.
@@ -53,8 +49,6 @@ Production components live in the shallow `Livt.Net` namespace. Tests use
 | IPv4 | `Ipv4PacketParser`, `Ipv4HeaderBuilder`, `Ipv4HeaderChecksum` |
 | ICMP | `IcmpEchoResponder` |
 | TCP | `TcpHeaderParser`, `TcpConnectionRecognizer`, `TcpSegmentBuilder`, `TcpSynAckFrameComposer`, `TcpChecksum` |
-| HTTP | `HttpGetRecognizer`, `HttpRequestRecognizer`, `HttpResponseGenerator`, `HttpResponseFrameComposer`, `HttpServer` |
-| Endpoint | `NetworkEndpoint`, `WebServer` |
 | AXI boundary | `IAxi4LiteEthernetLiteMaster`, `Axi4LiteEthernetLiteAdapter` |
 
 ## 🔌 API Overview
@@ -76,29 +70,15 @@ Core parser and builder APIs include:
 
 ### Endpoint Flow
 
-`NetworkEndpoint` and `WebServer` use a stateful loaded-frame pattern:
+`EthernetFrameIo` uses a stateful complete-frame pattern:
 
 1. `BeginFrame()`
 2. `LoadRxByte(index, value)` for each received byte
-3. `HandleFrame()`
-4. `HasResponse()`
-5. `GetResponseLength()` and `GetResponseByte(index, httpBodyByte)`
+3. `ConsumeRxFrame()` after the application copies the received bytes
+4. `BeginTxFrame(length)`, `WriteTxByte(index, value)`, and `SubmitTxFrame()`
 
 Response kind and diagnostic getters expose what the endpoint selected for the
 last handled frame.
-
-### HTTP
-
-HTTP support is intentionally small:
-
-- HTTP/1.0 `GET` recognition.
-- fixed route configuration through `SetRoutePath(route, path)`.
-- externally supplied HTTP body bytes.
-- body length and checksum metadata supplied through `SetBodyConfig(route,
-  length, checksumWordSum)`.
-
-The current route path API stores up to six path bytes and is used by the
-existing root and `/about` route tests.
 
 ### EthernetLite Boundary
 
@@ -132,9 +112,7 @@ notes live in [`docs/design-notes.md`](docs/design-notes.md).
 ## 🚧 Outlook
 
 Likely future package work includes domain folders with mirrored test folders,
-configurable frame-buffer sizes, broader IPv4/TCP option handling, UDP support,
-streaming response adapters, and cleaner separation between protocol library
-components and application-facing web-server examples.
+configurable frame-buffer sizes, broader IPv4/TCP option handling, UDP support, and streaming frame adapters.
 
 ## 📄 License
 

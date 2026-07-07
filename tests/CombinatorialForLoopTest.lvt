@@ -2,8 +2,8 @@ namespace Livt.Net.Tests
 
 // Tests whether a plain public fn with a for loop over a const byte[]
 // computes its result combinatorially (no process state, no startup delay).
-// This keeps the fixed HTTP body checksum fixture covered until the package has
-// a dedicated static-content abstraction.
+// This keeps the payload checksum fixture covered until the package has
+// a dedicated payload abstraction.
 @Test
 component CombinatorialForLoopTest
 {

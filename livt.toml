@@ -13,11 +13,6 @@ components = [
 	"EthernetFrameBuilderTest",
 	"EthernetFrameIoTest",
 	"EthernetFrameParserTest",
-	"HttpGetRecognizerTest",
-	"HttpRequestRecognizerTest",
-	"HttpResponseFrameComposerTest",
-	"HttpResponseGeneratorTest",
-	"HttpServerTest",
 	"IcmpEchoResponderTest",
 	"InternetChecksumTest",
 	"Ipv4HeaderBuilderTest",
@@ -28,8 +23,6 @@ components = [
 	"TcpHeaderParserTest",
 	"TcpSegmentBuilderTest",
 	"TcpSynAckFrameComposerTest",
-	"NetworkEndpointTest",
-	"WebServerTest",
 	"CombinatorialForLoopTest"
 ]
 

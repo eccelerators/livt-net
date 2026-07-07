@@ -6,8 +6,8 @@ namespace Livt.Net.Tests
 // implicit unsigned conversion and accumulating (hi * 256 + lo) over 32
 // big-endian words produces the correct unfolded word sum.
 //
-// This keeps the fixed HTTP body checksum fixture covered until the
-// package has a dedicated static-content abstraction.
+// This keeps the payload checksum fixture covered until the
+// package has a dedicated payload abstraction.
 @Test
 component ChecksumWordSumTest
 {

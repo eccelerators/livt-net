@@ -53,7 +53,7 @@ using Livt.Net
 
 component EndpointExample
 {
-    endpoint: NetworkEndpoint
+    endpoint: EthernetFrameIo
 
     new()
     {
@@ -61,7 +61,7 @@ component EndpointExample
         var ip: byte[4] = [0x0A, 0x00, 0x00, 0x01]
         var port: byte[2] = [0x00, 0x50]
 
-        this.endpoint = new NetworkEndpoint(mac, ip, port)
+        this.endpoint = new EthernetFrameIo(mac, ip, port)
     }
 
     public fn LoadAndHandleFirstByte(value: byte) bool
@@ -74,37 +74,10 @@ component EndpointExample
 }
 ```
 
-`NetworkEndpoint` expects the caller to copy the complete received frame before
+`EthernetFrameIo` expects the caller to copy the complete received frame before
 `HandleFrame()` is called. `GetResponseByte(index, httpBodyByte)` returns one
 selected response byte at a time.
 
-## Configure HTTP Body Metadata
-
-```livt
-using Livt.Net
-
-component HttpExample
-{
-    server: WebServer
-
-    new()
-    {
-        var mac: byte[6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01]
-        var ip: byte[4] = [0x0A, 0x00, 0x00, 0x01]
-        var port: byte[2] = [0x00, 0x50]
-
-        this.server = new WebServer(mac, ip, port)
-        this.server.SetBodyConfig(1, 64, 717318)
-    }
-
-    public fn GetResponseByte(index: int, bodyByte: byte) logic[8]
-    {
-        return this.server.GetResponseByte(index, bodyByte)
-    }
-}
-```
-
-HTTP body bytes are supplied by the caller. `SetBodyConfig(route, length,
 checksumWordSum)` supplies the metadata needed by response checksum generation.
 
 ## AXI4-Lite EthernetLite Boundary
