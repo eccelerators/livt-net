@@ -4,7 +4,7 @@
 It focuses on small request/response stacks that can parse Ethernet frames,
 classify common IPv4 traffic, and emit deterministic response bytes.
 
-The 0.24.1 package surface is intentionally narrow and hardware-oriented:
+The 0.26.0 package surface is intentionally narrow and hardware-oriented:
 
 - `Livt.Net.EthernetFrameParser`: fixed Ethernet II header parser.
 - `Livt.Net.EthernetFrameBuilder`: Ethernet reply-header byte builder.
@@ -19,9 +19,6 @@ The 0.24.1 package surface is intentionally narrow and hardware-oriented:
 - `Livt.Net.TcpSegmentBuilder`: TCP response-header byte builder.
 - `Livt.Net.TcpSynAckFrameComposer`: Ethernet/IPv4/TCP SYN-ACK frame composer.
 - `Livt.Net.TcpChecksum`: checksum helper for fixed TCP responses.
-- `Livt.Net.EthernetFrameIo`: complete-frame RX/TX buffer.
-- `Livt.Net.Axi4LiteEthernetLiteAdapter`: AXI4-Lite EthernetLite signal adapter.
-- `Livt.Net.IAxi4LiteEthernetLiteMaster`: AXI4-Lite EthernetLite interface.
 - `Livt.Net.EthernetFrameIo`: frame buffer and AXI4-Lite EthernetLite boundary.
 - `Livt.Net.Axi4LiteEthernetLiteAdapter`: AXI4-Lite EthernetLite signal adapter.
 - `Livt.Net.IAxi4LiteEthernetLiteMaster`: AXI4-Lite EthernetLite interface.
@@ -30,7 +27,7 @@ The 0.24.1 package surface is intentionally narrow and hardware-oriented:
 
 ```toml
 [dependencies]
-Livt.Net = "0.24.1"
+Livt.Net = "0.26.0"
 ```
 
 `Livt.Net` depends on `Livt.IO 0.1.0` for byte-addressable RAM used by the
@@ -77,8 +74,6 @@ Core parser and builder APIs include:
 3. `ConsumeRxFrame()` after the application copies the received bytes
 4. `BeginTxFrame(length)`, `WriteTxByte(index, value)`, and `SubmitTxFrame()`
 
-Response kind and diagnostic getters expose what the endpoint selected for the
-last handled frame.
 
 ### EthernetLite Boundary
 
