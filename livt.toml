@@ -27,4 +27,4 @@ components = [
 ]
 
 [dependencies]
-Livt.IO = "0.2.0"
+Livt.IO = "0.3.0"
