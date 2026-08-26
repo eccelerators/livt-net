@@ -4,7 +4,7 @@
 It focuses on small request/response stacks that can parse Ethernet frames,
 classify common IPv4 traffic, and emit deterministic response bytes.
 
-The 0.26.0 package surface is intentionally narrow and hardware-oriented:
+The 1.0.1 package surface is intentionally narrow and hardware-oriented:
 
 - `Livt.Net.EthernetFrameParser`: fixed Ethernet II header parser.
 - `Livt.Net.EthernetFrameBuilder`: Ethernet reply-header byte builder.
@@ -13,6 +13,7 @@ The 0.26.0 package surface is intentionally narrow and hardware-oriented:
 - `Livt.Net.Ipv4PacketParser`: fixed 20-byte IPv4 header classifier.
 - `Livt.Net.Ipv4HeaderBuilder`: IPv4 response-header byte builder.
 - `Livt.Net.Ipv4HeaderChecksum`: checksum helper for fixed IPv4 responses.
+- `Livt.Net.InternetChecksum`: streaming RFC 1071 Internet checksum helper.
 - `Livt.Net.IcmpEchoResponder`: ICMP echo reply selector and byte builder.
 - `Livt.Net.TcpHeaderParser`: fixed 20-byte TCP header classifier.
 - `Livt.Net.TcpConnectionRecognizer`: TCP packet recognizer for local endpoints.
@@ -27,10 +28,10 @@ The 0.26.0 package surface is intentionally narrow and hardware-oriented:
 
 ```toml
 [dependencies]
-Livt.Net = "0.26.0"
+Livt.Net = "1.0.1"
 ```
 
-`Livt.Net` depends on `Livt.IO 0.1.0` for byte-addressable RAM used by the
+`Livt.Net` depends on `Livt.IO 1.0.1` for byte-addressable RAM used by the
 Ethernet frame I/O path. Domain applications should depend on `Livt.Net`; add
 `Livt.IO` directly only when the application also uses I/O primitives itself.
 
@@ -46,6 +47,7 @@ Production components live in the shallow `Livt.Net` namespace. Tests use
 | IPv4 | `Ipv4PacketParser`, `Ipv4HeaderBuilder`, `Ipv4HeaderChecksum` |
 | ICMP | `IcmpEchoResponder` |
 | TCP | `TcpHeaderParser`, `TcpConnectionRecognizer`, `TcpSegmentBuilder`, `TcpSynAckFrameComposer`, `TcpChecksum` |
+| Checksums | `InternetChecksum`, `Ipv4HeaderChecksum`, `TcpChecksum` |
 | AXI boundary | `IAxi4LiteEthernetLiteMaster`, `Axi4LiteEthernetLiteAdapter` |
 
 ## 🔌 API Overview
@@ -64,6 +66,10 @@ Core parser and builder APIs include:
 - `IsFixedHeader(frame)`, `IsTcp(frame)`, `IsIcmp(frame)`, and IPv4 byte getters.
 - `IsSynOnly(frame)`, `IsAckOnly(frame)`, `IsPshAck(frame)`, and TCP byte getters.
 - `GetReplyByte(...)`, `GetResponseHeaderByte(...)`, and `GetFrameByte(...)`.
+
+`InternetChecksum` incrementally consumes network-order bytes with `AddByte()`.
+It returns either the unfolded word sum for use with `TcpChecksum` or the final
+RFC 1071 checksum, including the required zero padding for odd-length input.
 
 ### Endpoint Flow
 
