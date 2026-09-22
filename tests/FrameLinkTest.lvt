@@ -1,0 +1,456 @@
+namespace Livt.Net.Tests
+using Livt.Net
+
+/** Reusable receive checks; publication/reset controls stay in the harness. */
+component ReceiveContractChecks<R: IFrameReceiver>
+{
+	link: R
+	new(link: R) { this.link = link }
+	public fn Empty()
+	{
+		var value: byte = 0x00
+		assert link.HasReceiveFrame() == false
+		assert link.IsReady() == false
+		assert link.TryAcquire() == FrameLinkResult.NotReady
+		assert link.TryRead(0, value) == PacketDataResult.NotReady
+		assert link.TryRelease() == FrameLinkResult.Invalid
+	}
+	public fn Acquired(length: int, known: bool, wireLength: int)
+	{
+		var value: byte = 0x00
+		assert link.IsReady() == true
+		assert link.HasReceiveFrame() == true
+		assert link.GetAvailableLength() == length
+		assert link.HasKnownWireLength() == known
+		if (known) { assert link.GetWireLength() == wireLength }
+		assert link.TryAcquire() == FrameLinkResult.Busy
+		assert link.TryRead(-1, value) == PacketDataResult.Invalid
+		assert link.TryRead(length, value) == PacketDataResult.Invalid
+	}
+}
+
+/** Reusable assertions: this consumer has no test-adapter controls. */
+component TransmitContractChecks<T: IFrameTransmitter>
+{
+	link: T
+	new(link: T) { this.link = link }
+	public fn Pending()
+	{
+		var outcome: FrameTransmitOutcome = FrameTransmitOutcome.Delivered
+		assert link.IsSourceBorrowed() == true
+		assert link.TrySubmit() == FrameLinkResult.Busy
+		assert link.TryGetCompletion(outcome) == FrameLinkResult.NotReady
+		assert link.TryAcknowledgeCompletion() == FrameLinkResult.NotReady
+	}
+	public fn Completed(expected: FrameTransmitOutcome)
+	{
+		var outcome: FrameTransmitOutcome = FrameTransmitOutcome.DeviceFailure
+		assert link.IsSourceBorrowed() == false
+		assert link.TryGetCompletion(outcome) == FrameLinkResult.Success
+		assert outcome == expected
+		assert link.TrySubmit() == FrameLinkResult.Busy
+		assert link.TryGetCompletion(outcome) == FrameLinkResult.Success
+		assert outcome == expected
+		assert link.TryAcknowledgeCompletion() == FrameLinkResult.Success
+		assert link.TryGetCompletion(outcome) == FrameLinkResult.NotReady
+		assert link.TryAcknowledgeCompletion() == FrameLinkResult.NotReady
+	}
+}
+
+/** Small service using only public capabilities; TX is wired to its RX source. */
+component FrameForwarder<R: IFrameReceiver, T: IFrameTransmitter>
+{
+	receiver: R
+	transmitter: T
+	active: bool
+	new(receiver: R, transmitter: T)
+	{
+		this.receiver = receiver
+		this.transmitter = transmitter
+		active = false
+	}
+	public fn TryStart() FrameLinkResult
+	{
+		if (active) { return FrameLinkResult.Busy }
+		var result = receiver.TryAcquire()
+		if (result != FrameLinkResult.Success) { return result }
+		if (!receiver.HasKnownWireLength() || receiver.GetWireLength() != receiver.GetAvailableLength()) {
+			receiver.TryRelease()
+			return FrameLinkResult.Invalid
+		}
+		result = transmitter.TrySubmit()
+		if (result != FrameLinkResult.Accepted) { receiver.TryRelease(); return result }
+		active = true
+		return FrameLinkResult.Accepted
+	}
+	public fn TryFinish(outcome: out FrameTransmitOutcome) FrameLinkResult
+	{
+		outcome = FrameTransmitOutcome.DeviceFailure
+		if (!active) { return FrameLinkResult.NotReady }
+		var result = transmitter.TryGetCompletion(outcome)
+		if (result != FrameLinkResult.Success) { return result }
+		receiver.TryRelease()
+		transmitter.TryAcknowledgeCompletion()
+		active = false
+		return FrameLinkResult.Success
+	}
+}
+
+component FaultingFrameData : IPacketData
+{
+	length: int
+	failAt: int
+	reads: int
+	public fn Configure(length: int, failAt: int) { this.length = length; this.failAt = failAt; reads = 0 }
+	public fn GetReadCount() int { return reads }
+	override fn IsReady() bool { return true }
+	override fn GetAvailableLength() int { return length }
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+		reads = reads + 1
+		if (index < 0 || index >= length || index == failAt) { return PacketDataResult.Invalid }
+		value = (index + 128) as byte
+		return PacketDataResult.Success
+	}
+}
+
+@Test
+component FrameLinkTest
+{
+	rx: TestFrameReceiver<64>
+	rxChecks: ReceiveContractChecks<TestFrameReceiver<64>>
+	region: PacketRegion<TestFrameReceiver<64>>
+	data: ArrayPacketData<65>
+	tx: TestFrameTransmitter<ArrayPacketData<65>, 64>
+	checks: TransmitContractChecks<TestFrameTransmitter<ArrayPacketData<65>, 64>>
+	faulty: FaultingFrameData
+	fixedTx: TestFrameTransmitter<FaultingFrameData, 64, false>
+	fixedChecks: TransmitContractChecks<TestFrameTransmitter<FaultingFrameData, 64, false>>
+	forwardRx: TestFrameReceiver<64>
+	forwardTx: TestFrameTransmitter<TestFrameReceiver<64>, 64>
+	service: FrameForwarder<TestFrameReceiver<64>, TestFrameTransmitter<TestFrameReceiver<64>, 64>>
+	new()
+	{
+		rx = new TestFrameReceiver<64>()
+		rxChecks = new ReceiveContractChecks<TestFrameReceiver<64>>(rx)
+		region = new PacketRegion<TestFrameReceiver<64>>(rx)
+		data = new ArrayPacketData<65>()
+		tx = new TestFrameTransmitter<ArrayPacketData<65>, 64>(data)
+		checks = new TransmitContractChecks<TestFrameTransmitter<ArrayPacketData<65>, 64>>(tx)
+		faulty = new FaultingFrameData()
+		fixedTx = new TestFrameTransmitter<FaultingFrameData, 64, false>(faulty)
+		fixedChecks = new TransmitContractChecks<TestFrameTransmitter<FaultingFrameData, 64, false>>(fixedTx)
+		forwardRx = new TestFrameReceiver<64>()
+		forwardTx = new TestFrameTransmitter<TestFrameReceiver<64>, 64>(forwardRx)
+		service = new FrameForwarder<TestFrameReceiver<64>, TestFrameTransmitter<TestFrameReceiver<64>, 64>>(forwardRx, forwardTx)
+	}
+	fn Clean()
+	{
+		tx.BeginReset()
+		tx.CompleteReset()
+		tx.SetReady(true)
+		fixedTx.BeginReset()
+		fixedTx.CompleteReset()
+		fixedTx.SetReady(true)
+		region.TryClose()
+		rx.BeginReset()
+		rx.CompleteReset()
+		if (data.IsReady()) { data.TryRelease() }
+		else { data.TryClear() }
+		faulty.Configure(60, -1)
+	}
+	fn Prepare(length: int)
+	{
+		if (data.IsReady()) { data.TryRelease() }
+		else { data.TryClear() }
+		for (var i = 0; i < length; i++) { assert data.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success }
+		assert data.TryPublish() == PacketDataResult.Success
+	}
+
+	@Test
+	fn ReceiveOwnershipAndLengthKnowledge()
+	{
+		this.Clean()
+		var value: byte = 0x00
+		rxChecks.Empty()
+		assert rx.GetReceiveCapacity() == 64
+		assert rx.TryAcquire() == FrameLinkResult.NotReady
+		assert rx.TryRead(0, value) == PacketDataResult.NotReady
+		assert rx.TryRelease() == FrameLinkResult.Invalid
+		assert rx.InjectByte(1, 0xFF) == FrameLinkResult.Invalid
+		assert rx.InjectByte(0, 0x80) == FrameLinkResult.Success
+		assert rx.InjectByte(1, 0xFF) == FrameLinkResult.Success
+		assert rx.Publish(true, 1) == FrameLinkResult.Invalid
+		assert rx.Publish(false, 60) == FrameLinkResult.Invalid
+		assert rx.Publish(true, 60) == FrameLinkResult.Success
+		assert rx.HasReceiveFrame() == true
+		assert rx.IsReady() == false
+		assert rx.GetAvailableLength() == 0
+		assert rx.TryRead(0, value) == PacketDataResult.NotReady
+		assert rx.TryRelease() == FrameLinkResult.Invalid
+		assert rx.TryAcquire() == FrameLinkResult.Success
+		assert rx.TryAcquire() == FrameLinkResult.Busy
+		rxChecks.Acquired(2, true, 60)
+		assert rx.GetAvailableLength() == 2
+		assert rx.HasKnownWireLength() == true
+		assert rx.GetWireLength() == 60
+		assert rx.InjectByte(0, 0x00) == FrameLinkResult.Busy
+		assert rx.Publish(false, 0) == FrameLinkResult.Busy
+		assert rx.FailReceive() == FrameLinkResult.Busy
+		assert region.TryOpen(1, 1) == PacketDataResult.Success
+		assert region.TryRead(0, value) == PacketDataResult.Success
+		assert value == 0xFF
+		assert rx.TryRead(2, value) == PacketDataResult.Invalid
+		assert rx.TryRead(-1, value) == PacketDataResult.Invalid
+		assert region.TryClose() == PacketDataResult.Success
+		assert rx.TryRelease() == FrameLinkResult.Success
+		assert rx.HasKnownWireLength() == false
+		assert rx.TryRead(0, value) == PacketDataResult.NotReady
+		assert rx.InjectByte(0, 0x42) == FrameLinkResult.Success
+		assert rx.Publish(false, 0) == FrameLinkResult.Success
+		assert rx.TryAcquire() == FrameLinkResult.Success
+		assert rx.HasKnownWireLength() == false
+		rxChecks.Acquired(1, false, 0)
+		assert rx.GetAvailableLength() == 1
+		assert rx.TryRead(0, value) == PacketDataResult.Success
+		assert value == 0x42
+		assert rx.TryRead(1, value) == PacketDataResult.Invalid
+		assert rx.TryRelease() == FrameLinkResult.Success
+		// A known empty capture must be distinguishable from unknown wire length.
+		assert rx.Publish(true, 0) == FrameLinkResult.Success
+		assert rx.TryAcquire() == FrameLinkResult.Success
+		assert rx.HasKnownWireLength() == true
+		assert rx.GetWireLength() == 0
+		assert rx.GetAvailableLength() == 0
+		assert rx.TryRelease() == FrameLinkResult.Success
+	}
+
+	@Test
+	fn ReceiveErrorsAndResetDiscardPartialData()
+	{
+		this.Clean()
+		var value: byte = 0x00
+		assert rx.InjectByte(0, 0xEE) == FrameLinkResult.Success
+		assert rx.FailReceive() == FrameLinkResult.Success
+		assert rx.HasReceiveError() == true
+		assert rx.HasReceiveFrame() == false
+		assert rx.TryAcquire() == FrameLinkResult.DeviceFailure
+		assert rx.TryAcquire() == FrameLinkResult.DeviceFailure
+		assert rx.Publish(false, 0) == FrameLinkResult.DeviceFailure
+		assert rx.TryAcknowledgeReceiveError() == FrameLinkResult.Success
+		assert rx.TryAcknowledgeReceiveError() == FrameLinkResult.NotReady
+		assert rx.InjectByte(1, 0xAA) == FrameLinkResult.Invalid
+		assert rx.InjectByte(0, 0x80) == FrameLinkResult.Success
+		assert rx.Publish(true, 60) == FrameLinkResult.Success
+		assert rx.TryAcquire() == FrameLinkResult.Success
+		rx.BeginReset()
+		assert rx.IsReady() == false
+		assert rx.TryAcquire() == FrameLinkResult.NotReady
+		assert rx.TryRelease() == FrameLinkResult.NotReady
+		assert rx.InjectByte(0, 0x00) == FrameLinkResult.NotReady
+		rx.CompleteReset()
+		assert rx.HasKnownWireLength() == false
+		assert rx.TryAcquire() == FrameLinkResult.NotReady
+		assert rx.TryRead(0, value) == PacketDataResult.NotReady
+		assert rx.InjectByte(1, 0xEE) == FrameLinkResult.Invalid
+		assert rx.InjectByte(0, 0x11) == FrameLinkResult.Success
+		assert rx.Publish(false, 0) == FrameLinkResult.Success
+		assert rx.TryAcquire() == FrameLinkResult.Success
+		assert rx.TryRead(0, value) == PacketDataResult.Success
+		assert value == 0x11
+		assert rx.TryRelease() == FrameLinkResult.Success
+	}
+
+	@Test
+	fn RejectsUnpreparedEmptyAndUnsupportedSources()
+	{
+		this.Clean()
+		assert tx.GetMinimumFrameLength() == 60
+		assert tx.GetMaximumFrameLength() == 64
+		assert tx.TrySubmit() == FrameLinkResult.Invalid
+		assert data.TryWrite(0, 0x80) == PacketDataResult.Success
+		assert tx.TrySubmit() == FrameLinkResult.Invalid
+		assert tx.IsSourceBorrowed() == false
+		assert data.TryPublish() == PacketDataResult.Success
+		assert tx.TrySubmit() == FrameLinkResult.Unsupported
+		assert data.IsReady() == true
+		this.Prepare(0)
+		assert tx.TrySubmit() == FrameLinkResult.Invalid
+		this.Prepare(65)
+		assert tx.TrySubmit() == FrameLinkResult.Unsupported
+		assert tx.GetCapturedLength() == 0
+		this.Prepare(60)
+		tx.SetReady(false)
+		assert tx.TrySubmit() == FrameLinkResult.NotReady
+		assert tx.IsSourceBorrowed() == false
+		tx.SetReady(true)
+		tx.SetFailure(true)
+		assert tx.TrySubmit() == FrameLinkResult.DeviceFailure
+		assert tx.IsSourceBorrowed() == false
+		tx.SetFailure(false)
+		assert tx.TrySubmit() == FrameLinkResult.Accepted
+		checks.Pending()
+		assert tx.TryCancel() == FrameLinkResult.Accepted
+		tx.Advance()
+		checks.Completed(FrameTransmitOutcome.Cancelled)
+		assert data.TryRelease() == PacketDataResult.Success
+	}
+
+	@Test
+	fn HoldsSourceThroughBackpressureAndLatchedCompletion()
+	{
+		this.Clean()
+		this.Prepare(64)
+		var value: byte = 0x00
+		assert tx.TrySubmit() == FrameLinkResult.Accepted
+		checks.Pending()
+		assert tx.GetCapturedLength() == 0
+		assert data.TryWrite(0, 0x00) == PacketDataResult.Busy
+		tx.SetReady(false)
+		tx.Advance()
+		assert tx.GetCapturedLength() == 0
+		checks.Pending()
+		tx.SetReady(true)
+		for (var i = 0; i < 64; i++) { tx.Advance() }
+		assert tx.GetCapturedLength() == 64
+		// Reading the last byte does not yet publish a terminal result.
+		checks.Pending()
+		tx.Advance()
+		checks.Completed(FrameTransmitOutcome.Delivered)
+		for (var i = 0; i < 64; i++) {
+			assert tx.TryReadCaptured(i, value) == PacketDataResult.Success
+			assert value == (128 + i) as byte
+		}
+		assert tx.TryReadCaptured(64, value) == PacketDataResult.Invalid
+		assert tx.TryReadCaptured(-1, value) == PacketDataResult.Invalid
+		assert data.TryRelease() == PacketDataResult.Success
+		this.Prepare(60)
+		assert tx.TrySubmit() == FrameLinkResult.Accepted
+		assert tx.GetCapturedLength() == 0
+		for (var i = 0; i < 61; i++) { tx.Advance() }
+		checks.Completed(FrameTransmitOutcome.Delivered)
+		assert data.TryRelease() == PacketDataResult.Success
+	}
+
+	@Test
+	fn CancellationAndFailureReleaseOnlyAtTerminal()
+	{
+		this.Clean()
+		this.Prepare(60)
+		assert tx.SupportsCancellation() == true
+		assert tx.TryCancel() == FrameLinkResult.Invalid
+		assert tx.TrySubmit() == FrameLinkResult.Accepted
+		tx.Advance()
+		assert tx.TryCancel() == FrameLinkResult.Accepted
+		assert tx.TryCancel() == FrameLinkResult.Busy
+		checks.Pending()
+		tx.SetReady(false)
+		tx.Advance()
+		assert tx.GetCapturedLength() == 1
+		checks.Completed(FrameTransmitOutcome.Cancelled)
+		tx.SetReady(true)
+		assert tx.TrySubmit() == FrameLinkResult.Accepted
+		tx.Advance()
+		tx.SetFailure(true)
+		checks.Pending()
+		tx.Advance()
+		checks.Completed(FrameTransmitOutcome.DeviceFailure)
+		assert tx.TrySubmit() == FrameLinkResult.DeviceFailure
+		tx.SetFailure(false)
+		assert data.TryRelease() == PacketDataResult.Success
+	}
+
+	@Test
+	fn UnsupportedCancellationAndReadFailure()
+	{
+		this.Clean()
+		faulty.Configure(60, 2)
+		assert fixedTx.SupportsCancellation() == false
+		assert fixedTx.TrySubmit() == FrameLinkResult.Accepted
+		assert faulty.GetReadCount() == 0
+		assert fixedTx.TryCancel() == FrameLinkResult.Unsupported
+		fixedChecks.Pending()
+		fixedTx.Advance()
+		fixedTx.Advance()
+		assert fixedTx.GetCapturedLength() == 2
+		fixedTx.Advance()
+		fixedChecks.Completed(FrameTransmitOutcome.DeviceFailure)
+		assert faulty.GetReadCount() == 3
+		fixedTx.Advance()
+		assert faulty.GetReadCount() == 3
+		faulty.Configure(60, -1)
+		assert fixedTx.TrySubmit() == FrameLinkResult.Accepted
+		for (var i = 0; i < 61; i++) { fixedTx.Advance() }
+		fixedChecks.Completed(FrameTransmitOutcome.Delivered)
+		assert faulty.GetReadCount() == 60
+	}
+
+	@Test
+	fn ResetBarrierKeepsBorrowUntilQuiescent()
+	{
+		this.Clean()
+		this.Prepare(60)
+		var outcome: FrameTransmitOutcome = FrameTransmitOutcome.Delivered
+		assert tx.TrySubmit() == FrameLinkResult.Accepted
+		tx.Advance()
+		tx.BeginReset()
+		assert tx.IsSourceBorrowed() == true
+		assert tx.TrySubmit() == FrameLinkResult.NotReady
+		assert tx.TryCancel() == FrameLinkResult.NotReady
+		assert tx.TryGetCompletion(outcome) == FrameLinkResult.NotReady
+		tx.Advance()
+		assert tx.GetCapturedLength() == 1
+		tx.CompleteReset()
+		assert tx.IsSourceBorrowed() == false
+		assert tx.GetCapturedLength() == 0
+		assert tx.TryGetCompletion(outcome) == FrameLinkResult.NotReady
+		assert tx.TrySubmit() == FrameLinkResult.NotReady
+		assert data.TryRelease() == PacketDataResult.Success
+		this.Prepare(60)
+		tx.SetReady(true)
+		assert tx.TrySubmit() == FrameLinkResult.Accepted
+		for (var i = 0; i < 61; i++) { tx.Advance() }
+		// Reset also discards a terminal result rather than replaying delivery.
+		tx.BeginReset()
+		tx.CompleteReset()
+		assert tx.TryGetCompletion(outcome) == FrameLinkResult.NotReady
+		assert data.TryRelease() == PacketDataResult.Success
+	}
+
+	@Test
+	fn ServiceUsesOnlyReceiverAndTransmitterCapabilities()
+	{
+		var outcome: FrameTransmitOutcome = FrameTransmitOutcome.DeviceFailure
+		var value: byte = 0x00
+		assert service.TryStart() == FrameLinkResult.NotReady
+		for (var i = 0; i < 60; i++) { assert forwardRx.InjectByte(i, (i + 128) as byte) == FrameLinkResult.Success }
+		assert forwardRx.Publish(true, 60) == FrameLinkResult.Success
+		assert service.TryStart() == FrameLinkResult.Accepted
+		assert service.TryStart() == FrameLinkResult.Busy
+		assert service.TryFinish(outcome) == FrameLinkResult.NotReady
+		assert forwardRx.IsReady() == true
+		for (var i = 0; i < 61; i++) { forwardTx.Advance() }
+		assert service.TryFinish(outcome) == FrameLinkResult.Success
+		assert outcome == FrameTransmitOutcome.Delivered
+		assert forwardRx.IsReady() == false
+		assert forwardRx.HasReceiveFrame() == false
+		for (var i = 0; i < 60; i++) {
+			assert forwardTx.TryReadCaptured(i, value) == PacketDataResult.Success
+			assert value == (i + 128) as byte
+		}
+		assert service.TryFinish(outcome) == FrameLinkResult.NotReady
+		// Rejected submission releases the service's RX acquisition for reuse.
+		assert forwardRx.InjectByte(0, 0xFF) == FrameLinkResult.Success
+		assert forwardRx.Publish(true, 60) == FrameLinkResult.Success
+		assert service.TryStart() == FrameLinkResult.Invalid
+		assert forwardRx.HasReceiveFrame() == false
+		assert forwardTx.IsSourceBorrowed() == false
+		for (var i = 0; i < 60; i++) { assert forwardRx.InjectByte(i, 0x00) == FrameLinkResult.Success }
+		assert forwardRx.Publish(true, 60) == FrameLinkResult.Success
+		forwardTx.SetReady(false)
+		assert service.TryStart() == FrameLinkResult.NotReady
+		assert forwardRx.HasReceiveFrame() == false
+		forwardTx.SetReady(true)
+	}
+}

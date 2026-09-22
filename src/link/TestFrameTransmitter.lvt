@@ -1,0 +1,118 @@
+namespace Livt.Net
+
+enum TestTransmitState { Idle Borrowed Terminal Resetting }
+
+/**
+ * Deterministic transmitter for contract tests. Advance reads at most one source
+ * byte. A later Advance publishes delivery, allowing tests to hold completion.
+ * Test controls/capture access are outside the public transmitter capability.
+ */
+component TestFrameTransmitter<P: IPacketData, MAX_LENGTH: int = 1514, CANCELLABLE: bool = true> : IFrameTransmitter
+{
+	static assert MAX_LENGTH >= 60, "Frame limit must accommodate minimum Ethernet frame"
+	source: P
+	captured: byte[MAX_LENGTH]
+	capturedLength: int
+	length: int
+	phase: TestTransmitState
+	ready: bool
+	borrowed: bool
+	cancelRequested: bool
+	failureRequested: bool
+	outcome: FrameTransmitOutcome
+	new(source: P)
+	{
+		this.source = source
+		capturedLength = 0
+		length = 0
+		phase = TestTransmitState.Idle
+		ready = true
+		borrowed = false
+		cancelRequested = false
+		failureRequested = false
+		outcome = FrameTransmitOutcome.DeviceFailure
+	}
+	override fn GetMinimumFrameLength() int { return 60 }
+	override fn GetMaximumFrameLength() int { return MAX_LENGTH }
+	override fn SupportsCancellation() bool { return CANCELLABLE }
+	override fn IsSourceBorrowed() bool { return borrowed }
+	override fn TrySubmit() FrameLinkResult
+	{
+		if (phase == TestTransmitState.Resetting) { return FrameLinkResult.NotReady }
+		if (phase != TestTransmitState.Idle) { return FrameLinkResult.Busy }
+		if (!ready) { return FrameLinkResult.NotReady }
+		if (failureRequested) { return FrameLinkResult.DeviceFailure }
+		if (!source.IsReady()) { return FrameLinkResult.Invalid }
+		var size = source.GetAvailableLength()
+		if (size <= 0) { return FrameLinkResult.Invalid }
+		if (size < 60 || size > MAX_LENGTH) { return FrameLinkResult.Unsupported }
+		length = size
+		capturedLength = 0
+		cancelRequested = false
+		borrowed = true
+		phase = TestTransmitState.Borrowed
+		return FrameLinkResult.Accepted
+	}
+	override fn TryCancel() FrameLinkResult
+	{
+		if (phase == TestTransmitState.Resetting) { return FrameLinkResult.NotReady }
+		if (phase != TestTransmitState.Borrowed) { return FrameLinkResult.Invalid }
+		if (!CANCELLABLE) { return FrameLinkResult.Unsupported }
+		if (cancelRequested) { return FrameLinkResult.Busy }
+		cancelRequested = true
+		return FrameLinkResult.Accepted
+	}
+	override fn TryGetCompletion(outcome: out FrameTransmitOutcome) FrameLinkResult
+	{
+		outcome = FrameTransmitOutcome.DeviceFailure
+		if (phase != TestTransmitState.Terminal) { return FrameLinkResult.NotReady }
+		outcome = this.outcome
+		return FrameLinkResult.Success
+	}
+	override fn TryAcknowledgeCompletion() FrameLinkResult
+	{
+		if (phase != TestTransmitState.Terminal) { return FrameLinkResult.NotReady }
+		phase = TestTransmitState.Idle
+		return FrameLinkResult.Success
+	}
+
+	public fn SetReady(ready: bool) { this.ready = ready }
+	/** Inject/clear device failure. During a borrow it is observed on Advance. */
+	public fn SetFailure(failed: bool) { failureRequested = failed }
+	public fn Advance()
+	{
+		if (phase != TestTransmitState.Borrowed) { return }
+		// Quiescence/error handling continues even when data transfer is paused.
+		if (failureRequested) { outcome = FrameTransmitOutcome.DeviceFailure; borrowed = false; phase = TestTransmitState.Terminal; return }
+		if (cancelRequested) { outcome = FrameTransmitOutcome.Cancelled; borrowed = false; phase = TestTransmitState.Terminal; return }
+		if (!ready) { return }
+		if (capturedLength == length) { outcome = FrameTransmitOutcome.Delivered; borrowed = false; phase = TestTransmitState.Terminal; return }
+		var value: byte = 0x00
+		var result = source.TryRead(capturedLength, value)
+		if (result != PacketDataResult.Success) { outcome = FrameTransmitOutcome.DeviceFailure; borrowed = false; phase = TestTransmitState.Terminal; return }
+		captured[capturedLength] = value
+		capturedLength = capturedLength + 1
+	}
+	public fn GetCapturedLength() int { return capturedLength }
+	public fn TryReadCaptured(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+		if (index < 0 || index >= capturedLength) { return PacketDataResult.Invalid }
+		value = captured[index]
+		return PacketDataResult.Success
+	}
+	public fn BeginReset() { phase = TestTransmitState.Resetting; ready = false }
+	/** Ends the borrow only when the harness declares all readers quiescent. */
+	public fn CompleteReset()
+	{
+		if (phase != TestTransmitState.Resetting) { return }
+		borrowed = false
+		capturedLength = 0
+		length = 0
+		cancelRequested = false
+		failureRequested = false
+		outcome = FrameTransmitOutcome.DeviceFailure
+		phase = TestTransmitState.Idle
+		ready = false
+	}
+}

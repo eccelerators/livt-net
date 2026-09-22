@@ -1,0 +1,115 @@
+namespace Livt.Net
+
+enum TestReceiveState { Empty Available Acquired Resetting }
+
+/**
+ * Deterministic buffered receiver for Livt tests. Inject/Publish/Fail/Reset
+ * controls belong to the test harness, not IFrameReceiver or a device driver.
+ */
+component TestFrameReceiver<CAPACITY: int = 128> : IFrameReceiver
+{
+	storage: ArrayPacketData<CAPACITY>
+	phase: TestReceiveState
+	wireKnown: bool
+	wireLength: int
+	failed: bool
+	new()
+	{
+		storage = new ArrayPacketData<CAPACITY>()
+		phase = TestReceiveState.Empty
+		wireKnown = false
+		wireLength = 0
+		failed = false
+	}
+	override fn GetReceiveCapacity() int { return CAPACITY }
+	override fn HasReceiveFrame() bool { return phase == TestReceiveState.Available || phase == TestReceiveState.Acquired }
+	override fn IsReady() bool { return phase == TestReceiveState.Acquired }
+	override fn GetAvailableLength() int
+	{
+		if (phase != TestReceiveState.Acquired) { return 0 }
+		return storage.GetAvailableLength()
+	}
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+		if (phase != TestReceiveState.Acquired) { return PacketDataResult.NotReady }
+		return storage.TryRead(index, value)
+	}
+	override fn TryAcquire() FrameLinkResult
+	{
+		if (phase == TestReceiveState.Acquired) { return FrameLinkResult.Busy }
+		if (phase == TestReceiveState.Resetting) { return FrameLinkResult.NotReady }
+		if (failed) { return FrameLinkResult.DeviceFailure }
+		if (phase != TestReceiveState.Available) { return FrameLinkResult.NotReady }
+		phase = TestReceiveState.Acquired
+		return FrameLinkResult.Success
+	}
+	override fn TryRelease() FrameLinkResult
+	{
+		if (phase == TestReceiveState.Resetting) { return FrameLinkResult.NotReady }
+		if (phase != TestReceiveState.Acquired) { return FrameLinkResult.Invalid }
+		storage.TryRelease()
+		wireKnown = false
+		wireLength = 0
+		phase = TestReceiveState.Empty
+		return FrameLinkResult.Success
+	}
+	override fn HasKnownWireLength() bool { return phase == TestReceiveState.Acquired && wireKnown }
+	/** Zero is not an unknown-length sentinel; first check HasKnownWireLength. */
+	override fn GetWireLength() int
+	{
+		if (phase != TestReceiveState.Acquired || !wireKnown) { return 0 }
+		return wireLength
+	}
+	override fn HasReceiveError() bool { return failed }
+	override fn TryAcknowledgeReceiveError() FrameLinkResult
+	{
+		if (phase == TestReceiveState.Resetting || !failed) { return FrameLinkResult.NotReady }
+		failed = false
+		return FrameLinkResult.Success
+	}
+
+	public fn InjectByte(index: int, value: byte) FrameLinkResult
+	{
+		if (phase == TestReceiveState.Resetting) { return FrameLinkResult.NotReady }
+		if (phase != TestReceiveState.Empty) { return FrameLinkResult.Busy }
+		if (failed) { return FrameLinkResult.DeviceFailure }
+		if (storage.TryWrite(index, value) != PacketDataResult.Success) { return FrameLinkResult.Invalid }
+		return FrameLinkResult.Success
+	}
+	/** Publish the initialized prefix; unknown wire length must be supplied as zero. */
+	public fn Publish(known: bool, length: int) FrameLinkResult
+	{
+		if (phase == TestReceiveState.Resetting) { return FrameLinkResult.NotReady }
+		if (phase != TestReceiveState.Empty) { return FrameLinkResult.Busy }
+		if (failed) { return FrameLinkResult.DeviceFailure }
+		if (length < 0 || (!known && length != 0)) { return FrameLinkResult.Invalid }
+		if (known && length < storage.GetWrittenLength()) { return FrameLinkResult.Invalid }
+		storage.TryPublish()
+		wireKnown = known
+		wireLength = length
+		phase = TestReceiveState.Available
+		return FrameLinkResult.Success
+	}
+	/** Discard an incomplete capture and latch an error; never revoke an owned frame. */
+	public fn FailReceive() FrameLinkResult
+	{
+		if (phase == TestReceiveState.Resetting) { return FrameLinkResult.NotReady }
+		if (phase != TestReceiveState.Empty) { return FrameLinkResult.Busy }
+		storage.TryClear()
+		failed = true
+		return FrameLinkResult.Success
+	}
+	public fn BeginReset() { phase = TestReceiveState.Resetting }
+	/** Harness barrier: all dependent readers must already be stopped/reset. */
+	public fn CompleteReset()
+	{
+		if (phase != TestReceiveState.Resetting) { return }
+		if (storage.IsReady()) { storage.TryRelease() }
+		else { storage.TryClear() }
+		wireKnown = false
+		wireLength = 0
+		failed = false
+		phase = TestReceiveState.Empty
+	}
+}

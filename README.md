@@ -49,6 +49,7 @@ Production components live in the shallow `Livt.Net` namespace. Tests use
 | ICMP | `IcmpEchoReply`, `IcmpEchoResponder` |
 | TCP | `TcpHeaderParser`, `TcpConnectionRecognizer`, `TcpSegmentBuilder`, `TcpSynAckFrameComposer`, `TcpChecksum` |
 | Checksums | `InternetChecksum`, `Ipv4HeaderChecksum`, `TcpChecksum` |
+| Buffered links | `IFrameReceiver`, `IFrameTransmitter`, `TestFrameReceiver`, `TestFrameTransmitter` |
 | AXI boundary | `IAxi4LiteEthernetLiteMaster`, `Axi4LiteEthernetLiteAdapter` |
 
 ## 🔌 API Overview
@@ -80,6 +81,14 @@ Core parser and builder APIs include:
 `InternetChecksum` incrementally consumes network-order bytes with `AddByte()`.
 It returns either the unfolded word sum for use with `TcpChecksum` or the final
 RFC 1071 checksum, including the required zero padding for odd-length input.
+
+### Buffered link capabilities
+
+`IFrameReceiver` provides acquired, bounded RX data. `IFrameTransmitter` borrows
+a prepared source through terminal completion. `TestFrameReceiver` and
+`TestFrameTransmitter` provide deterministic Livt test implementations. See
+[buffered frame links](docs/frame-link.md) for ownership, results and test controls.
+The EthernetLite implementation below will be migrated separately.
 
 ### Endpoint Flow
 
