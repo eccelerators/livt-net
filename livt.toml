@@ -9,6 +9,7 @@ path = "tests"
 components = [
 	"ArpPacketParserTest",
 	"ChecksumWordSumTest",
+	"ChecksumApiTest",
 	"ArpResponderTest",
 	"EthernetFrameBuilderTest",
 	"EthernetFrameIoTest",

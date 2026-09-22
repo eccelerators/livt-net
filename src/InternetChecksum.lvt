@@ -3,6 +3,7 @@ namespace Livt.Net
 /**
  * Computes the RFC 1071 one's-complement word sum over a byte stream.
  *
+ * Keep the unfolded sum within a non-negative int (at most 2147483647).
  * Feed bytes in network (big-endian) order using AddByte(). Odd-length data
  * is treated as if padded with a trailing zero byte.
  *
@@ -40,7 +41,8 @@ component InternetChecksum
 	 */
 	public fn AddByte(b: logic[8])
 	{
-		var bi: int = b as int
+		// Network octets are unsigned even though the public input is a logic vector.
+		var bi: int = (b as byte) as int
 
 		if (this.hasPendingByte == false)
 		{
@@ -49,7 +51,7 @@ component InternetChecksum
 			return
 		}
 
-		this.sum = this.sum + this.pendingByte * 256 + bi
+		this.sum = this.sum + ChecksumArithmetic.Word(this.pendingByte, bi)
 		this.pendingByte = 0
 		this.hasPendingByte = false
 	}
@@ -76,9 +78,7 @@ component InternetChecksum
 	public fn GetChecksum() int
 	{
 		var s: int = this.GetWordSum()
-		s = (s % 65536) + (s / 65536)
-		s = (s % 65536) + (s / 65536)
-		return 0xFFFF - s
+		return ChecksumArithmetic.Finish(s)
 	}
 
 	/**

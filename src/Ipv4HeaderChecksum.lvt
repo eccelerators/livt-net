@@ -4,7 +4,8 @@ namespace Livt.Net
  * RFC 791 — Internet Protocol (section 3.1, Header Checksum)
  * https://www.rfc-editor.org/rfc/rfc791
  *
- * Calculates one's-complement IPv4 header checksums for fixed TCP response headers.
+ * Calculates one's-complement IPv4 header checksums for fixed TCP and ICMP response headers.
+ * Scalar byte arguments must be in 0..255.
  */
 component Ipv4HeaderChecksum
 {
@@ -27,22 +28,7 @@ component Ipv4HeaderChecksum
 		remoteIp2: int,
 		remoteIp3: int) int
 	{
-		var sum: int = 0
-
-		sum = sum + 0x4500
-		sum = sum + this.Word(totalLengthHigh, totalLengthLow)
-		sum = sum + this.Word(identificationHigh, identificationLow)
-		sum = sum + 0x4000
-		sum = sum + 0x4006
-		sum = sum + this.Word(localIp0, localIp1)
-		sum = sum + this.Word(localIp2, localIp3)
-		sum = sum + this.Word(remoteIp0, remoteIp1)
-		sum = sum + this.Word(remoteIp2, remoteIp3)
-
-		sum = this.Fold(sum)
-		sum = this.Fold(sum)
-
-		return 0xFFFF - sum
+		return this.CalculateHeaderChecksum(6, totalLengthHigh, totalLengthLow, identificationHigh, identificationLow, localIp0, localIp1, localIp2, localIp3, remoteIp0, remoteIp1, remoteIp2, remoteIp3)
 	}
 
 	/**
@@ -64,22 +50,7 @@ component Ipv4HeaderChecksum
 		remoteIp2: int,
 		remoteIp3: int) int
 	{
-		var sum: int = 0
-
-		sum = sum + 0x4500
-		sum = sum + this.Word(totalLengthHigh, totalLengthLow)
-		sum = sum + this.Word(identificationHigh, identificationLow)
-		sum = sum + 0x4000
-		sum = sum + 0x4001
-		sum = sum + this.Word(localIp0, localIp1)
-		sum = sum + this.Word(localIp2, localIp3)
-		sum = sum + this.Word(remoteIp0, remoteIp1)
-		sum = sum + this.Word(remoteIp2, remoteIp3)
-
-		sum = this.Fold(sum)
-		sum = this.Fold(sum)
-
-		return 0xFFFF - sum
+		return this.CalculateHeaderChecksum(1, totalLengthHigh, totalLengthLow, identificationHigh, identificationLow, localIp0, localIp1, localIp2, localIp3, remoteIp0, remoteIp1, remoteIp2, remoteIp3)
 	}
 
 	/**
@@ -98,13 +69,57 @@ component Ipv4HeaderChecksum
 		return checksum % 256
 	}
 
-	fn Word(high: int, low: int) int
+	/** Network-order byte arrays; fixed version/IHL, DF flag and TTL=64. */
+	public fn CalculateFixedTcpHeaderChecksumFromBytes(
+		totalLength: byte[2], identification: byte[2],
+		localIp: byte[4], remoteIp: byte[4]) int
 	{
-		return high * 256 + low
+		return this.CalculateFixedTcpHeaderChecksum(
+			totalLength[0] as int, totalLength[1] as int,
+			identification[0] as int, identification[1] as int,
+			localIp[0] as int, localIp[1] as int, localIp[2] as int, localIp[3] as int,
+			remoteIp[0] as int, remoteIp[1] as int, remoteIp[2] as int, remoteIp[3] as int)
 	}
 
-	fn Fold(value: int) int
+	/** Network-order byte arrays; fixed version/IHL, DF flag and TTL=64. */
+	public fn CalculateFixedIcmpHeaderChecksumFromBytes(
+		totalLength: byte[2], identification: byte[2],
+		localIp: byte[4], remoteIp: byte[4]) int
 	{
-		return (value % 65536) + (value / 65536)
+		return this.CalculateFixedIcmpHeaderChecksum(
+			totalLength[0] as int, totalLength[1] as int,
+			identification[0] as int, identification[1] as int,
+			localIp[0] as int, localIp[1] as int, localIp[2] as int, localIp[3] as int,
+			remoteIp[0] as int, remoteIp[1] as int, remoteIp[2] as int, remoteIp[3] as int)
+	}
+
+	inline fn CalculateHeaderChecksum(
+		protocol: const int,
+		totalLengthHigh: int,
+		totalLengthLow: int,
+		identificationHigh: int,
+		identificationLow: int,
+		localIp0: int,
+		localIp1: int,
+		localIp2: int,
+		localIp3: int,
+		remoteIp0: int,
+		remoteIp1: int,
+		remoteIp2: int,
+		remoteIp3: int) int
+	{
+		var sum: int = 0
+
+		sum = sum + 0x4500
+		sum = sum + ChecksumArithmetic.Word(totalLengthHigh, totalLengthLow)
+		sum = sum + ChecksumArithmetic.Word(identificationHigh, identificationLow)
+		sum = sum + 0x4000
+		sum = sum + 0x4000 + protocol
+		sum = sum + ChecksumArithmetic.Word(localIp0, localIp1)
+		sum = sum + ChecksumArithmetic.Word(localIp2, localIp3)
+		sum = sum + ChecksumArithmetic.Word(remoteIp0, remoteIp1)
+		sum = sum + ChecksumArithmetic.Word(remoteIp2, remoteIp3)
+
+		return ChecksumArithmetic.Finish(sum)
 	}
 }

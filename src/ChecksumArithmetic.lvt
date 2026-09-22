@@ -1,0 +1,22 @@
+namespace Livt.Net
+
+/** Shared network-order arithmetic for non-negative sums that fit int. */
+class ChecksumArithmetic
+{
+	public static inline fn Word[](high: int, low: int) int
+	{
+		return high * 256 + low
+	}
+
+	public static inline fn Fold[](value: int) int
+	{
+		return (value % 65536) + (value / 65536)
+	}
+
+	public static inline fn Finish[](value: int) int
+	{
+		var folded = ChecksumArithmetic.Fold(value)
+		folded = ChecksumArithmetic.Fold(folded)
+		return 0xFFFF - folded
+	}
+}

@@ -83,3 +83,24 @@ Construct it with `new EthernetFrameIo<256, 256, 512>(axi, mac)`. RX capture mus
 be word aligned and fit its storage. TX lengths must fit both storage and the
 EthernetLite data region. Storage cells retain data across reset; only initialized
 bytes in the current frame are accessible through the application methods.
+
+## Checksum array APIs
+
+`Ipv4HeaderChecksum.CalculateFixedTcpHeaderChecksumFromBytes` and
+`CalculateFixedIcmpHeaderChecksumFromBytes` accept `(totalLength: byte[2],
+identification: byte[2], localIp: byte[4], remoteIp: byte[4])`.
+All arrays use network byte order (high byte first). The generated header uses
+version/IHL 0x45, DF, TTL 64 and the selected TCP or ICMP protocol.
+
+`TcpChecksum.CalculateFixedHeaderChecksumFromBytes` accepts `(localIp: byte[4],
+remoteIp: byte[4], localPort: byte[2], remotePort: byte[2], sequence: byte[4],
+acknowledgment: byte[4], flags: byte, window: byte[2])`.
+`CalculatePayloadChecksumFromBytes` accepts the same fields followed by `tcpLength: int`
+and `payloadWordSum: int`. Length includes the fixed 20-byte TCP header; the sum
+is from `InternetChecksum.GetWordSum()`, with an odd final byte treated as the
+high byte of a word whose low byte is zero. The complete unfolded sum must fit
+in a non-negative int (0..2147483647). Empty payloads use length 20 and sum zero.
+
+Existing scalar methods retain their original names and remain available; scalar byte fields must be 0..255.
+Both API shapes share the same checksum arithmetic. The array APIs do not
+add protocol validation or change supported packet formats.

@@ -1,0 +1,139 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+/** Literal expectations computed independently from complete network-order packets. */
+@Test
+component ChecksumApiTest
+{
+	ip: Ipv4HeaderChecksum
+	tcp: TcpChecksum
+	stream: InternetChecksum
+	new()
+	{
+		ip = new Ipv4HeaderChecksum()
+		tcp = new TcpChecksum()
+		stream = new InternetChecksum()
+	}
+
+	@Test
+	fn Ipv4Typical()
+	{
+		var length: byte[2] = [0x00, 0xBB]
+		var identification: byte[2] = [0x00, 0x01]
+		var local: byte[4] = [0x0A, 0x00, 0x00, 0x01]
+		var remote: byte[4] = [0x0A, 0x00, 0x00, 0x02]
+		assert ip.CalculateFixedTcpHeaderChecksumFromBytes(length, identification, local, remote) == 9786
+		assert ip.CalculateFixedTcpHeaderChecksum(0, 187, 0, 1, 10, 0, 0, 1, 10, 0, 0, 2) == 9786
+		assert ip.CalculateFixedIcmpHeaderChecksumFromBytes(length, identification, local, remote) == 9791
+		assert ip.CalculateFixedIcmpHeaderChecksum(0, 187, 0, 1, 10, 0, 0, 1, 10, 0, 0, 2) == 9791
+	}
+
+	@Test
+	fn Ipv4HighBytes()
+	{
+		var length: byte[2] = [0x81, 0x23]
+		var identification: byte[2] = [0xFE, 0xDC]
+		var local: byte[4] = [0xC0, 0xA8, 0xFF, 0x80]
+		var remote: byte[4] = [0xFE, 0xDC, 0xBA, 0x98]
+		assert ip.CalculateFixedTcpHeaderChecksumFromBytes(length, identification, local, remote) == 16729
+		assert ip.CalculateFixedTcpHeaderChecksum(129, 35, 254, 220, 192, 168, 255, 128, 254, 220, 186, 152) == 16729
+		assert ip.CalculateFixedIcmpHeaderChecksumFromBytes(length, identification, local, remote) == 16734
+		assert ip.CalculateFixedIcmpHeaderChecksum(129, 35, 254, 220, 192, 168, 255, 128, 254, 220, 186, 152) == 16734
+	}
+
+	@Test
+	fn Ipv4CarryHeavy()
+	{
+		var length: byte[2] = [0xFF, 0xFF]
+		var identification: byte[2] = [0xFF, 0xFF]
+		var local: byte[4] = [0xFF, 0xFF, 0xFF, 0xFF]
+		var remote: byte[4] = [0xFF, 0xFF, 0xFF, 0xFF]
+		assert ip.CalculateFixedTcpHeaderChecksumFromBytes(length, identification, local, remote) == 15097
+		assert ip.CalculateFixedTcpHeaderChecksum(255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255) == 15097
+		assert ip.CalculateFixedIcmpHeaderChecksumFromBytes(length, identification, local, remote) == 15102
+		assert ip.CalculateFixedIcmpHeaderChecksum(255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255) == 15102
+	}
+
+	@Test
+	fn TcpEmptyPayload()
+	{
+		var local: byte[4] = [0xC0, 0xA8, 0x01, 0x80]
+		var remote: byte[4] = [0xFE, 0xDC, 0xBA, 0x98]
+		var port: byte[2] = [0x00, 0x50]
+		var remotePort: byte[2] = [0xC0, 0x81]
+		var sequence: byte[4] = [0x80, 0x12, 0x34, 0xFF]
+		var acknowledgment: byte[4] = [0xFE, 0xDC, 0xBA, 0x98]
+		var window: byte[2] = [0x81, 0x23]
+		stream.Reset()
+		var wordSum = stream.GetWordSum()
+		assert wordSum == 0
+		assert tcp.CalculatePayloadChecksumFromBytes(local, remote, port, remotePort, sequence, acknowledgment, 0x12, window, 20, wordSum) == 33720
+		assert tcp.CalculatePayloadChecksum(192, 168, 1, 128, 254, 220, 186, 152, 0, 80, 192, 129, 128, 18, 52, 255, 254, 220, 186, 152, 18, 129, 35, 20, wordSum) == 33720
+		assert tcp.CalculateFixedHeaderChecksumFromBytes(local, remote, port, remotePort, sequence, acknowledgment, 0x12, window) == 33720
+		assert tcp.CalculateFixedHeaderChecksum(192, 168, 1, 128, 254, 220, 186, 152, 0, 80, 192, 129, 128, 18, 52, 255, 254, 220, 186, 152, 18, 129, 35) == 33720
+	}
+
+	@Test
+	fn TcpOddPayload()
+	{
+		var local: byte[4] = [0xC0, 0xA8, 0x01, 0x80]
+		var remote: byte[4] = [0xFE, 0xDC, 0xBA, 0x98]
+		var port: byte[2] = [0x00, 0x50]
+		var remotePort: byte[2] = [0xC0, 0x81]
+		var sequence: byte[4] = [0x80, 0x12, 0x34, 0xFF]
+		var acknowledgment: byte[4] = [0xFE, 0xDC, 0xBA, 0x98]
+		var window: byte[2] = [0x81, 0x23]
+		stream.Reset()
+		var payload: byte[3] = [0x80, 0xFF, 0x01]
+		for (var i = 0; i < 3; i++) { stream.AddByte(payload[i]) }
+		var wordSum = stream.GetWordSum()
+		assert wordSum == 33279
+		assert tcp.CalculatePayloadChecksumFromBytes(local, remote, port, remotePort, sequence, acknowledgment, 0x12, window, 23, wordSum) == 438
+		assert tcp.CalculatePayloadChecksum(192, 168, 1, 128, 254, 220, 186, 152, 0, 80, 192, 129, 128, 18, 52, 255, 254, 220, 186, 152, 18, 129, 35, 23, wordSum) == 438
+	}
+
+	@Test
+	fn TcpEvenPayload()
+	{
+		var local: byte[4] = [0xC0, 0xA8, 0x01, 0x80]
+		var remote: byte[4] = [0xFE, 0xDC, 0xBA, 0x98]
+		var port: byte[2] = [0x00, 0x50]
+		var remotePort: byte[2] = [0xC0, 0x81]
+		var sequence: byte[4] = [0x80, 0x12, 0x34, 0xFF]
+		var acknowledgment: byte[4] = [0xFE, 0xDC, 0xBA, 0x98]
+		var window: byte[2] = [0x81, 0x23]
+		stream.Reset()
+		var payload: byte[4] = [0xFF, 0xFF, 0xFF, 0xFF]
+		for (var i = 0; i < 4; i++) { stream.AddByte(payload[i]) }
+		var wordSum = stream.GetWordSum()
+		assert wordSum == 131070
+		assert tcp.CalculatePayloadChecksumFromBytes(local, remote, port, remotePort, sequence, acknowledgment, 0x12, window, 24, wordSum) == 33716
+		assert tcp.CalculatePayloadChecksum(192, 168, 1, 128, 254, 220, 186, 152, 0, 80, 192, 129, 128, 18, 52, 255, 254, 220, 186, 152, 18, 129, 35, 24, wordSum) == 33716
+	}
+
+	@Test
+	fn TcpCarryHeavyPayload()
+	{
+		var local: byte[4] = [0xFF, 0xFF, 0xFF, 0xFF]
+		var remote: byte[4] = [0xFF, 0xFF, 0xFF, 0xFF]
+		var port: byte[2] = [0xFF, 0xFF]
+		var remotePort: byte[2] = [0xFF, 0xFF]
+		var sequence: byte[4] = [0xFF, 0xFF, 0xFF, 0xFF]
+		var acknowledgment: byte[4] = [0xFF, 0xFF, 0xFF, 0xFF]
+		var window: byte[2] = [0xFF, 0xFF]
+		// Sum of 65495 bytes of 0xFF, with the final odd byte padded by zero.
+		var wordSum = 2146139925
+		assert tcp.CalculatePayloadChecksumFromBytes(local, remote, port, remotePort, sequence, acknowledgment, 0xFF, window, 65515, wordSum) == 45069
+		assert tcp.CalculatePayloadChecksum(255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 65515, wordSum) == 45069
+	}
+
+	@Test
+	fn FoldsNonNegativeIntBoundary()
+	{
+		assert ChecksumArithmetic.Finish(0) == 65535
+		assert ChecksumArithmetic.Finish(65535) == 0
+		assert ChecksumArithmetic.Finish(65536) == 65534
+		assert ChecksumArithmetic.Finish(2147483647) == 32768
+	}
+}
