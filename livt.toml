@@ -1,6 +1,6 @@
 [project]
 name = "Livt.Net"
-version = "1.0.1"
+version = "1.1.0-dev"
 path = "src"
 outdir = "out"
 
@@ -12,6 +12,9 @@ components = [
 	"ArpResponderTest",
 	"EthernetFrameBuilderTest",
 	"EthernetFrameIoTest",
+	"EthernetFrameBufferTest",
+	"FrameCapacityTest",
+	"FrameCompositionTest",
 	"EthernetFrameParserTest",
 	"IcmpEchoResponderTest",
 	"InternetChecksumTest",
@@ -27,4 +30,4 @@ components = [
 ]
 
 [dependencies]
-Livt.IO = "1.0.1"
+Livt.IO = "1.2.0-dev"

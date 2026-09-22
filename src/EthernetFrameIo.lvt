@@ -8,12 +8,15 @@ using Livt.IO
  *
  * Complete-frame byte buffer used as a small platform-neutral Ethernet I/O boundary.
  */
-component EthernetFrameIo
+component EthernetFrameIo<RX_CAPACITY: int = 128, RX_STORAGE_CAPACITY: int = 2048, TX_STORAGE_CAPACITY: int = 2048>
 {
+	static assert RX_CAPACITY > 0 && RX_CAPACITY <= 2036 && RX_CAPACITY % 4 == 0, "RX capture must be word aligned and fit below EthernetLite registers"
+	static assert RX_STORAGE_CAPACITY >= RX_CAPACITY && RX_STORAGE_CAPACITY <= 2048, "RX storage must hold the captured prefix"
+	static assert TX_STORAGE_CAPACITY > 0 && TX_STORAGE_CAPACITY <= 2048, "TX storage must fit the EthernetLite window"
 	const AXI_STRB_ALL: logic[4] = 0b1111
 	const AXI_STRB_NONE: logic[4] = 0b0000
-	const RX_FRAME_WORDS: int = 32
-	const TX_BUFFER_WORDS: int = 511
+	const RX_FRAME_WORDS: int = RX_CAPACITY / 4
+	public const MAX_TX_LENGTH: int = 2036
 	const TX_PING_BASE: logic[13] = 0b0000000000000
 	const TX_PING_LENGTH: logic[13] = 0b0011111110100
 	const TX_PING_CONTROL: logic[13] = 0b0011111111100
@@ -24,6 +27,25 @@ component EthernetFrameIo
 	const RX_PONG_BASE: logic[13] = 0b1100000000000
 	const RX_PONG_CONTROL: logic[13] = 0b1111111111100
 
+	// Explicit live AXI wiring; scheduled interface access adds register stages.
+	busAwready: logic
+	busAwaddr: logic[13]
+	busAwvalid: logic
+	busWready: logic
+	busWdata: logic[32]
+	busWstrb: logic[4]
+	busWvalid: logic
+	busBresp: logic[2]
+	busBvalid: logic
+	busBready: logic
+	busArready: logic
+	busAraddr: logic[13]
+	busArvalid: logic
+	busRdata: logic[32]
+	busRresp: logic[2]
+	busRvalid: logic
+	busRready: logic
+
 	axi: IAxi4LiteEthernetLiteMaster
 	localMac0: logic[8]
 	localMac1: logic[8]
@@ -32,13 +54,16 @@ component EthernetFrameIo
 	localMac4: logic[8]
 	localMac5: logic[8]
 	hasProgrammedMac: bool
-	rxFrame: byte[128]
+	rxFrame: byte[RX_CAPACITY]
 	rxFrameFromAxi: bool
-	rxWords: Ram
+	rxWords: Ram<byte, RX_STORAGE_CAPACITY>
 	hasRxFrame: bool
-	txWords: Ram
+	txWords: Ram<byte, TX_STORAGE_CAPACITY>
 	hasTxFrame: bool
 	txFrameSent: bool
+	txWritten: int
+	txPreparing: bool
+	rxWritten: int
 	txLength: int
 
 	new(axi: IAxi4LiteEthernetLiteMaster, local_mac: in byte[6])
@@ -50,19 +75,22 @@ component EthernetFrameIo
 		this.localMac3 = local_mac[3]
 		this.localMac4 = local_mac[4]
 		this.localMac5 = local_mac[5]
-		this.rxWords = new Ram()
-		this.txWords = new Ram()
+		this.rxWords = new Ram<byte, RX_STORAGE_CAPACITY>()
+		this.txWords = new Ram<byte, TX_STORAGE_CAPACITY>()
 		this.hasProgrammedMac = false
 		this.rxFrameFromAxi = false
 		this.hasRxFrame = false
 		this.hasTxFrame = false
 		this.txFrameSent = false
+		this.txWritten = 0
+		this.txPreparing = false
+		this.rxWritten = 0
 		this.txLength = 0
 	}
 
 	/**
 	 * Packs four frame bytes into one 32-bit EthernetLite transmit word.
-	 * Bits 31..24: byte0; bits 23..16: byte1; bits 15..8: byte2; bits 7..0: byte3.
+	 * Bits 7..0: byte0; bits 15..8: byte1; bits 23..16: byte2; bits 31..24: byte3.
 	 */
 	public fn PackTxWord(byte0: logic[8], byte1: logic[8], byte2: logic[8], byte3: logic[8]) logic[32]
 	{
@@ -77,6 +105,28 @@ component EthernetFrameIo
 		}
 
 		return word
+	}
+
+	/** Declares live AXI wiring; the current compiler boundary defect is documented in migration evidence. */
+	process AxiPorts[]()
+	{
+		this.busAwready = this.axi.m_axi_awready
+		this.axi.m_axi_awaddr = this.busAwaddr
+		this.axi.m_axi_awvalid = this.busAwvalid
+		this.busWready = this.axi.m_axi_wready
+		this.axi.m_axi_wdata = this.busWdata
+		this.axi.m_axi_wstrb = this.busWstrb
+		this.axi.m_axi_wvalid = this.busWvalid
+		this.busBresp = this.axi.m_axi_bresp
+		this.busBvalid = this.axi.m_axi_bvalid
+		this.axi.m_axi_bready = this.busBready
+		this.busArready = this.axi.m_axi_arready
+		this.axi.m_axi_araddr = this.busAraddr
+		this.axi.m_axi_arvalid = this.busArvalid
+		this.busRdata = this.axi.m_axi_rdata
+		this.busRresp = this.axi.m_axi_rresp
+		this.busRvalid = this.axi.m_axi_rvalid
+		this.axi.m_axi_rready = this.busRready
 	}
 
 	process AccessEthernetLite()
@@ -107,15 +157,15 @@ component EthernetFrameIo
 		var txByte3: logic[8] = 0x00
 
 		state Idle {
-			this.axi.m_axi_awaddr = 0b0000000000000
-			this.axi.m_axi_awvalid = 0b0
-			this.axi.m_axi_wdata = 0x00000000
-			this.axi.m_axi_wstrb = AXI_STRB_NONE
-			this.axi.m_axi_wvalid = 0b0
-			this.axi.m_axi_bready = 0b0
-			this.axi.m_axi_araddr = 0b0000000000000
-			this.axi.m_axi_arvalid = 0b0
-			this.axi.m_axi_rready = 0b0
+			this.busAwaddr = 0b0000000000000
+			this.busAwvalid = 0b0
+			this.busWdata = 0x00000000
+			this.busWstrb = AXI_STRB_NONE
+			this.busWvalid = 0b0
+			this.busBready = 0b0
+			this.busAraddr = 0b0000000000000
+			this.busArvalid = 0b0
+			this.busRready = 0b0
 			writeAddressDone = false
 			writeDataDone = false
 
@@ -150,41 +200,41 @@ component EthernetFrameIo
 		}
 
 		state ReadStart {
-			this.axi.m_axi_araddr = readAddress
-			this.axi.m_axi_arvalid = 0b1
-			this.axi.m_axi_rready = 0b0
+			this.busAraddr = readAddress
+			this.busArvalid = 0b1
+			this.busRready = 0b0
 			goto ReadAddress
 		}
 
 		state ReadAddress {
-			this.axi.m_axi_araddr = readAddress
-			this.axi.m_axi_rready = 0b0
+			this.busAraddr = readAddress
+			this.busRready = 0b0
 
-			if (this.axi.m_axi_arready)
+			if (this.busArready)
 			{
-				this.axi.m_axi_arvalid = 0b0
+				this.busArvalid = 0b0
 				goto ReadData
 			}
 			else
 			{
-				this.axi.m_axi_arvalid = 0b1
+				this.busArvalid = 0b1
 				goto ReadAddress
 			}
 		}
 
 		state ReadData {
-			this.axi.m_axi_arvalid = 0b0
-			this.axi.m_axi_rready = 0b1
+			this.busArvalid = 0b0
+			this.busRready = 0b1
 			goto WaitReadData
 		}
 
 		state WaitReadData {
-			this.axi.m_axi_arvalid = 0b0
-			this.axi.m_axi_rready = 0b1
+			this.busArvalid = 0b0
+			this.busRready = 0b1
 
-			if (this.axi.m_axi_rvalid)
+			if (this.busRvalid)
 			{
-				readData = this.axi.m_axi_rdata
+				readData = this.busRdata
 				goto ReadComplete
 			}
 			else
@@ -194,8 +244,8 @@ component EthernetFrameIo
 		}
 
 		state ReadComplete {
-			this.axi.m_axi_arvalid = 0b0
-			this.axi.m_axi_rready = 0b0
+			this.busArvalid = 0b0
+			this.busRready = 0b0
 
 			if (readPurpose == 1)
 			{
@@ -324,10 +374,6 @@ component EthernetFrameIo
 				txWordIndex = 0
 				txWordCount = (this.txLength + 3) / 4
 
-				if (txWordCount > TX_BUFFER_WORDS)
-				{
-					txWordCount = TX_BUFFER_WORDS
-				}
 
 				goto TxWriteDataStart
 			}
@@ -381,25 +427,25 @@ component EthernetFrameIo
 		}
 
 		state RxStoreWordByte0 {
-			this.rxWords.WriteByte(rxByteAddr, rxByte0)
+			this.rxWords.Write(rxByteAddr, rxByte0)
 			goto RxStoreWordByte1
 		}
 
 		state RxStoreWordByte1 {
 			rxByteAddr = rxByteAddr + 1
-			this.rxWords.WriteByte(rxByteAddr, rxByte1)
+			this.rxWords.Write(rxByteAddr, rxByte1)
 			goto RxStoreWordByte2
 		}
 
 		state RxStoreWordByte2 {
 			rxByteAddr = rxByteAddr + 1
-			this.rxWords.WriteByte(rxByteAddr, rxByte2)
+			this.rxWords.Write(rxByteAddr, rxByte2)
 			goto RxStoreWordByte3
 		}
 
 		state RxStoreWordByte3 {
 			rxByteAddr = rxByteAddr + 1
-			this.rxWords.WriteByte(rxByteAddr, rxByte3)
+			this.rxWords.Write(rxByteAddr, rxByte3)
 			goto RxAdvanceWord
 		}
 
@@ -445,25 +491,41 @@ component EthernetFrameIo
 		}
 
 		state TxReadByte0 {
-			txByte0 = this.txWords.ReadByte(txByteAddr)
+			txByte0 = 0x00
+			if (txByteAddr < this.txLength)
+			{
+				txByte0 = this.txWords.Read(txByteAddr)
+			}
 			goto TxReadByte1
 		}
 
 		state TxReadByte1 {
 			txByteAddr = txByteAddr + 1
-			txByte1 = this.txWords.ReadByte(txByteAddr)
+			txByte1 = 0x00
+			if (txByteAddr < this.txLength)
+			{
+				txByte1 = this.txWords.Read(txByteAddr)
+			}
 			goto TxReadByte2
 		}
 
 		state TxReadByte2 {
 			txByteAddr = txByteAddr + 1
-			txByte2 = this.txWords.ReadByte(txByteAddr)
+			txByte2 = 0x00
+			if (txByteAddr < this.txLength)
+			{
+				txByte2 = this.txWords.Read(txByteAddr)
+			}
 			goto TxReadByte3
 		}
 
 		state TxReadByte3 {
 			txByteAddr = txByteAddr + 1
-			txByte3 = this.txWords.ReadByte(txByteAddr)
+			txByte3 = 0x00
+			if (txByteAddr < this.txLength)
+			{
+				txByte3 = this.txWords.Read(txByteAddr)
+			}
 			goto TxPackWord
 		}
 
@@ -605,49 +667,51 @@ component EthernetFrameIo
 		}
 
 		state WriteStart {
-			this.axi.m_axi_awaddr = writeAddress
-			this.axi.m_axi_awvalid = 0b1
-			this.axi.m_axi_wdata = writeData
-			this.axi.m_axi_wstrb = AXI_STRB_ALL
-			this.axi.m_axi_wvalid = 0b1
-			this.axi.m_axi_bready = 0b0
+			this.busAwaddr = writeAddress
+			this.busAwvalid = 0b1
+			this.busWdata = writeData
+			this.busWstrb = AXI_STRB_ALL
+			this.busWvalid = 0b1
+			this.busBready = 0b0
 			writeAddressDone = false
 			writeDataDone = false
 			goto WriteAddressAndData
 		}
 
 		state WriteAddressAndData {
-			this.axi.m_axi_awaddr = writeAddress
-			this.axi.m_axi_wdata = writeData
-			this.axi.m_axi_wstrb = AXI_STRB_ALL
-			this.axi.m_axi_bready = 0b0
+			this.busAwaddr = writeAddress
+			this.busWdata = writeData
+			this.busWstrb = AXI_STRB_ALL
+			this.busBready = 0b0
 
 			if (writeAddressDone == false)
 			{
-				this.axi.m_axi_awvalid = 0b1
+				this.busAwvalid = 0b1
 			}
 			else
 			{
-				this.axi.m_axi_awvalid = 0b0
+				this.busAwvalid = 0b0
 			}
 
 			if (writeDataDone == false)
 			{
-				this.axi.m_axi_wvalid = 0b1
+				this.busWvalid = 0b1
 			}
 			else
 			{
-				this.axi.m_axi_wvalid = 0b0
+				this.busWvalid = 0b0
 			}
 
-			if (this.axi.m_axi_awready)
+			if (this.busAwready)
 			{
 				writeAddressDone = true
+				this.busAwvalid = 0b0
 			}
 
-			if (this.axi.m_axi_wready)
+			if (this.busWready)
 			{
 				writeDataDone = true
+				this.busWvalid = 0b0
 			}
 
 			if (writeAddressDone && writeDataDone)
@@ -661,20 +725,20 @@ component EthernetFrameIo
 		}
 
 		state WriteResponse {
-			this.axi.m_axi_awvalid = 0b0
-			this.axi.m_axi_wvalid = 0b0
-			this.axi.m_axi_wstrb = AXI_STRB_NONE
-			this.axi.m_axi_bready = 0b1
+			this.busAwvalid = 0b0
+			this.busWvalid = 0b0
+			this.busWstrb = AXI_STRB_NONE
+			this.busBready = 0b1
 			goto WaitWriteResponse
 		}
 
 		state WaitWriteResponse {
-			this.axi.m_axi_awvalid = 0b0
-			this.axi.m_axi_wvalid = 0b0
-			this.axi.m_axi_wstrb = AXI_STRB_NONE
-			this.axi.m_axi_bready = 0b1
+			this.busAwvalid = 0b0
+			this.busWvalid = 0b0
+			this.busWstrb = AXI_STRB_NONE
+			this.busBready = 0b1
 
-			if (this.axi.m_axi_bvalid)
+			if (this.busBvalid)
 			{
 				goto WriteComplete
 			}
@@ -685,7 +749,7 @@ component EthernetFrameIo
 		}
 
 		state WriteComplete {
-			this.axi.m_axi_bready = 0b0
+			this.busBready = 0b0
 
 			if (writePurpose == 1)
 			{
@@ -792,132 +856,130 @@ component EthernetFrameIo
 		}
 
 		state CompleteMacProgramControlWrite {
+			// A caller may have queued TX while MAC programming was in flight.
 			this.hasProgrammedMac = true
-			this.hasTxFrame = false
-			this.txFrameSent = false
 			goto Idle
 		}
 	}
 
 	/**
-	 * Stores one received frame byte at the given frame index.
+	 * Appends or overwrites an initialized injected RX byte. Use one caller;
+	 * injection and hardware RX must not run concurrently.
 	 */
 	public fn LoadRxByte(index: int, value: byte)
 	{
+		if (this.hasRxFrame || index < 0 || index >= RX_CAPACITY || index > this.rxWritten) { return }
 		this.rxFrameFromAxi = false
 		this.rxFrame[index] = value
+		if (index == this.rxWritten) { this.rxWritten = this.rxWritten + 1 }
 	}
 
-	/**
-	 * Marks the receive buffer as containing one complete frame.
-	 */
+	/** Publishes only a completely initialized injected capture buffer. */
 	public fn SubmitRxFrame()
 	{
-		this.rxFrameFromAxi = false
-		this.hasRxFrame = true
+		if (this.rxWritten == RX_CAPACITY && !this.hasRxFrame)
+		{
+			this.rxFrameFromAxi = false
+			this.hasRxFrame = true
+		}
 	}
 
-	/**
-	 * Returns true while a complete received frame is waiting to be consumed.
-	 */
-	public fn IsFrameAvailable() bool
-	{
-		return this.hasRxFrame
-	}
+	/** Reports a captured frame awaiting consumption. */
+	public fn IsFrameAvailable() bool { return this.hasRxFrame }
 
-	/**
-	 * Reads one byte from the current received frame.
-	 */
+	/** Returns zero for unavailable frames and indices outside the capture. */
 	public fn GetRxByte(index: int) byte
 	{
-		if (this.rxFrameFromAxi == true)
-		{
-			return this.rxWords.ReadByte(index)
-		}
-
+		if (!this.hasRxFrame || index < 0 || index >= RX_CAPACITY) { return 0x00 }
+		if (this.rxFrameFromAxi) { return this.rxWords.Read(index) }
 		return this.rxFrame[index]
 	}
 
-	/**
-	 * Clears the frame-available flag after the current frame has been copied.
-	 */
+	/** Releases the current capture and invalidates injected payload metadata. */
 	public fn ConsumeRxFrame()
 	{
 		this.hasRxFrame = false
+		this.rxWritten = 0
 	}
 
-	/**
-	 * Starts a transmitted frame with the given byte length.
-	 */
-	public fn BeginTxFrame(length: int)
+	/** Starts a frame, preserving an already submitted frame on failure. */
+	public fn TryBeginTxFrame(length: int) bool
 	{
-		this.txLength = length
-		this.hasTxFrame = false
+		if (this.hasTxFrame) { return false }
+		this.txPreparing = false
+		this.txWritten = 0
+		this.txLength = 0
 		this.txFrameSent = false
+		if (length <= 0 || length > MAX_TX_LENGTH || length > TX_STORAGE_CAPACITY) { return false }
+		this.txLength = length
+		this.txPreparing = true
+		return true
+	}
+
+	/** Compatibility entry point; use TryBeginTxFrame to observe rejection. */
+	public fn BeginTxFrame(length: int) {
+		this.TryBeginTxFrame(length)
 	}
 
 	/**
-	 * Stores one transmitted frame byte at the given frame index.
+	 * Appends the next byte or overwrites an initialized byte before submission.
+	 * Holes are rejected so retained RAM cells cannot become new frame payload.
 	 */
-	public fn WriteTxByte(index: int, value: logic[8])
+	public fn TryWriteTxByte(index: int, value: logic[8]) bool
 	{
-		this.txWords.WriteByte(index, value)
+		if (!this.txPreparing || this.hasTxFrame || index < 0 || index >= this.txLength || index > this.txWritten) { return false }
+		this.txWords.Write(index, value as byte)
+		if (index == this.txWritten) { this.txWritten = this.txWritten + 1 }
+		return true
 	}
 
-	/**
-	 * Marks the transmit buffer as containing one complete frame.
-	 */
-	public fn SubmitTxFrame()
+	/** Compatibility entry point; invalid or out-of-order writes are ignored. */
+	public fn WriteTxByte(index: int, value: logic[8]) {
+		this.TryWriteTxByte(index, value)
+	}
+
+	/** Submits exactly one completely initialized frame. */
+	public fn TrySubmitTxFrame() bool
 	{
+		if (!this.txPreparing || this.hasTxFrame || this.txWritten != this.txLength) { return false }
+		this.txPreparing = false
 		this.hasTxFrame = true
+		return true
 	}
 
-	/**
-	 * Returns true while a complete transmitted frame is waiting to be consumed.
-	 */
-	public fn HasTxFrame() bool
-	{
-		return this.hasTxFrame
+	/** Compatibility entry point; incomplete and repeated submissions do nothing. */
+	public fn SubmitTxFrame() {
+		this.TrySubmitTxFrame()
 	}
 
-	/**
-	 * Returns true after the current TX frame has been written to EthernetLite.
-	 */
-	public fn HasSentFrameToAxi() bool
-	{
-		return this.txFrameSent
-	}
+	/** Reports queued or in-flight TX ownership by the hardware process. */
+	public fn HasTxFrame() bool { return this.hasTxFrame }
 
-	/**
-	 * Returns true after EthernetLite's internal MAC address RAM was programmed.
-	 */
-	public fn HasProgrammedMac() bool
-	{
-		return this.hasProgrammedMac
-	}
+	/** Reports delivery to EthernetLite, not completion on the physical link. */
+	public fn HasSentFrameToAxi() bool { return this.txFrameSent }
 
-	/**
-	 * Returns the byte length of the current transmitted frame.
-	 */
-	public fn GetTxLength() int
-	{
-		return this.txLength
-	}
+	/** Reports completion of the EthernetLite MAC-programming commands. */
+	public fn HasProgrammedMac() bool { return this.hasProgrammedMac }
 
-	/**
-	 * Reads one byte from the current transmitted frame.
-	 */
+	/** Returns the accepted frame length, or zero after an invalid begin. */
+	public fn GetTxLength() int { return this.txLength }
+
+	/** Reads initialized bytes only; invalid and unwritten indices return zero. */
 	public fn GetTxByte(index: int) logic[8]
 	{
-		return this.txWords.ReadByte(index)
+		if (index < 0 || index >= this.txWritten) { return 0x00 }
+		return this.txWords.Read(index)
 	}
 
-	/**
-	 * Clears the transmit-frame-available flag after the frame has been copied out.
-	 */
+	/** Releases local metadata only when no hardware transfer owns the frame. */
 	public fn ConsumeTxFrame()
 	{
-		this.hasTxFrame = false
+		if (!this.hasTxFrame)
+		{
+			this.txPreparing = false
+			this.txWritten = 0
+			this.txLength = 0
+		}
 	}
 
 	// AXI test accessors — expose the internal AXI interface signals for simulation tests.

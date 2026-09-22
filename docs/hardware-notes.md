@@ -2,9 +2,9 @@
 
 ## Frame Model
 
-`Livt.Net` uses fixed-size frame arrays and byte-indexed helpers. Ethernet and
-ARP helpers operate on `byte[64]` where the minimum Ethernet frame is enough.
-IPv4, ICMP, TCP, and frame-I/O helpers use `byte[128]` where
+`Livt.Net` uses compile-time-sized frame arrays and byte-indexed helpers. Ethernet parsing and
+ARP helpers default to `byte[64]` where the minimum Ethernet frame is enough.
+IPv4, ICMP, TCP, and frame-I/O helpers default to `byte[128]` where
 the current request/response tests need more payload space.
 
 The package assumes Ethernet II frames and fixed 20-byte IPv4 and TCP headers.
@@ -55,6 +55,42 @@ low-level boundary, not as the preferred application API.
 
 ## Dependency
 
-`Livt.Net` depends on `Livt.IO` for RAM-backed frame storage in
-`EthernetFrameIo`. The nested VHDL source for `Livt.IO.InternalRam` is supplied
-by `Livt.IO`; consumers of `Livt.Net` do not need to copy VHDL files manually.
+`Livt.Net 1.1.0-dev` uses `Livt.IO 1.2.0-dev` generic scheduled RAM.
+The portable storage is generated from Livt; `InternalRam` and its handwritten
+VHDL are no longer part of the dependency.
+
+## Storage, validity and reset
+
+Defaults retain two 2048-byte stores and a 128-byte RX capture. RX storage can
+be explicitly reduced to the capture size; this is a configuration choice,
+not a claim about resulting FPGA resource use. Auto supplies no placement hint.
+
+All declared TX payload bytes must be initialized before submission. Reopening
+or consuming a buffer invalidates its initialized prefix without clearing RAM.
+Unavailable RX reads and invalid/unwritten TX reads return zero. Reset cancels
+scheduled work, clears frame metadata and restarts MAC programming. Committed
+RAM cells remain stored. The EthernetLite slave must share reset; resetting only
+the master during an AXI transaction is not a supported recovery protocol.
+
+`EthernetFrameIo` captures a fixed RX prefix, not an authoritative wire length.
+Its AXI interface does not report the actual received length. Applications must
+validate protocol lengths and provide a trustworthy valid prefix length to
+classifiers when available. A larger array does not make truncated packets valid.
+
+## Transmit bounds and padding
+
+The length register is at byte offset `0x7F4` (2036), before the control register
+at `0x7FC`. Payload writes must stay below `0x7F4`; the former 511-word cap could
+write into the register area. The checked API now accepts lengths from 1 through
+`min(TX_STORAGE_CAPACITY, 2036)` and rejects all others.
+
+Byte zero occupies bits 7..0 of an AXI word. The last word's unused high lanes
+are zeroed without reading unwritten RAM. Applications still supply any required
+Ethernet minimum-frame padding; bus-word padding is a separate operation.
+
+## Verification and performance
+
+See [the native AXI verification](../verification/ethernet/README.md) for edge
+checks, measured transfer timings and any release blockers. Scheduled calls,
+RAM arbitration and device stalls all contribute to latency. No area, Fmax or
+board-readiness claim follows from passing Livt simulations alone.

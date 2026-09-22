@@ -1,7 +1,7 @@
 # Livt.Net Design Notes
 
 These notes apply the Livt design guide to the current `Livt.Net` package
-without changing the critical source implementation.
+with compile-time capacities and explicit buffer ownership.
 
 ## Package Boundary
 
@@ -24,7 +24,7 @@ Application packages should own:
 
 Web-server components live in `Livt.Web`; `Livt.Net` keeps only reusable packet and frame-I/O primitives.
 
-still own the response body bytes and body checksum metadata.
+Applications also own response body bytes and body checksum metadata.
 
 ## Naming and Namespaces
 
@@ -56,7 +56,7 @@ published surface until a planned API cleanup can safely change call sites.
 
 ## Current Limits
 
-The current package contract is fixed-size:
+The default package configuration uses:
 
 - 64-byte Ethernet/ARP helper frames
 - 128-byte endpoint/request frames
@@ -66,4 +66,24 @@ The current package contract is fixed-size:
 
 
 Future releases may introduce domain folders, clearer app-package separation,
-larger frame buffers, UDP, and streaming response adapters.
+UDP, and streaming response adapters.
+
+## Compile-time specialization
+
+Frame consumers use defaulted integer value parameters; child parsers and
+builders receive the same capacity. Static assertions enforce the minimum required
+header capacity (verified with compiler #492). Classifier length defaults use the
+receiver's `FRAME_CAPACITY`; explicit lengths retain their bounds checks.
+Network payload types remain `byte`;
+only hardware boundaries use logic vectors. No runtime size selection is added.
+
+Frame I/O owns concrete Auto-style `Ram<byte, RX_STORAGE_CAPACITY>` and
+`Ram<byte, TX_STORAGE_CAPACITY>` instances. Scheduled memory
+access remains the application contract. Configuration does not imply one-cycle
+methods, physical RAM mapping, or measured FPGA timing. Backend injection and
+streaming are separate extensions, subject to measured need.
+
+Use a single application process that serializes frame lifecycle calls. Checked TX methods
+accept contiguous writes and overwrites within the initialized prefix; they
+reject holes, writes after submission and attempts to replace an in-flight frame.
+`ConsumeTxFrame()` cannot cancel device-owned work.

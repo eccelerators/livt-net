@@ -6,15 +6,16 @@ namespace Livt.Net
  *
  * Recognizes TCP SYN and ACK-only segments for the minimal three-way handshake FSM.
  */
-component TcpConnectionRecognizer
+component TcpConnectionRecognizer<FRAME_CAPACITY: int = 128>
 {
-	ipv4: Ipv4PacketParser
-	tcp: TcpHeaderParser
+	static assert FRAME_CAPACITY >= 54, "Frame capacity must hold the required protocol header"
+	ipv4: Ipv4PacketParser<FRAME_CAPACITY>
+	tcp: TcpHeaderParser<FRAME_CAPACITY>
 
 	new()
 	{
-		this.ipv4 = new Ipv4PacketParser()
-		this.tcp = new TcpHeaderParser()
+		this.ipv4 = new Ipv4PacketParser<FRAME_CAPACITY>()
+		this.tcp = new TcpHeaderParser<FRAME_CAPACITY>()
 	}
 
 	/**
@@ -22,8 +23,15 @@ component TcpConnectionRecognizer
 	 * Does not require a fixed 20-byte TCP header because host stacks often include
 	 * TCP options in the SYN.
 	 */
-	public fn IsSynRequest(frame: byte[128], localIp: byte[4], localPort: byte[2]) bool
+	public fn IsSynRequest(frame: byte[FRAME_CAPACITY], localIp: byte[4], localPort: byte[2]) bool
 	{
+		return this.IsSynRequest(frame, localIp, localPort, FRAME_CAPACITY)
+	}
+
+	/** Checks a caller-supplied valid prefix length before reading header bytes. */
+	public fn IsSynRequest(frame: byte[FRAME_CAPACITY], localIp: byte[4], localPort: byte[2], validLength: int) bool
+	{
+		if (validLength < 54 || validLength > FRAME_CAPACITY) { return false }
 		return frame[12] == 0x08
 			&& frame[13] == 0x00
 			&& this.ipv4.IsTcpForIpv4(frame, localIp[0], localIp[1], localIp[2], localIp[3])
@@ -34,8 +42,15 @@ component TcpConnectionRecognizer
 	/**
 	 * Returns true for an IPv4/TCP ACK-only segment targeting localIp/localPort.
 	 */
-	public fn IsAckOnlyPacket(frame: byte[128], localIp: byte[4], localPort: byte[2]) bool
+	public fn IsAckOnlyPacket(frame: byte[FRAME_CAPACITY], localIp: byte[4], localPort: byte[2]) bool
 	{
+		return this.IsAckOnlyPacket(frame, localIp, localPort, FRAME_CAPACITY)
+	}
+
+	/** Checks a caller-supplied valid prefix length before reading header bytes. */
+	public fn IsAckOnlyPacket(frame: byte[FRAME_CAPACITY], localIp: byte[4], localPort: byte[2], validLength: int) bool
+	{
+		if (validLength < 54 || validLength > FRAME_CAPACITY) { return false }
 		return frame[12] == 0x08
 			&& frame[13] == 0x00
 			&& this.ipv4.IsTcpForIpv4(frame, localIp[0], localIp[1], localIp[2], localIp[3])
@@ -48,8 +63,15 @@ component TcpConnectionRecognizer
 	 * Some host TCP stacks combine the three-way handshake ACK with the first
 	 * data segment (PSH+ACK, flags 0x18), skipping the ACK-only frame.
 	 */
-	public fn IsPshAckPacket(frame: byte[128], localIp: byte[4], localPort: byte[2]) bool
+	public fn IsPshAckPacket(frame: byte[FRAME_CAPACITY], localIp: byte[4], localPort: byte[2]) bool
 	{
+		return this.IsPshAckPacket(frame, localIp, localPort, FRAME_CAPACITY)
+	}
+
+	/** Checks a caller-supplied valid prefix length before reading header bytes. */
+	public fn IsPshAckPacket(frame: byte[FRAME_CAPACITY], localIp: byte[4], localPort: byte[2], validLength: int) bool
+	{
+		if (validLength < 54 || validLength > FRAME_CAPACITY) { return false }
 		return frame[12] == 0x08
 			&& frame[13] == 0x00
 			&& this.ipv4.IsTcpForIpv4(frame, localIp[0], localIp[1], localIp[2], localIp[3])

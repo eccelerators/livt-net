@@ -5,9 +5,11 @@ namespace Livt.Net
  * https://www.rfc-editor.org/rfc/rfc9293
  *
  * Parses fixed 20-byte TCP headers without options.
+ * Classifiers check the valid prefix length; omitting it uses FRAME_CAPACITY.
  */
-component TcpHeaderParser
+component TcpHeaderParser<FRAME_CAPACITY: int = 128>
 {
+	static assert FRAME_CAPACITY >= 54, "Frame capacity must hold the required protocol header"
 	// Offset of the TCP header in the Ethernet/IPv4 frame.
 	public const TCP_OFFSET: int = 34
 	// Offset of the TCP payload for fixed IPv4 and TCP headers.
@@ -28,16 +30,18 @@ component TcpHeaderParser
 	/**
 	 * Returns true when the TCP data offset indicates a fixed 20-byte header (0x50).
 	 */
-	public fn IsFixedHeader(frame: byte[128]) bool
+	public fn IsFixedHeader(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
 	{
+		if (validLength < 54 || validLength > FRAME_CAPACITY) { return false }
 		return frame[DATA_OFFSET_BYTE] == 0x50
 	}
 
 	/**
 	 * Returns true when the destination port matches the supplied local port.
 	 */
-	public fn IsForLocalPort(frame: byte[128], portHigh: byte, portLow: byte) bool
+	public fn IsForLocalPort(frame: byte[FRAME_CAPACITY], portHigh: byte, portLow: byte, validLength: int = FRAME_CAPACITY) bool
 	{
+		if (validLength < 54 || validLength > FRAME_CAPACITY) { return false }
 		return frame[DESTINATION_PORT_OFFSET] == portHigh
 			&& frame[DESTINATION_PORT_OFFSET + 1] == portLow
 	}
@@ -45,40 +49,45 @@ component TcpHeaderParser
 	/**
 	 * Returns true when the TCP flags byte contains only SYN (0x02).
 	 */
-	public fn IsSynOnly(frame: byte[128]) bool
+	public fn IsSynOnly(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
 	{
+		if (validLength < 54 || validLength > FRAME_CAPACITY) { return false }
 		return frame[FLAGS_BYTE] == 0x02
 	}
 
 	/**
 	 * Returns true when the TCP flags byte contains only ACK (0x10).
 	 */
-	public fn IsAckOnly(frame: byte[128]) bool
+	public fn IsAckOnly(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
 	{
+		if (validLength < 54 || validLength > FRAME_CAPACITY) { return false }
 		return frame[FLAGS_BYTE] == 0x10
 	}
 
 	/**
 	 * Returns true when the TCP flags byte contains PSH and ACK (0x18).
 	 */
-	public fn IsPshAck(frame: byte[128]) bool
+	public fn IsPshAck(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
 	{
+		if (validLength < 54 || validLength > FRAME_CAPACITY) { return false }
 		return frame[FLAGS_BYTE] == 0x18
 	}
 
 	/**
 	 * Returns true when the TCP flags byte contains FIN and ACK (0x11).
 	 */
-	public fn IsFinAck(frame: byte[128]) bool
+	public fn IsFinAck(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
 	{
+		if (validLength < 54 || validLength > FRAME_CAPACITY) { return false }
 		return frame[FLAGS_BYTE] == 0x11
 	}
 
 	/**
 	 * Returns true for a fixed-header TCP segment targeting the supplied local port.
 	 */
-	public fn IsFixedHeaderForLocalPort(frame: byte[128], portHigh: byte, portLow: byte) bool
+	public fn IsFixedHeaderForLocalPort(frame: byte[FRAME_CAPACITY], portHigh: byte, portLow: byte, validLength: int = FRAME_CAPACITY) bool
 	{
+		if (validLength < 54 || validLength > FRAME_CAPACITY) { return false }
 		return this.IsFixedHeader(frame)
 			&& this.IsForLocalPort(frame, portHigh, portLow)
 	}
@@ -94,7 +103,7 @@ component TcpHeaderParser
 	/**
 	 * Reads the high byte of the TCP source port.
 	 */
-	public fn GetSourcePortHighByte(frame: byte[128]) byte
+	public fn GetSourcePortHighByte(frame: byte[FRAME_CAPACITY]) byte
 	{
 		return frame[SOURCE_PORT_OFFSET]
 	}
@@ -102,7 +111,7 @@ component TcpHeaderParser
 	/**
 	 * Reads the low byte of the TCP source port.
 	 */
-	public fn GetSourcePortLowByte(frame: byte[128]) byte
+	public fn GetSourcePortLowByte(frame: byte[FRAME_CAPACITY]) byte
 	{
 		return frame[SOURCE_PORT_OFFSET + 1]
 	}
@@ -110,16 +119,18 @@ component TcpHeaderParser
 	/**
 	 * Reads one byte from the TCP sequence number.
 	 */
-	public fn GetSequenceNumberByte(frame: byte[128], index: int) byte
+	public fn GetSequenceNumberByte(frame: byte[FRAME_CAPACITY], index: int) byte
 	{
+		if (index < 0 || index >= 4) { return 0x00 }
 		return frame[SEQUENCE_NUMBER_OFFSET + index]
 	}
 
 	/**
 	 * Reads one byte from the TCP acknowledgment number.
 	 */
-	public fn GetAcknowledgmentNumberByte(frame: byte[128], index: int) byte
+	public fn GetAcknowledgmentNumberByte(frame: byte[FRAME_CAPACITY], index: int) byte
 	{
+		if (index < 0 || index >= 4) { return 0x00 }
 		return frame[ACKNOWLEDGMENT_NUMBER_OFFSET + index]
 	}
 }

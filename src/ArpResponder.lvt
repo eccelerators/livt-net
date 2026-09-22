@@ -6,23 +6,33 @@ namespace Livt.Net
  *
  * Recognizes local ARP requests and emits ARP reply bytes.
  */
-component ArpResponder
+component ArpResponder<FRAME_CAPACITY: int = 64>
 {
+	static assert FRAME_CAPACITY >= 42, "Frame capacity must hold the required protocol header"
 	// Request frame offset of the ARP sender hardware (MAC) address.
 	const SENDER_MAC_OFFSET: int = 22
+	// EtherType ARP, Ethernet/IPv4 address formats, and reply opcode.
+	const REPLY_HEADER: byte[10] = [0x08, 0x06, 0x00, 0x01, 0x08, 0x00, 0x06, 0x04, 0x00, 0x02]
 
-	parser: ArpPacketParser
+	parser: ArpPacketParser<FRAME_CAPACITY>
 
 	new()
 	{
-		this.parser = new ArpPacketParser()
+		this.parser = new ArpPacketParser<FRAME_CAPACITY>()
 	}
 
 	/**
 	 * Returns true when the frame is an Ethernet/IPv4 ARP request for localIp.
 	 */
-	public fn ShouldRespond(frame: byte[64], localIp: byte[4]) bool
+	public fn ShouldRespond(frame: byte[FRAME_CAPACITY], localIp: byte[4]) bool
 	{
+		return this.ShouldRespond(frame, localIp, FRAME_CAPACITY)
+	}
+
+	/** Checks a caller-supplied valid prefix length before reading header bytes. */
+	public fn ShouldRespond(frame: byte[FRAME_CAPACITY], localIp: byte[4], validLength: int) bool
+	{
+		if (validLength < 42 || validLength > FRAME_CAPACITY) { return false }
 		return this.parser.IsRequestForIpv4(frame, localIp[0], localIp[1], localIp[2], localIp[3])
 	}
 
@@ -37,11 +47,12 @@ component ArpResponder
 	 * Bytes 32–41: target hardware and protocol address (copied from request sender MAC+IP).
 	 */
 	public fn GetReplyByte(
-		request: byte[64],
+		request: byte[FRAME_CAPACITY],
 		index: int,
 		localMac: byte[6],
 		localIp: byte[4]) byte
 	{
+		if (index < 0) { return 0x00 }
 		if (index < 6) {
 			var dstMacIndex = SENDER_MAC_OFFSET + index
 			return request[dstMacIndex]
@@ -52,18 +63,9 @@ component ArpResponder
 			return localMac[srcMacIndex]
 		}
 
-		// EtherType ARP (0x0806)
-		if (index == 12) { return 0x08 }
-		if (index == 13) { return 0x06 }
-		// ARP fixed header: HTYPE=0x0001, PTYPE=0x0800, HLEN=6, PLEN=4, OPER=0x0002
-		if (index == 14) { return 0x00 }
-		if (index == 15) { return 0x01 }
-		if (index == 16) { return 0x08 }
-		if (index == 17) { return 0x00 }
-		if (index == 18) { return 0x06 }
-		if (index == 19) { return 0x04 }
-		if (index == 20) { return 0x00 }
-		if (index == 21) { return 0x02 }
+		if (index < 22) {
+			return REPLY_HEADER[index - 12]
+		}
 
 		if (index < 28) {
 			var senderMacIndex = index - 22

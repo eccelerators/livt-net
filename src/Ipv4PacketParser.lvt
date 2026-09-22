@@ -5,9 +5,11 @@ namespace Livt.Net
  * https://www.rfc-editor.org/rfc/rfc791
  *
  * Parses the fixed IPv4 header subset used for Ethernet/IPv4/TCP frames.
+ * Classifiers check the valid prefix length; omitting it uses FRAME_CAPACITY.
  */
-component Ipv4PacketParser
+component Ipv4PacketParser<FRAME_CAPACITY: int = 128>
 {
+	static assert FRAME_CAPACITY >= 34, "Frame capacity must hold the required protocol header"
 	// Offset of the IPv4 header in an Ethernet II frame.
 	public const IPV4_OFFSET: int = 14
 	// Offset of the IPv4 source address.
@@ -20,24 +22,27 @@ component Ipv4PacketParser
 	/**
 	 * Returns true when the IPv4 header has version 4 and IHL 5 (fixed 20-byte header).
 	 */
-	public fn IsFixedHeader(frame: byte[128]) bool
+	public fn IsFixedHeader(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
 	{
+		if (validLength < 34 || validLength > FRAME_CAPACITY) { return false }
 		return frame[IPV4_OFFSET] == 0x45
 	}
 
 	/**
 	 * Returns true when the IPv4 protocol field is TCP (0x06).
 	 */
-	public fn IsTcp(frame: byte[128]) bool
+	public fn IsTcp(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
 	{
+		if (validLength < 34 || validLength > FRAME_CAPACITY) { return false }
 		return frame[IPV4_OFFSET + 9] == 0x06
 	}
 
 	/**
 	 * Returns true when the IPv4 protocol field is ICMP (0x01).
 	 */
-	public fn IsIcmp(frame: byte[128]) bool
+	public fn IsIcmp(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
 	{
+		if (validLength < 34 || validLength > FRAME_CAPACITY) { return false }
 		return frame[IPV4_OFFSET + 9] == 0x01
 	}
 
@@ -45,8 +50,9 @@ component Ipv4PacketParser
 	 * Returns true for the accepted no-fragment flags/offset combinations
 	 * (flags=0x00/offset=0 or Don't Fragment/offset=0).
 	 */
-	public fn IsNotFragmented(frame: byte[128]) bool
+	public fn IsNotFragmented(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
 	{
+		if (validLength < 34 || validLength > FRAME_CAPACITY) { return false }
 		if (frame[IPV4_OFFSET + 6] == 0x00 && frame[IPV4_OFFSET + 7] == 0x00) {
 			return true
 		}
@@ -61,8 +67,9 @@ component Ipv4PacketParser
 	/**
 	 * Returns true when the destination IPv4 address matches the supplied bytes.
 	 */
-	public fn IsForIpv4(frame: byte[128], ip0: byte, ip1: byte, ip2: byte, ip3: byte) bool
+	public fn IsForIpv4(frame: byte[FRAME_CAPACITY], ip0: byte, ip1: byte, ip2: byte, ip3: byte, validLength: int = FRAME_CAPACITY) bool
 	{
+		if (validLength < 34 || validLength > FRAME_CAPACITY) { return false }
 		return frame[DESTINATION_IPV4_OFFSET] == ip0
 			&& frame[DESTINATION_IPV4_OFFSET + 1] == ip1
 			&& frame[DESTINATION_IPV4_OFFSET + 2] == ip2
@@ -72,8 +79,9 @@ component Ipv4PacketParser
 	/**
 	 * Returns true for fixed-header, non-fragmented TCP packets targeting the supplied IPv4 address.
 	 */
-	public fn IsTcpForIpv4(frame: byte[128], ip0: byte, ip1: byte, ip2: byte, ip3: byte) bool
+	public fn IsTcpForIpv4(frame: byte[FRAME_CAPACITY], ip0: byte, ip1: byte, ip2: byte, ip3: byte, validLength: int = FRAME_CAPACITY) bool
 	{
+		if (validLength < 34 || validLength > FRAME_CAPACITY) { return false }
 		return this.IsFixedHeader(frame)
 			&& this.IsTcp(frame)
 			&& this.IsNotFragmented(frame)
@@ -83,8 +91,9 @@ component Ipv4PacketParser
 	/**
 	 * Returns true for fixed-header, non-fragmented ICMP packets targeting the supplied IPv4 address.
 	 */
-	public fn IsIcmpForIpv4(frame: byte[128], ip0: byte, ip1: byte, ip2: byte, ip3: byte) bool
+	public fn IsIcmpForIpv4(frame: byte[FRAME_CAPACITY], ip0: byte, ip1: byte, ip2: byte, ip3: byte, validLength: int = FRAME_CAPACITY) bool
 	{
+		if (validLength < 34 || validLength > FRAME_CAPACITY) { return false }
 		return this.IsFixedHeader(frame)
 			&& this.IsIcmp(frame)
 			&& this.IsNotFragmented(frame)
@@ -102,23 +111,25 @@ component Ipv4PacketParser
 	/**
 	 * Reads one byte from the IPv4 source address.
 	 */
-	public fn GetSourceIpv4Byte(frame: byte[128], index: int) byte
+	public fn GetSourceIpv4Byte(frame: byte[FRAME_CAPACITY], index: int) byte
 	{
+		if (index < 0 || index >= 4) { return 0x00 }
 		return frame[SOURCE_IPV4_OFFSET + index]
 	}
 
 	/**
 	 * Reads one byte from the IPv4 destination address.
 	 */
-	public fn GetDestinationIpv4Byte(frame: byte[128], index: int) byte
+	public fn GetDestinationIpv4Byte(frame: byte[FRAME_CAPACITY], index: int) byte
 	{
+		if (index < 0 || index >= 4) { return 0x00 }
 		return frame[DESTINATION_IPV4_OFFSET + index]
 	}
 
 	/**
 	 * Reads the high byte of the IPv4 total length field.
 	 */
-	public fn GetTotalLengthHighByte(frame: byte[128]) byte
+	public fn GetTotalLengthHighByte(frame: byte[FRAME_CAPACITY]) byte
 	{
 		return frame[IPV4_OFFSET + 2]
 	}
@@ -126,7 +137,7 @@ component Ipv4PacketParser
 	/**
 	 * Reads the low byte of the IPv4 total length field.
 	 */
-	public fn GetTotalLengthLowByte(frame: byte[128]) byte
+	public fn GetTotalLengthLowByte(frame: byte[FRAME_CAPACITY]) byte
 	{
 		return frame[IPV4_OFFSET + 3]
 	}

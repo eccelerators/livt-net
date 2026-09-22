@@ -6,9 +6,11 @@ namespace Livt.Net
  *
  * Parses Ethernet/IPv4 ARP packets (hardware type 0x0001, protocol type 0x0800,
  * 6-byte hardware address, 4-byte protocol address).
+ * Classifiers check the valid prefix length; omitting it uses FRAME_CAPACITY.
  */
-component ArpPacketParser
+component ArpPacketParser<FRAME_CAPACITY: int = 64>
 {
+	static assert FRAME_CAPACITY >= 42, "Frame capacity must hold the required protocol header"
 	// Offset of the ARP payload inside an Ethernet II frame.
 	public const ARP_OFFSET: int = 14
 	// Offset of the ARP hardware type field.
@@ -33,8 +35,9 @@ component ArpPacketParser
 	/**
 	 * Returns true for Ethernet hardware, IPv4 protocol, 6-byte MAC, and 4-byte IPv4 ARP packets.
 	 */
-	public fn IsEthernetIpv4(frame: byte[64]) bool
+	public fn IsEthernetIpv4(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
 	{
+		if (validLength < 42 || validLength > FRAME_CAPACITY) { return false }
 		return frame[HARDWARE_TYPE_OFFSET] == 0x00
 			&& frame[HARDWARE_TYPE_OFFSET + 1] == 0x01
 			&& frame[PROTOCOL_TYPE_OFFSET] == 0x08
@@ -46,8 +49,9 @@ component ArpPacketParser
 	/**
 	 * Returns true when the ARP operation is request (opcode 1).
 	 */
-	public fn IsRequest(frame: byte[64]) bool
+	public fn IsRequest(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
 	{
+		if (validLength < 42 || validLength > FRAME_CAPACITY) { return false }
 		return frame[OPERATION_OFFSET] == 0x00
 			&& frame[OPERATION_OFFSET + 1] == 0x01
 	}
@@ -55,8 +59,9 @@ component ArpPacketParser
 	/**
 	 * Returns true when the ARP operation is reply (opcode 2).
 	 */
-	public fn IsReply(frame: byte[64]) bool
+	public fn IsReply(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
 	{
+		if (validLength < 42 || validLength > FRAME_CAPACITY) { return false }
 		return frame[OPERATION_OFFSET] == 0x00
 			&& frame[OPERATION_OFFSET + 1] == 0x02
 	}
@@ -64,8 +69,9 @@ component ArpPacketParser
 	/**
 	 * Returns true for an Ethernet/IPv4 ARP request targeting the supplied IPv4 address.
 	 */
-	public fn IsRequestForIpv4(frame: byte[64], ip0: byte, ip1: byte, ip2: byte, ip3: byte) bool
+	public fn IsRequestForIpv4(frame: byte[FRAME_CAPACITY], ip0: byte, ip1: byte, ip2: byte, ip3: byte, validLength: int = FRAME_CAPACITY) bool
 	{
+		if (validLength < 42 || validLength > FRAME_CAPACITY) { return false }
 		return this.IsEthernetIpv4(frame)
 			&& this.IsRequest(frame)
 			&& frame[TARGET_IPV4_OFFSET] == ip0
@@ -77,24 +83,27 @@ component ArpPacketParser
 	/**
 	 * Reads one byte from the sender MAC address.
 	 */
-	public fn GetSenderMacByte(frame: byte[64], index: int) byte
+	public fn GetSenderMacByte(frame: byte[FRAME_CAPACITY], index: int) byte
 	{
+		if (index < 0 || index >= 6) { return 0x00 }
 		return frame[SENDER_MAC_OFFSET + index]
 	}
 
 	/**
 	 * Reads one byte from the sender IPv4 address.
 	 */
-	public fn GetSenderIpv4Byte(frame: byte[64], index: int) byte
+	public fn GetSenderIpv4Byte(frame: byte[FRAME_CAPACITY], index: int) byte
 	{
+		if (index < 0 || index >= 4) { return 0x00 }
 		return frame[SENDER_IPV4_OFFSET + index]
 	}
 
 	/**
 	 * Reads one byte from the target IPv4 address.
 	 */
-	public fn GetTargetIpv4Byte(frame: byte[64], index: int) byte
+	public fn GetTargetIpv4Byte(frame: byte[FRAME_CAPACITY], index: int) byte
 	{
+		if (index < 0 || index >= 4) { return 0x00 }
 		return frame[TARGET_IPV4_OFFSET + index]
 	}
 }

@@ -6,8 +6,9 @@ namespace Livt.Net
  *
  * Builds fixed 20-byte IPv4 response headers for TCP packets.
  */
-component Ipv4HeaderBuilder
+component Ipv4HeaderBuilder<FRAME_CAPACITY: int = 128>
 {
+	static assert FRAME_CAPACITY >= 34, "Frame capacity must hold the required protocol header"
 	// Number of bytes in the fixed IPv4 header.
 	public const HEADER_LENGTH: int = 20
 	// Offset of the source IPv4 address in the received Ethernet frame.
@@ -20,13 +21,14 @@ component Ipv4HeaderBuilder
 	 * and destination IP (copied from request source IP).
 	 */
 	public fn GetResponseHeaderByte(
-		request: byte[128],
+		request: byte[FRAME_CAPACITY],
 		index: int,
 		totalLength: int,
 		identificationHigh: byte,
 		identificationLow: byte,
 		localIp: byte[4]) byte
 	{
+		if (index < 0) { return 0x00 }
 		if (index == 0) {
 			return 0x45
 		}

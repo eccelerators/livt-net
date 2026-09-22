@@ -1,10 +1,10 @@
 # Livt.Net
 
-`Livt.Net` provides fixed-size networking components for Livt hardware designs.
+`Livt.Net` provides compile-time configurable networking components for Livt hardware designs.
 It focuses on small request/response stacks that can parse Ethernet frames,
 classify common IPv4 traffic, and emit deterministic response bytes.
 
-The 1.0.1 package surface is intentionally narrow and hardware-oriented:
+The 1.1.0-dev package surface is intentionally narrow and hardware-oriented:
 
 - `Livt.Net.EthernetFrameParser`: fixed Ethernet II header parser.
 - `Livt.Net.EthernetFrameBuilder`: Ethernet reply-header byte builder.
@@ -28,10 +28,10 @@ The 1.0.1 package surface is intentionally narrow and hardware-oriented:
 
 ```toml
 [dependencies]
-Livt.Net = "1.0.1"
+Livt.Net = "1.1.0-dev"
 ```
 
-`Livt.Net` depends on `Livt.IO 1.0.1` for byte-addressable RAM used by the
+`Livt.Net` depends on `Livt.IO 1.2.0-dev` for byte-addressable RAM used by the
 Ethernet frame I/O path. Domain applications should depend on `Livt.Net`; add
 `Livt.IO` directly only when the application also uses I/O primitives itself.
 
@@ -54,7 +54,7 @@ Production components live in the shallow `Livt.Net` namespace. Tests use
 
 ### Protocol Helpers
 
-Parser components accept fixed-size frame arrays and answer protocol questions
+Parser components accept compile-time-sized frame arrays and answer protocol questions
 with `bool` return values. Builder and composer components return one byte for a
 requested frame index. This one-byte-at-a-time shape keeps offset ownership
 explicit and maps cleanly to frame-oriented hardware paths.
@@ -73,13 +73,38 @@ RFC 1071 checksum, including the required zero padding for odd-length input.
 
 ### Endpoint Flow
 
-`EthernetFrameIo` uses a stateful complete-frame pattern:
+`EthernetFrameIo` uses a complete-frame ownership contract:
 
-1. `BeginFrame()`
-2. `LoadRxByte(index, value)` for each received byte
-3. `ConsumeRxFrame()` after the application copies the received bytes
-4. `BeginTxFrame(length)`, `WriteTxByte(index, value)`, and `SubmitTxFrame()`
+1. Poll `IsFrameAvailable()`, copy the captured RX bytes with `GetRxByte()`,
+   then call `ConsumeRxFrame()`.
+2. Call `TryBeginTxFrame(length)` and check its result.
+3. Write bytes in ascending order with `TryWriteTxByte(index, value)`.
+4. Call `TrySubmitTxFrame()` after every declared byte has been written.
+5. Wait until `HasTxFrame()` is false before beginning another transmission.
 
+`HasSentFrameToAxi()` means delivery to the device, not physical transmission.
+The legacy void TX methods remain available and ignore rejected operations.
+For simulation injection, use `LoadRxByte()` to initialize the entire RX capture
+in ascending order, then `SubmitRxFrame()`; do not inject during hardware RX.
+
+### Compile-time configuration
+
+Frame-consuming helpers accept `FRAME_CAPACITY`: Ethernet parsing and ARP default
+to 64 bytes; other helpers default to 128. For example,
+`TcpConnectionRecognizer<256>` and its child parsers all use `byte[256]`.
+Classifiers accept an optional final `validLength` argument; pass the received
+length to reject truncated headers. Omitting it declares the whole array valid.
+The default is `FRAME_CAPACITY` from that parser's concrete specialization.
+
+`EthernetFrameIo<RX_CAPACITY = 128, RX_STORAGE_CAPACITY = 2048,
+TX_STORAGE_CAPACITY = 2048>` separates captured bytes from RAM depth. RX capture
+must be a positive multiple of four, at most 2036, and fit its storage. Storage
+capacities are positive and at most 2048. TX length is limited by both its storage
+and the 2036-byte data area below the EthernetLite length register.
+
+RAM cells are unspecified until written and survive reset. Frame metadata makes
+old data unavailable; submission rejects incomplete frames and out-of-order
+writes that leave holes. Final AXI word padding is explicitly zero.
 
 ### EthernetLite Boundary
 
@@ -87,6 +112,16 @@ RFC 1071 checksum, including the required zero padding for odd-length input.
 EthernetLite-style interface through `IAxi4LiteEthernetLiteMaster`. It exposes
 frame-level helpers such as `LoadRxByte`, `SubmitRxFrame`, `BeginTxFrame`,
 `WriteTxByte`, and `SubmitTxFrame`.
+
+## Development verification status
+
+The Livt behavioral suite passes, and native AXI verification passes across
+debug/release, optimization and reset variants with the #491 compiler fix.
+Invalid generic capacities are rejected by both validation and build with the
+#492 compiler fix. Development web-app integration is verified with #497; see
+[consumer evidence](../livt-web-app/verification/migration-evidence.md).
+Simulation does not establish FPGA timing or board readiness. See
+[verification evidence](docs/migration-evidence.md) before hardware integration.
 
 ## 🧪 Build and Test
 
@@ -113,7 +148,7 @@ notes live in [`docs/design-notes.md`](docs/design-notes.md).
 ## 🚧 Outlook
 
 Likely future package work includes domain folders with mirrored test folders,
-configurable frame-buffer sizes, broader IPv4/TCP option handling, UDP support, and streaming frame adapters.
+broader IPv4/TCP option handling, UDP support, and streaming frame adapters.
 
 ## 📄 License
 

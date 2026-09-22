@@ -6,24 +6,32 @@ namespace Livt.Net
  *
  * Recognizes IPv4 ICMP echo requests and emits echo reply bytes.
  */
-component IcmpEchoResponder
+component IcmpEchoResponder<FRAME_CAPACITY: int = 128>
 {
-	ethernet: EthernetFrameBuilder
-	ipv4: Ipv4PacketParser
+	static assert FRAME_CAPACITY >= 42, "Frame capacity must hold the required protocol header"
+	ethernet: EthernetFrameBuilder<FRAME_CAPACITY>
+	ipv4: Ipv4PacketParser<FRAME_CAPACITY>
 	ipv4Checksum: Ipv4HeaderChecksum
 
 	new()
 	{
-		this.ethernet = new EthernetFrameBuilder()
-		this.ipv4 = new Ipv4PacketParser()
+		this.ethernet = new EthernetFrameBuilder<FRAME_CAPACITY>()
+		this.ipv4 = new Ipv4PacketParser<FRAME_CAPACITY>()
 		this.ipv4Checksum = new Ipv4HeaderChecksum()
 	}
 
 	/**
 	 * Returns true for fixed-header, non-fragmented ICMP echo requests targeting localIp.
 	 */
-	public fn ShouldRespond(frame: byte[128], localIp: byte[4]) bool
+	public fn ShouldRespond(frame: byte[FRAME_CAPACITY], localIp: byte[4]) bool
 	{
+		return this.ShouldRespond(frame, localIp, FRAME_CAPACITY)
+	}
+
+	/** Checks a caller-supplied valid prefix length before reading header bytes. */
+	public fn ShouldRespond(frame: byte[FRAME_CAPACITY], localIp: byte[4], validLength: int) bool
+	{
+		if (validLength < 42 || validLength > FRAME_CAPACITY) { return false }
 		var totalLengthHigh: int = this.ByteToInt(frame[16])
 		var totalLengthLow: int = this.ByteToInt(frame[17])
 
@@ -32,14 +40,14 @@ component IcmpEchoResponder
 			&& this.ipv4.IsIcmpForIpv4(frame, localIp[0], localIp[1], localIp[2], localIp[3])
 			&& frame[34] == 0x08
 			&& frame[35] == 0x00
-			&& totalLengthHigh == 0
-			&& totalLengthLow <= 114
+			&& totalLengthHigh * 256 + totalLengthLow >= 28
+			&& totalLengthHigh * 256 + totalLengthLow <= validLength - 14
 	}
 
 	/**
 	 * Returns the Ethernet frame byte length for the echo reply, including minimum Ethernet padding.
 	 */
-	public fn GetReplyLength(request: byte[128]) int
+	public fn GetReplyLength(request: byte[FRAME_CAPACITY]) int
 	{
 		var totalLengthHigh: int = this.ByteToInt(request[16])
 		var totalLengthLow: int = this.ByteToInt(request[17])
@@ -62,8 +70,9 @@ component IcmpEchoResponder
 	 * Bytes 38..N: copied ICMP identifier, sequence, and payload bytes.
 	 * Remaining bytes up to Ethernet minimum frame length are zero padding.
 	 */
-	public fn GetReplyByte(request: byte[128], index: int, localMac: byte[6], localIp: byte[4]) byte
+	public fn GetReplyByte(request: byte[FRAME_CAPACITY], index: int, localMac: byte[6], localIp: byte[4]) byte
 	{
+		if (index < 0) { return 0x00 }
 		var totalLengthHigh: int = this.ByteToInt(request[16])
 		var totalLengthLow: int = this.ByteToInt(request[17])
 		var identificationHigh: int = this.ByteToInt(request[18])
@@ -133,7 +142,7 @@ component IcmpEchoResponder
 		if (index == 36) { return icmpChecksumReplyHigh }
 		if (index == 37) { return icmpChecksumReplyLow }
 
-		if (index < frameLength)
+		if (index >= 0 && index < frameLength && index < FRAME_CAPACITY)
 		{
 			return request[index]
 		}

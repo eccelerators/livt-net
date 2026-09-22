@@ -5,9 +5,11 @@ namespace Livt.Net
  * https://www.rfc-editor.org/rfc/rfc894
  *
  * Parses fixed Ethernet II frame headers (destination MAC, source MAC, EtherType).
+ * Classifiers check the valid prefix length; omitting it uses FRAME_CAPACITY.
  */
-component EthernetFrameParser
+component EthernetFrameParser<FRAME_CAPACITY: int = 64>
 {
+	static assert FRAME_CAPACITY >= 14, "Frame capacity must hold the required protocol header"
 	// Number of bytes in an Ethernet II header.
 	public const HEADER_LENGTH: int = 14
 	// Offset where the Ethernet payload starts.
@@ -18,16 +20,18 @@ component EthernetFrameParser
 	/**
 	 * Returns true when the frame EtherType is IPv4 (0x0800).
 	 */
-	public fn IsIpv4(frame: byte[64]) bool
+	public fn IsIpv4(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
 	{
+		if (validLength < 14 || validLength > FRAME_CAPACITY) { return false }
 		return frame[12] == 0x08 && frame[13] == 0x00
 	}
 
 	/**
 	 * Returns true when the frame EtherType is ARP (0x0806).
 	 */
-	public fn IsArp(frame: byte[64]) bool
+	public fn IsArp(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
 	{
+		if (validLength < 14 || validLength > FRAME_CAPACITY) { return false }
 		return frame[12] == 0x08 && frame[13] == 0x06
 	}
 
@@ -42,16 +46,18 @@ component EthernetFrameParser
 	/**
 	 * Reads one byte from the destination MAC address.
 	 */
-	public fn GetDestinationMacByte(frame: byte[64], index: int) byte
+	public fn GetDestinationMacByte(frame: byte[FRAME_CAPACITY], index: int) byte
 	{
+		if (index < 0 || index >= 6) { return 0x00 }
 		return frame[index]
 	}
 
 	/**
 	 * Reads one byte from the source MAC address.
 	 */
-	public fn GetSourceMacByte(frame: byte[64], index: int) byte
+	public fn GetSourceMacByte(frame: byte[FRAME_CAPACITY], index: int) byte
 	{
+		if (index < 0 || index >= 6) { return 0x00 }
 		return frame[index + MAC_LENGTH]
 	}
 }
