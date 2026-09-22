@@ -1,0 +1,39 @@
+namespace Livt.Net
+
+/** Prepared Ethernet/IPv4 ARP reply payload, excluding the Ethernet header. */
+component ArpReply : IPacketBytes, IEthernetPayload
+{
+	const PREFIX: byte[8] = [0x00, 0x01, 0x08, 0x00, 0x06, 0x04, 0x00, 0x02]
+	addresses: byte[20]
+	ready: bool
+
+	public fn Invalidate() { ready = false }
+
+	/** Snapshot the local and peer addresses from a validated ARP request. */
+	public fn Prepare(sourceMac: byte[6], sourceIp: byte[4], targetMac: byte[6], targetIp: byte[4])
+	{
+		ready = false
+		for (var i = 0; i < 6; i++) {
+			addresses[i] = sourceMac[i]
+			addresses[10 + i] = targetMac[i]
+		}
+		for (var i = 0; i < 4; i++) {
+			addresses[6 + i] = sourceIp[i]
+			addresses[16 + i] = targetIp[i]
+		}
+		ready = true
+	}
+
+	override fn GetEtherType() int { return 0x0806 }
+	override fn GetLength() int
+	{
+		if (!ready) { return 0 }
+		return 28
+	}
+	override fn GetByte(index: int) byte
+	{
+		if (!ready || index < 0 || index >= 28) { return 0x00 }
+		if (index < 8) { return PREFIX[index] }
+		return addresses[index - 8]
+	}
+}

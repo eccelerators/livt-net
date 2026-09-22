@@ -104,3 +104,9 @@ in a non-negative int (0..2147483647). Empty payloads use length 20 and sum zero
 Existing scalar methods retain their original names and remain available; scalar byte fields must be 0..255.
 Both API shapes share the same checksum arithmetic. The array APIs do not
 add protocol validation or change supported packet formats.
+
+## Packet data providers
+
+Use `ArrayPacketData`, `RamPacketData` and generic `PacketRegion` for checked,
+bounded access to published byte prefixes. See [packet data](packet-data.md) for
+construction, ownership and release rules.

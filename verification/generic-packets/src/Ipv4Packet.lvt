@@ -1,0 +1,67 @@
+namespace Livt.Net
+
+/**
+ * Fixed 20-byte IPv4 header, DF, TTL=64, with a typed protocol payload.
+ * Prepare the child first and keep it unchanged until emission finishes.
+ * Only the header is stored here; payload bytes are delegated to the child.
+ */
+component Ipv4Packet<P: IPacketBytes & IIpv4Payload> : IPacketBytes, IEthernetPayload
+{
+	payload: P
+	header: byte[20]
+	length: int
+	ready: bool
+
+	new(payload: P) { this.payload = payload }
+
+	public fn Invalidate() { ready = false; length = 0 }
+
+	/** All address and identification arrays use network byte order. */
+	public fn TryPrepare(sourceIp: byte[4], destinationIp: byte[4], identification: byte[2]) bool
+	{
+		this.Invalidate()
+		var size = payload.GetLength()
+		var protocol = payload.GetProtocol()
+		if (size <= 0 || size > 65515 || protocol < 0 || protocol > 255) { return false }
+		var totalLength = size + 20
+		header[0] = 0x45
+		header[1] = 0x00
+		header[2] = (totalLength / 256) as byte
+		header[3] = (totalLength % 256) as byte
+		header[4] = identification[0]
+		header[5] = identification[1]
+		header[6] = 0x40
+		header[7] = 0x00
+		header[8] = 0x40
+		header[9] = protocol as byte
+		header[10] = 0x00
+		header[11] = 0x00
+		for (var i = 0; i < 4; i++) {
+			header[12 + i] = sourceIp[i]
+			header[16 + i] = destinationIp[i]
+		}
+		var sum = 0
+		for (var i = 0; i < 10; i++) {
+			sum = sum + ChecksumArithmetic.Word(header[i * 2] as int, header[i * 2 + 1] as int)
+		}
+		var checksum = ChecksumArithmetic.Finish(sum)
+		header[10] = (checksum / 256) as byte
+		header[11] = (checksum % 256) as byte
+		length = totalLength
+		ready = true
+		return true
+	}
+
+	override fn GetEtherType() int { return 0x0800 }
+	override fn GetLength() int
+	{
+		if (!ready) { return 0 }
+		return length
+	}
+	override fn GetByte(index: int) byte
+	{
+		if (!ready || index < 0 || index >= length) { return 0x00 }
+		if (index < 20) { return header[index] }
+		return payload.GetByte(index - 20)
+	}
+}

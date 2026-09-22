@@ -1,0 +1,56 @@
+namespace Livt.Net
+
+/**
+ * Ethernet II envelope over a prepared payload; FCS is supplied by the MAC.
+ * Prepare the child first, then this envelope. Keep the child unchanged during
+ * emission. Use one serialized application owner in the same clock context.
+ */
+component EthernetFrame<P: IPacketBytes & IEthernetPayload, MAX_PAYLOAD_LENGTH: int = 1500> : IPacketBytes
+{
+	static assert MAX_PAYLOAD_LENGTH > 0 && MAX_PAYLOAD_LENGTH <= 65535, "Invalid Ethernet payload limit"
+	payload: P
+	header: byte[14]
+	payloadLength: int
+	length: int
+	ready: bool
+
+	new(payload: P) { this.payload = payload }
+
+	/** Invalidates this envelope without changing the child. */
+	public fn Invalidate() { ready = false; length = 0; payloadLength = 0 }
+
+	/** Addresses use network byte order. Failure invalidates any previous frame. */
+	public fn TryPrepare(sourceMac: byte[6], destinationMac: byte[6]) bool
+	{
+		this.Invalidate()
+		var size = payload.GetLength()
+		var etherType = payload.GetEtherType()
+		if (size <= 0 || size > MAX_PAYLOAD_LENGTH) { return false }
+		if (etherType < 1536 || etherType > 65535) { return false }
+		for (var i = 0; i < 6; i++) {
+			header[i] = destinationMac[i]
+			header[6 + i] = sourceMac[i]
+		}
+		header[12] = (etherType / 256) as byte
+		header[13] = (etherType % 256) as byte
+		payloadLength = size
+		length = 14 + size
+		if (length < 60) { length = 60 }
+		ready = true
+		return true
+	}
+
+	override fn GetLength() int
+	{
+		if (!ready) { return 0 }
+		return length
+	}
+
+	override fn GetByte(index: int) byte
+	{
+		if (!ready || index < 0 || index >= length) { return 0x00 }
+		if (index < 14) { return header[index] }
+		if (index < 14 + payloadLength) { return payload.GetByte(index - 14) }
+		return 0x00
+	}
+}

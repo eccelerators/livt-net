@@ -1,0 +1,69 @@
+namespace Livt.Net
+
+/**
+ * Bounded, read-only view of a published source; no payload copy.
+ * Close this region and all descendants before releasing/reusing its source.
+ * The source is a fixed constructor dependency, not a runtime-owned handle.
+ */
+component PacketRegion<S: IPacketData> : IPacketData
+{
+	source: S
+	offset: int
+	length: int
+	opened: bool
+
+	new(source: S)
+	{
+		this.source = source
+		offset = 0
+		length = 0
+		opened = false
+	}
+
+	/** Failed opening leaves a closed region; an already open region is Busy. */
+	public fn TryOpen(offset: int, length: int) PacketDataResult
+	{
+		if (opened) { return PacketDataResult.Busy }
+		if (!source.IsReady()) { return PacketDataResult.NotReady }
+		var available = source.GetAvailableLength()
+		if (offset < 0 || length < 0 || offset > available) { return PacketDataResult.Invalid }
+		if (length > available - offset) { return PacketDataResult.Invalid }
+		this.offset = offset
+		this.length = length
+		opened = true
+		return PacketDataResult.Success
+	}
+
+	override fn IsReady() bool
+	{
+		if (!opened) { return false }
+		return source.IsReady()
+	}
+
+	override fn GetAvailableLength() int
+	{
+		if (!this.IsReady()) { return 0 }
+		return length
+	}
+
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+		if (!this.IsReady()) { return PacketDataResult.NotReady }
+		if (index < 0 || index >= length) { return PacketDataResult.Invalid }
+		var readValue: byte = 0x00
+		var result = source.TryRead(offset + index, readValue)
+		value = readValue
+		return result
+	}
+
+	/** Caller must first close descendants and finish outstanding reads. */
+	public fn TryClose() PacketDataResult
+	{
+		if (!opened) { return PacketDataResult.Invalid }
+		opened = false
+		offset = 0
+		length = 0
+		return PacketDataResult.Success
+	}
+}

@@ -1,0 +1,63 @@
+namespace Livt.Net
+
+/**
+ * Prepared ICMP echo reply, owning only its payload prefix and header metadata.
+ * CAPACITY is the echo data capacity, excluding the eight-byte ICMP header.
+ * The caller supplies validated request identifier, sequence and echo data.
+ */
+component IcmpEchoReply<CAPACITY: int = 128> : IPacketBytes, IIpv4Payload
+{
+	static assert CAPACITY > 0 && CAPACITY <= 65507, "Invalid ICMP echo data capacity"
+	data: byte[CAPACITY]
+	identifier: int
+	sequence: int
+	checksum: int
+	dataLength: int
+	ready: bool
+	calculator: InternetChecksum
+
+	new() { calculator = new InternetChecksum() }
+	public fn Invalidate() { ready = false; dataLength = 0 }
+
+	/** Copies only the valid echo-data prefix and computes the checksum once. */
+	public fn TryPrepare(identifier: byte[2], sequence: byte[2], payload: byte[CAPACITY], validLength: int) bool
+	{
+		this.Invalidate()
+		if (validLength < 0 || validLength > CAPACITY) { return false }
+		this.identifier = ChecksumArithmetic.Word(identifier[0] as int, identifier[1] as int)
+		this.sequence = ChecksumArithmetic.Word(sequence[0] as int, sequence[1] as int)
+		calculator.Reset()
+		// Type, code and checksum are zero during checksum calculation.
+		calculator.AddByte(identifier[0])
+		calculator.AddByte(identifier[1])
+		calculator.AddByte(sequence[0])
+		calculator.AddByte(sequence[1])
+		for (var i = 0; i < validLength; i++) {
+			data[i] = payload[i]
+			calculator.AddByte(payload[i])
+		}
+		checksum = calculator.GetChecksum()
+		dataLength = validLength
+		ready = true
+		return true
+	}
+
+	override fn GetProtocol() int { return 1 }
+	override fn GetLength() int
+	{
+		if (!ready) { return 0 }
+		return 8 + dataLength
+	}
+	override fn GetByte(index: int) byte
+	{
+		if (!ready || index < 0 || index >= 8 + dataLength) { return 0x00 }
+		if (index < 2) { return 0x00 }
+		if (index == 2) { return (checksum / 256) as byte }
+		if (index == 3) { return (checksum % 256) as byte }
+		if (index == 4) { return (identifier / 256) as byte }
+		if (index == 5) { return (identifier % 256) as byte }
+		if (index == 6) { return (sequence / 256) as byte }
+		if (index == 7) { return (sequence % 256) as byte }
+		return data[index - 8]
+	}
+}

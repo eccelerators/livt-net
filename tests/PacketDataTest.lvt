@@ -1,0 +1,246 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+@Test
+component PacketDataTest
+{
+	array: ArrayPacketData<3>
+	ram: RamPacketData<3>
+	single: RamPacketData<1>
+	arrayRegion: PacketRegion<ArrayPacketData<3>>
+	ramRegion: PacketRegion<RamPacketData<3>>
+	nested: PacketRegion<PacketRegion<RamPacketData<3>>>
+
+	new()
+	{
+		array = new ArrayPacketData<3>()
+		ram = new RamPacketData<3>()
+		single = new RamPacketData<1>()
+		arrayRegion = new PacketRegion<ArrayPacketData<3>>(array)
+		ramRegion = new PacketRegion<RamPacketData<3>>(ram)
+		nested = new PacketRegion<PacketRegion<RamPacketData<3>>>(ramRegion)
+	}
+
+	@Test
+	fn ArrayPrefixAndReuse()
+	{
+		var value: byte = 0xEE
+		assert array.IsReady() == false
+		assert array.GetCapacity() == 3
+		assert array.TryRead(0, value) == PacketDataResult.NotReady
+		assert array.TryRelease() == PacketDataResult.Invalid
+		assert array.TryWrite(-1, 0xAA) == PacketDataResult.Invalid
+		assert array.TryWrite(1, 0xAA) == PacketDataResult.Invalid
+		assert array.TryWrite(0, 0x80) == PacketDataResult.Success
+		assert array.TryWrite(0, 0x81) == PacketDataResult.Success
+		assert array.GetWrittenLength() == 1
+		assert array.GetAvailableLength() == 0
+		assert array.TryPublish() == PacketDataResult.Success
+		assert array.GetAvailableLength() == 1
+		assert array.TryRead(0, value) == PacketDataResult.Success
+		assert value == 0x81
+		assert array.TryRead(1, value) == PacketDataResult.Invalid
+		assert array.TryRead(-1, value) == PacketDataResult.Invalid
+		assert array.TryWrite(0, 0xFF) == PacketDataResult.Busy
+		assert array.TryPublish() == PacketDataResult.Busy
+		assert array.TryClear() == PacketDataResult.Busy
+		assert array.TryRead(0, value) == PacketDataResult.Success
+		assert value == 0x81
+		assert array.TryRelease() == PacketDataResult.Success
+		assert array.GetWrittenLength() == 0
+		assert array.TryRead(0, value) == PacketDataResult.NotReady
+		assert array.TryPublish() == PacketDataResult.Success
+		assert array.IsReady() == true
+		assert array.GetAvailableLength() == 0
+		assert array.TryRead(0, value) == PacketDataResult.Invalid
+		assert array.TryRelease() == PacketDataResult.Success
+		assert array.TryWrite(0, 0xFF) == PacketDataResult.Success
+		assert array.TryClear() == PacketDataResult.Success
+		assert array.TryWrite(1, 0xDD) == PacketDataResult.Invalid
+		assert array.TryWrite(0, 0x00) == PacketDataResult.Success
+		assert array.TryWrite(1, 0x80) == PacketDataResult.Success
+		assert array.TryWrite(2, 0xFF) == PacketDataResult.Success
+		assert array.TryWrite(3, 0xEE) == PacketDataResult.Invalid
+		assert array.TryPublish() == PacketDataResult.Success
+		assert array.GetAvailableLength() == 3
+		assert array.TryRead(0, value) == PacketDataResult.Success
+		assert value == 0x00
+		assert array.TryRead(1, value) == PacketDataResult.Success
+		assert value == 0x80
+		assert array.TryRead(2, value) == PacketDataResult.Success
+		assert value == 0xFF
+		assert array.TryRelease() == PacketDataResult.Success
+	}
+
+	@Test
+	fn ArrayBoundedRegion()
+	{
+		var value: byte = 0xEE
+		assert arrayRegion.TryOpen(0, 0) == PacketDataResult.NotReady
+		assert array.TryWrite(0, 0x11) == PacketDataResult.Success
+		assert array.TryWrite(1, 0x80) == PacketDataResult.Success
+		assert array.TryWrite(2, 0xFF) == PacketDataResult.Success
+		assert array.TryPublish() == PacketDataResult.Success
+		assert arrayRegion.TryOpen(-1, 1) == PacketDataResult.Invalid
+		assert arrayRegion.TryOpen(0, -1) == PacketDataResult.Invalid
+		assert arrayRegion.TryOpen(4, 0) == PacketDataResult.Invalid
+		assert arrayRegion.TryOpen(1, 2147483647) == PacketDataResult.Invalid
+		assert arrayRegion.TryOpen(2147483647, 1) == PacketDataResult.Invalid
+		assert arrayRegion.TryOpen(2, 2) == PacketDataResult.Invalid
+		assert arrayRegion.IsReady() == false
+		assert arrayRegion.TryOpen(1, 2) == PacketDataResult.Success
+		assert arrayRegion.TryOpen(0, 3) == PacketDataResult.Busy
+		assert arrayRegion.GetAvailableLength() == 2
+		assert arrayRegion.TryRead(0, value) == PacketDataResult.Success
+		assert value == 0x80
+		assert arrayRegion.TryRead(1, value) == PacketDataResult.Success
+		assert value == 0xFF
+		assert arrayRegion.TryRead(2, value) == PacketDataResult.Invalid
+		assert arrayRegion.TryRead(-1, value) == PacketDataResult.Invalid
+		assert arrayRegion.TryClose() == PacketDataResult.Success
+		assert arrayRegion.TryRead(0, value) == PacketDataResult.NotReady
+		assert arrayRegion.TryClose() == PacketDataResult.Invalid
+		assert arrayRegion.TryOpen(3, 0) == PacketDataResult.Success
+		assert arrayRegion.IsReady() == true
+		assert arrayRegion.GetAvailableLength() == 0
+		assert arrayRegion.TryRead(0, value) == PacketDataResult.Invalid
+		assert arrayRegion.TryClose() == PacketDataResult.Success
+		assert array.TryRelease() == PacketDataResult.Success
+		assert array.TryWrite(0, 0x42) == PacketDataResult.Success
+		assert array.TryPublish() == PacketDataResult.Success
+		assert arrayRegion.TryOpen(0, 1) == PacketDataResult.Success
+		assert arrayRegion.TryRead(0, value) == PacketDataResult.Success
+		assert value == 0x42
+		assert arrayRegion.TryClose() == PacketDataResult.Success
+		assert array.TryRelease() == PacketDataResult.Success
+	}
+
+	@Test
+	fn RamPrefixAndReuse()
+	{
+		var value: byte = 0xEE
+		assert ram.IsReady() == false
+		assert ram.GetCapacity() == 3
+		assert ram.TryRead(0, value) == PacketDataResult.NotReady
+		assert ram.TryRelease() == PacketDataResult.Invalid
+		assert ram.TryWrite(-1, 0xAA) == PacketDataResult.Invalid
+		assert ram.TryWrite(1, 0xAA) == PacketDataResult.Invalid
+		assert ram.TryWrite(0, 0x80) == PacketDataResult.Success
+		assert ram.TryWrite(0, 0x81) == PacketDataResult.Success
+		assert ram.GetWrittenLength() == 1
+		assert ram.GetAvailableLength() == 0
+		assert ram.TryPublish() == PacketDataResult.Success
+		assert ram.GetAvailableLength() == 1
+		assert ram.TryRead(0, value) == PacketDataResult.Success
+		assert value == 0x81
+		assert ram.TryRead(1, value) == PacketDataResult.Invalid
+		assert ram.TryRead(-1, value) == PacketDataResult.Invalid
+		assert ram.TryWrite(0, 0xFF) == PacketDataResult.Busy
+		assert ram.TryPublish() == PacketDataResult.Busy
+		assert ram.TryClear() == PacketDataResult.Busy
+		assert ram.TryRead(0, value) == PacketDataResult.Success
+		assert value == 0x81
+		assert ram.TryRelease() == PacketDataResult.Success
+		assert ram.GetWrittenLength() == 0
+		assert ram.TryRead(0, value) == PacketDataResult.NotReady
+		assert ram.TryPublish() == PacketDataResult.Success
+		assert ram.IsReady() == true
+		assert ram.GetAvailableLength() == 0
+		assert ram.TryRead(0, value) == PacketDataResult.Invalid
+		assert ram.TryRelease() == PacketDataResult.Success
+		assert ram.TryWrite(0, 0xFF) == PacketDataResult.Success
+		assert ram.TryClear() == PacketDataResult.Success
+		assert ram.TryWrite(1, 0xDD) == PacketDataResult.Invalid
+		assert ram.TryWrite(0, 0x00) == PacketDataResult.Success
+		assert ram.TryWrite(1, 0x80) == PacketDataResult.Success
+		assert ram.TryWrite(2, 0xFF) == PacketDataResult.Success
+		assert ram.TryWrite(3, 0xEE) == PacketDataResult.Invalid
+		assert ram.TryPublish() == PacketDataResult.Success
+		assert ram.GetAvailableLength() == 3
+		assert ram.TryRead(0, value) == PacketDataResult.Success
+		assert value == 0x00
+		assert ram.TryRead(1, value) == PacketDataResult.Success
+		assert value == 0x80
+		assert ram.TryRead(2, value) == PacketDataResult.Success
+		assert value == 0xFF
+		assert ram.TryRelease() == PacketDataResult.Success
+	}
+
+	@Test
+	fn RamBoundedRegion()
+	{
+		var value: byte = 0xEE
+		assert ramRegion.TryOpen(0, 0) == PacketDataResult.NotReady
+		assert ram.TryWrite(0, 0x11) == PacketDataResult.Success
+		assert ram.TryWrite(1, 0x80) == PacketDataResult.Success
+		assert ram.TryWrite(2, 0xFF) == PacketDataResult.Success
+		assert ram.TryPublish() == PacketDataResult.Success
+		assert ramRegion.TryOpen(-1, 1) == PacketDataResult.Invalid
+		assert ramRegion.TryOpen(0, -1) == PacketDataResult.Invalid
+		assert ramRegion.TryOpen(4, 0) == PacketDataResult.Invalid
+		assert ramRegion.TryOpen(1, 2147483647) == PacketDataResult.Invalid
+		assert ramRegion.TryOpen(2147483647, 1) == PacketDataResult.Invalid
+		assert ramRegion.TryOpen(2, 2) == PacketDataResult.Invalid
+		assert ramRegion.IsReady() == false
+		assert ramRegion.TryOpen(1, 2) == PacketDataResult.Success
+		assert ramRegion.TryOpen(0, 3) == PacketDataResult.Busy
+		assert ramRegion.GetAvailableLength() == 2
+		assert ramRegion.TryRead(0, value) == PacketDataResult.Success
+		assert value == 0x80
+		assert ramRegion.TryRead(1, value) == PacketDataResult.Success
+		assert value == 0xFF
+		assert ramRegion.TryRead(2, value) == PacketDataResult.Invalid
+		assert ramRegion.TryRead(-1, value) == PacketDataResult.Invalid
+		assert ramRegion.TryClose() == PacketDataResult.Success
+		assert ramRegion.TryRead(0, value) == PacketDataResult.NotReady
+		assert ramRegion.TryClose() == PacketDataResult.Invalid
+		assert ramRegion.TryOpen(3, 0) == PacketDataResult.Success
+		assert ramRegion.IsReady() == true
+		assert ramRegion.GetAvailableLength() == 0
+		assert ramRegion.TryRead(0, value) == PacketDataResult.Invalid
+		assert ramRegion.TryClose() == PacketDataResult.Success
+		assert ram.TryRelease() == PacketDataResult.Success
+		assert ram.TryWrite(0, 0x42) == PacketDataResult.Success
+		assert ram.TryPublish() == PacketDataResult.Success
+		assert ramRegion.TryOpen(0, 1) == PacketDataResult.Success
+		assert ramRegion.TryRead(0, value) == PacketDataResult.Success
+		assert value == 0x42
+		assert ramRegion.TryClose() == PacketDataResult.Success
+		assert ram.TryRelease() == PacketDataResult.Success
+	}
+
+	@Test
+	fn NestedRegionsUseRelativeOffsets()
+	{
+		var value: byte = 0x00
+		assert ram.TryWrite(0, 0x12) == PacketDataResult.Success
+		assert ram.TryWrite(1, 0x80) == PacketDataResult.Success
+		assert ram.TryWrite(2, 0xFF) == PacketDataResult.Success
+		assert ram.TryPublish() == PacketDataResult.Success
+		assert ramRegion.TryOpen(1, 2) == PacketDataResult.Success
+		assert nested.TryOpen(1, 2) == PacketDataResult.Invalid
+		assert nested.TryOpen(1, 1) == PacketDataResult.Success
+		assert nested.TryRead(0, value) == PacketDataResult.Success
+		assert value == 0xFF
+		assert nested.TryRead(1, value) == PacketDataResult.Invalid
+		assert nested.TryClose() == PacketDataResult.Success
+		assert ramRegion.TryClose() == PacketDataResult.Success
+		assert ram.TryRelease() == PacketDataResult.Success
+	}
+
+	@Test
+	fn SingleCellRamAndRetainedStorage()
+	{
+		var value: byte = 0x00
+		assert single.TryWrite(0, 0xFF) == PacketDataResult.Success
+		assert single.TryWrite(1, 0x80) == PacketDataResult.Invalid
+		assert single.TryPublish() == PacketDataResult.Success
+		assert single.TryRead(0, value) == PacketDataResult.Success
+		assert value == 0xFF
+		assert single.TryRelease() == PacketDataResult.Success
+		assert single.TryPublish() == PacketDataResult.Success
+		assert single.TryRead(0, value) == PacketDataResult.Invalid
+		assert single.TryRelease() == PacketDataResult.Success
+	}
+}
