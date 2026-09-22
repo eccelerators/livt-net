@@ -84,5 +84,5 @@ this interface. A checksum-sum capability must define whether its first byte is
 the high or low byte of a word and how an odd trailing byte is represented before
 sums can be combined.
 
-The existing experimental `IPacketBytes` API is not the new data contract. Its
-composition migration belongs to the subsequent packet-composition change.
+Prepared Ethernet, IPv4, ICMP and ARP components also implement `IPacketData`.
+See [packet composition](packet-composition.md) for construction and preparation.

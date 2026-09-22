@@ -7,6 +7,8 @@ outdir = "out"
 [tests]
 path = "tests"
 components = [
+	"GenericPacketTest",
+	"PacketMetadataTest",
 	"PacketDataTest",
 	"ArpPacketParserTest",
 	"ChecksumWordSumTest",

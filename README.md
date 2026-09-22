@@ -9,12 +9,12 @@ The 1.1.0-dev package surface is intentionally narrow and hardware-oriented:
 - `Livt.Net.EthernetFrameParser`: fixed Ethernet II header parser.
 - `Livt.Net.EthernetFrameBuilder`: Ethernet reply-header byte builder.
 - `Livt.Net.ArpPacketParser`: ARP packet parser for Ethernet/IPv4 frames.
-- `Livt.Net.ArpResponder`: ARP reply selector and byte builder.
+- `Livt.Net.ArpResponder`: ARP request recognition and prepared reply composition.
 - `Livt.Net.Ipv4PacketParser`: fixed 20-byte IPv4 header classifier.
 - `Livt.Net.Ipv4HeaderBuilder`: IPv4 response-header byte builder.
 - `Livt.Net.Ipv4HeaderChecksum`: checksum helper for fixed IPv4 responses.
 - `Livt.Net.InternetChecksum`: streaming RFC 1071 Internet checksum helper.
-- `Livt.Net.IcmpEchoResponder`: ICMP echo reply selector and byte builder.
+- `Livt.Net.IcmpEchoResponder`: ICMP request recognition and prepared reply composition.
 - `Livt.Net.TcpHeaderParser`: fixed 20-byte TCP header classifier.
 - `Livt.Net.TcpConnectionRecognizer`: TCP packet recognizer for local endpoints.
 - `Livt.Net.TcpSegmentBuilder`: TCP response-header byte builder.
@@ -42,15 +42,24 @@ Production components live in the shallow `Livt.Net` namespace. Tests use
 
 | Area | Components |
 |---|---|
-| Ethernet | `EthernetFrameParser`, `EthernetFrameBuilder`, `EthernetFrameIo` |
-| ARP | `ArpPacketParser`, `ArpResponder` |
-| IPv4 | `Ipv4PacketParser`, `Ipv4HeaderBuilder`, `Ipv4HeaderChecksum` |
-| ICMP | `IcmpEchoResponder` |
+| Packet data | `IPacketData`, `ArrayPacketData`, `RamPacketData`, `PacketRegion` |
+| Ethernet | `EthernetFrame`, `EthernetFrameParser`, `EthernetFrameBuilder`, `EthernetFrameIo` |
+| ARP | `ArpPacketParser`, `ArpReply`, `ArpResponder` |
+| IPv4 | `Ipv4Packet`, `Ipv4PacketParser`, `Ipv4HeaderBuilder`, `Ipv4HeaderChecksum` |
+| ICMP | `IcmpEchoReply`, `IcmpEchoResponder` |
 | TCP | `TcpHeaderParser`, `TcpConnectionRecognizer`, `TcpSegmentBuilder`, `TcpSynAckFrameComposer`, `TcpChecksum` |
 | Checksums | `InternetChecksum`, `Ipv4HeaderChecksum`, `TcpChecksum` |
 | AXI boundary | `IAxi4LiteEthernetLiteMaster`, `Axi4LiteEthernetLiteAdapter` |
 
 ## 🔌 API Overview
+
+### Prepared packets
+
+Compose `EthernetFrame<Ipv4Packet<IcmpEchoReply<RamPacketData<128>>>>`
+using checked byte providers. Prepare checksums and headers once, then emit
+through `IPacketData.TryRead`. ARP reuses `EthernetFrame<ArpReply>`.
+See [packet composition](docs/packet-composition.md) for construction, ownership
+and migration from the old responder byte APIs.
 
 ### Protocol Helpers
 
@@ -65,7 +74,8 @@ Core parser and builder APIs include:
 - `IsRequest(frame)`, `IsRequestForIpv4(frame, ...)`, and ARP sender getters.
 - `IsFixedHeader(frame)`, `IsTcp(frame)`, `IsIcmp(frame)`, and IPv4 byte getters.
 - `IsSynOnly(frame)`, `IsAckOnly(frame)`, `IsPshAck(frame)`, and TCP byte getters.
-- `GetReplyByte(...)`, `GetResponseHeaderByte(...)`, and `GetFrameByte(...)`.
+- `TryPrepare(...)`, `TryRead(index, value)` and `GetAvailableLength()` on responders.
+- `GetResponseHeaderByte(...)` and `GetFrameByte(...)` on existing TCP helpers.
 
 `InternetChecksum` incrementally consumes network-order bytes with `AddByte()`.
 It returns either the unfolded word sum for use with `TcpChecksum` or the final

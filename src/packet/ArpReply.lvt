@@ -1,7 +1,7 @@
 namespace Livt.Net
 
 /** Prepared Ethernet/IPv4 ARP reply payload, excluding the Ethernet header. */
-component ArpReply : IPacketBytes, IEthernetPayload
+component ArpReply : IPacketData, IEthernetPayload
 {
 	const PREFIX: byte[8] = [0x00, 0x01, 0x08, 0x00, 0x06, 0x04, 0x00, 0x02]
 	addresses: byte[20]
@@ -10,7 +10,7 @@ component ArpReply : IPacketBytes, IEthernetPayload
 	public fn Invalidate() { ready = false }
 
 	/** Snapshot the local and peer addresses from a validated ARP request. */
-	public fn Prepare(sourceMac: byte[6], sourceIp: byte[4], targetMac: byte[6], targetIp: byte[4])
+	public fn TryPrepare(sourceMac: byte[6], sourceIp: byte[4], targetMac: byte[6], targetIp: byte[4]) PacketDataResult
 	{
 		ready = false
 		for (var i = 0; i < 6; i++) {
@@ -22,18 +22,23 @@ component ArpReply : IPacketBytes, IEthernetPayload
 			addresses[16 + i] = targetIp[i]
 		}
 		ready = true
+		return PacketDataResult.Success
 	}
 
 	override fn GetEtherType() int { return 0x0806 }
-	override fn GetLength() int
+	override fn IsReady() bool { return ready }
+	override fn GetAvailableLength() int
 	{
 		if (!ready) { return 0 }
 		return 28
 	}
-	override fn GetByte(index: int) byte
+	override fn TryRead(index: int, value: out byte) PacketDataResult
 	{
-		if (!ready || index < 0 || index >= 28) { return 0x00 }
-		if (index < 8) { return PREFIX[index] }
-		return addresses[index - 8]
+		value = 0x00
+		if (!ready) { return PacketDataResult.NotReady }
+		if (index < 0 || index >= 28) { return PacketDataResult.Invalid }
+		if (index < 8) { value = PREFIX[index]; return PacketDataResult.Success }
+		value = addresses[index - 8]
+		return PacketDataResult.Success
 	}
 }

@@ -26,12 +26,26 @@ component ArpCompositionChecks<CAPACITY: int>
 			0x01, 0x80, 0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0xC0, 0xA8,
 			0x01, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+		request[12] = 0x08
+		request[13] = 0x06
+		request[14] = 0x00
+		request[15] = 0x01
+		request[16] = 0x08
+		request[17] = 0x00
+		request[18] = 0x06
+		request[19] = 0x04
+		request[20] = 0x00
+		request[21] = 0x01
+		for (var j = 0; j < 4; j++) { request[38 + j] = localIp[j] }
+		assert responder.TryPrepare(request, localMac, localIp, CAPACITY) == PacketDataResult.Success
+		var responderByte: byte = 0x00
 		for (var i = 0; i < 60; i++) {
-			assert responder.GetReplyByte(request, i, localMac, localIp) == expected[i]
+			assert responder.TryRead(i, responderByte) == PacketDataResult.Success
+			assert responderByte == expected[i]
 		}
-		assert responder.GetReplyByte(request, -1, localMac, localIp) == 0x00
-		assert responder.GetReplyByte(request, 60, localMac, localIp) == 0x00
-		assert responder.GetReplyByte(request, CAPACITY + 60, localMac, localIp) == 0x00
+		assert responder.TryRead(-1, responderByte) == PacketDataResult.Invalid
+		assert responder.TryRead(60, responderByte) == PacketDataResult.Invalid
+		assert responder.TryRead(CAPACITY + 60, responderByte) == PacketDataResult.Invalid
 	}
 }
 

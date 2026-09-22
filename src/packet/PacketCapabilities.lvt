@@ -1,12 +1,5 @@
 namespace Livt.Net
 
-/** Prepared packet bytes. Unprepared length and invalid-index reads return zero. */
-interface IPacketBytes
-{
-	fn GetLength() int
-	fn GetByte(index: int) byte
-}
-
 /** Capability identifying an Ethernet II payload's EtherType. */
 interface IEthernetPayload
 {

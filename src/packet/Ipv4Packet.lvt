@@ -5,7 +5,7 @@ namespace Livt.Net
  * Prepare the child first and keep it unchanged until emission finishes.
  * Only the header is stored here; payload bytes are delegated to the child.
  */
-component Ipv4Packet<P: IPacketBytes & IIpv4Payload> : IPacketBytes, IEthernetPayload
+component Ipv4Packet<P: IPacketData & IIpv4Payload> : IPacketData, IEthernetPayload
 {
 	payload: P
 	header: byte[20]
@@ -17,12 +17,13 @@ component Ipv4Packet<P: IPacketBytes & IIpv4Payload> : IPacketBytes, IEthernetPa
 	public fn Invalidate() { ready = false; length = 0 }
 
 	/** All address and identification arrays use network byte order. */
-	public fn TryPrepare(sourceIp: byte[4], destinationIp: byte[4], identification: byte[2]) bool
+	public fn TryPrepare(sourceIp: byte[4], destinationIp: byte[4], identification: byte[2]) PacketDataResult
 	{
 		this.Invalidate()
-		var size = payload.GetLength()
+		if (!payload.IsReady()) { return PacketDataResult.NotReady }
+		var size = payload.GetAvailableLength()
 		var protocol = payload.GetProtocol()
-		if (size <= 0 || size > 65515 || protocol < 0 || protocol > 255) { return false }
+		if (size <= 0 || size > 65515 || protocol < 0 || protocol > 255) { return PacketDataResult.Invalid }
 		var totalLength = size + 20
 		header[0] = 0x45
 		header[1] = 0x00
@@ -49,19 +50,22 @@ component Ipv4Packet<P: IPacketBytes & IIpv4Payload> : IPacketBytes, IEthernetPa
 		header[11] = (checksum % 256) as byte
 		length = totalLength
 		ready = true
-		return true
+		return PacketDataResult.Success
 	}
 
 	override fn GetEtherType() int { return 0x0800 }
-	override fn GetLength() int
+	override fn IsReady() bool { return ready }
+	override fn GetAvailableLength() int
 	{
 		if (!ready) { return 0 }
 		return length
 	}
-	override fn GetByte(index: int) byte
+	override fn TryRead(index: int, value: out byte) PacketDataResult
 	{
-		if (!ready || index < 0 || index >= length) { return 0x00 }
-		if (index < 20) { return header[index] }
-		return payload.GetByte(index - 20)
+		value = 0x00
+		if (!ready) { return PacketDataResult.NotReady }
+		if (index < 0 || index >= length) { return PacketDataResult.Invalid }
+		if (index < 20) { value = header[index]; return PacketDataResult.Success }
+		return payload.TryRead(index - 20, value)
 	}
 }

@@ -61,8 +61,11 @@ component FrameCapacityChecks<CAPACITY: int>
 		frame[17] = (CAPACITY - 14) as byte
 		assert this.icmp.ShouldRespond(frame, ip) == true
 		frame[CAPACITY - 1] = 0xA5
-		assert this.icmp.GetReplyByte(frame, CAPACITY - 1, mac, ip) == 0xA5
-		assert this.icmp.GetReplyByte(frame, CAPACITY, mac, ip) == 0x00
+		assert this.icmp.TryPrepare(frame, mac, ip, CAPACITY) == PacketDataResult.Success
+		var icmpByte: byte = 0x00
+		assert this.icmp.TryRead(CAPACITY - 1, icmpByte) == PacketDataResult.Success
+		assert icmpByte == 0xA5
+		assert this.icmp.TryRead(CAPACITY, icmpByte) == PacketDataResult.Invalid
 		frame[13] = 0x06
 		frame[14] = 0x00
 		frame[15] = 0x01
@@ -76,8 +79,12 @@ component FrameCapacityChecks<CAPACITY: int>
 		frame[41] = 0x01
 		assert this.arp.ShouldRespond(frame, ip, 42) == true
 		assert this.arp.ShouldRespond(frame, ip, 41) == false
-		assert this.arp.GetReplyByte(frame, 20, mac, ip) == 0x00
-		assert this.arp.GetReplyByte(frame, 21, mac, ip) == 0x02
+		assert this.arp.TryPrepare(frame, mac, ip, CAPACITY) == PacketDataResult.Success
+		var arpByte: byte = 0x00
+		assert this.arp.TryRead(20, arpByte) == PacketDataResult.Success
+		assert arpByte == 0x00
+		assert this.arp.TryRead(21, arpByte) == PacketDataResult.Success
+		assert arpByte == 0x02
 	}
 }
 

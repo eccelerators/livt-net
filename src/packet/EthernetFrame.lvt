@@ -5,7 +5,7 @@ namespace Livt.Net
  * Prepare the child first, then this envelope. Keep the child unchanged during
  * emission. Use one serialized application owner in the same clock context.
  */
-component EthernetFrame<P: IPacketBytes & IEthernetPayload, MAX_PAYLOAD_LENGTH: int = 1500> : IPacketBytes
+component EthernetFrame<P: IPacketData & IEthernetPayload, MAX_PAYLOAD_LENGTH: int = 1500> : IPacketData
 {
 	static assert MAX_PAYLOAD_LENGTH > 0 && MAX_PAYLOAD_LENGTH <= 65535, "Invalid Ethernet payload limit"
 	payload: P
@@ -20,13 +20,14 @@ component EthernetFrame<P: IPacketBytes & IEthernetPayload, MAX_PAYLOAD_LENGTH: 
 	public fn Invalidate() { ready = false; length = 0; payloadLength = 0 }
 
 	/** Addresses use network byte order. Failure invalidates any previous frame. */
-	public fn TryPrepare(sourceMac: byte[6], destinationMac: byte[6]) bool
+	public fn TryPrepare(sourceMac: byte[6], destinationMac: byte[6]) PacketDataResult
 	{
 		this.Invalidate()
-		var size = payload.GetLength()
+		if (!payload.IsReady()) { return PacketDataResult.NotReady }
+		var size = payload.GetAvailableLength()
 		var etherType = payload.GetEtherType()
-		if (size <= 0 || size > MAX_PAYLOAD_LENGTH) { return false }
-		if (etherType < 1536 || etherType > 65535) { return false }
+		if (size <= 0 || size > MAX_PAYLOAD_LENGTH) { return PacketDataResult.Invalid }
+		if (etherType < 1536 || etherType > 65535) { return PacketDataResult.Invalid }
 		for (var i = 0; i < 6; i++) {
 			header[i] = destinationMac[i]
 			header[6 + i] = sourceMac[i]
@@ -37,20 +38,23 @@ component EthernetFrame<P: IPacketBytes & IEthernetPayload, MAX_PAYLOAD_LENGTH: 
 		length = 14 + size
 		if (length < 60) { length = 60 }
 		ready = true
-		return true
+		return PacketDataResult.Success
 	}
 
-	override fn GetLength() int
+	override fn IsReady() bool { return ready }
+	override fn GetAvailableLength() int
 	{
 		if (!ready) { return 0 }
 		return length
 	}
 
-	override fn GetByte(index: int) byte
+	override fn TryRead(index: int, value: out byte) PacketDataResult
 	{
-		if (!ready || index < 0 || index >= length) { return 0x00 }
-		if (index < 14) { return header[index] }
-		if (index < 14 + payloadLength) { return payload.GetByte(index - 14) }
-		return 0x00
+		value = 0x00
+		if (!ready) { return PacketDataResult.NotReady }
+		if (index < 0 || index >= length) { return PacketDataResult.Invalid }
+		if (index < 14) { value = header[index]; return PacketDataResult.Success }
+		if (index < 14 + payloadLength) { return payload.TryRead(index - 14, value) }
+		return PacketDataResult.Success
 	}
 }

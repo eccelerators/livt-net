@@ -93,20 +93,80 @@ component ArpResponderTest
 		request[30] = senderIp[2]
 		request[31] = senderIp[3]
 
-		assert this.responder.GetReplyByte(request, 0, localMac, localIp) == 0x02
-		assert this.responder.GetReplyByte(request, 5, localMac, localIp) == 0x50
-		assert this.responder.GetReplyByte(request, 6, localMac, localIp) == 0x02
-		assert this.responder.GetReplyByte(request, 11, localMac, localIp) == 0x22
-		assert this.responder.GetReplyByte(request, 12, localMac, localIp) == 0x08
-		assert this.responder.GetReplyByte(request, 13, localMac, localIp) == 0x06
-		assert this.responder.GetReplyByte(request, 21, localMac, localIp) == 0x02
-		assert this.responder.GetReplyByte(request, 22, localMac, localIp) == 0x02
-		assert this.responder.GetReplyByte(request, 27, localMac, localIp) == 0x22
-		assert this.responder.GetReplyByte(request, 28, localMac, localIp) == 0x0A
-		assert this.responder.GetReplyByte(request, 31, localMac, localIp) == 0x01
-		assert this.responder.GetReplyByte(request, 32, localMac, localIp) == 0x02
-		assert this.responder.GetReplyByte(request, 37, localMac, localIp) == 0x50
-		assert this.responder.GetReplyByte(request, 38, localMac, localIp) == 0x0A
-		assert this.responder.GetReplyByte(request, 41, localMac, localIp) == 0x02
+		request[12] = 0x08
+		request[13] = 0x06
+		request[14] = 0x00
+		request[15] = 0x01
+		request[16] = 0x08
+		request[17] = 0x00
+		request[18] = 0x06
+		request[19] = 0x04
+		request[20] = 0x00
+		request[21] = 0x01
+		for (var j = 0; j < 4; j++) { request[38 + j] = localIp[j] }
+		assert this.responder.TryPrepare(request, localMac, localIp, 64) == PacketDataResult.Success
+		var responderByte: byte = 0x00
+		assert this.responder.TryRead(0, responderByte) == PacketDataResult.Success
+		assert responderByte == 0x02
+		assert this.responder.TryRead(5, responderByte) == PacketDataResult.Success
+		assert responderByte == 0x50
+		assert this.responder.TryRead(6, responderByte) == PacketDataResult.Success
+		assert responderByte == 0x02
+		assert this.responder.TryRead(11, responderByte) == PacketDataResult.Success
+		assert responderByte == 0x22
+		assert this.responder.TryRead(12, responderByte) == PacketDataResult.Success
+		assert responderByte == 0x08
+		assert this.responder.TryRead(13, responderByte) == PacketDataResult.Success
+		assert responderByte == 0x06
+		assert this.responder.TryRead(21, responderByte) == PacketDataResult.Success
+		assert responderByte == 0x02
+		assert this.responder.TryRead(22, responderByte) == PacketDataResult.Success
+		assert responderByte == 0x02
+		assert this.responder.TryRead(27, responderByte) == PacketDataResult.Success
+		assert responderByte == 0x22
+		assert this.responder.TryRead(28, responderByte) == PacketDataResult.Success
+		assert responderByte == 0x0A
+		assert this.responder.TryRead(31, responderByte) == PacketDataResult.Success
+		assert responderByte == 0x01
+		assert this.responder.TryRead(32, responderByte) == PacketDataResult.Success
+		assert responderByte == 0x02
+		assert this.responder.TryRead(37, responderByte) == PacketDataResult.Success
+		assert responderByte == 0x50
+		assert this.responder.TryRead(38, responderByte) == PacketDataResult.Success
+		assert responderByte == 0x0A
+		assert this.responder.TryRead(41, responderByte) == PacketDataResult.Success
+		assert responderByte == 0x02
+	}
+
+	@Test
+	fn SnapshotsAddressesAndClearsRejectedRequest()
+	{
+		var request: byte[64]
+		var mac: byte[6] = [0x02, 0x55, 0x66, 0x77, 0x11, 0x22]
+		var ip: byte[4] = [0x0A, 0x00, 0x00, 0x01]
+		var value: byte = 0x00
+		request[12] = 0x08
+		request[13] = 0x06
+		request[14] = 0x00
+		request[15] = 0x01
+		request[16] = 0x08
+		request[17] = 0x00
+		request[18] = 0x06
+		request[19] = 0x04
+		request[20] = 0x00
+		request[21] = 0x01
+		request[22] = 0x82
+		for (var i = 0; i < 4; i++) { request[38 + i] = ip[i] }
+		assert responder.TryPrepare(request, mac, ip, 42) == PacketDataResult.Success
+		request[22] = 0x01
+		assert responder.TryRead(0, value) == PacketDataResult.Success
+		assert value == 0x82
+		assert responder.TryPrepare(request, mac, ip, 41) == PacketDataResult.Invalid
+		assert responder.GetAvailableLength() == 0
+		assert responder.TryRead(0, value) == PacketDataResult.NotReady
+		assert responder.TryPrepare(request, mac, ip, 42) == PacketDataResult.Success
+		assert responder.TryRead(0, value) == PacketDataResult.Success
+		assert value == 0x01
+		responder.Invalidate()
 	}
 }
