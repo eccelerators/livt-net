@@ -8,6 +8,7 @@ outdir = "out"
 path = "tests"
 components = [
 	"FrameLinkTest",
+	"PacketParserFailureTest",
 	"GenericPacketTest",
 	"PacketMetadataTest",
 	"PacketDataTest",
@@ -26,6 +27,7 @@ components = [
 	"Ipv4HeaderBuilderTest",
 	"Ipv4HeaderChecksumTest",
 	"Ipv4PacketParserTest",
+	"RamIpv4PacketParserTest",
 	"TcpChecksumTest",
 	"TcpConnectionRecognizerTest",
 	"TcpHeaderParserTest",

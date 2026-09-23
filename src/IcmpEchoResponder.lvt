@@ -5,17 +5,19 @@ namespace Livt.Net
  * owner must finish all reads/TX borrows before preparing or invalidating again.
  * Preparation snapshots request metadata and echo data; emission does not read the request.
  */
-component IcmpEchoResponder<FRAME_CAPACITY: int = 128> : IPacketData
+component IcmpEchoResponder<S: IPacketData, FRAME_CAPACITY: int = 128> : IPacketData
 {
 	static assert FRAME_CAPACITY >= 42, "Frame capacity must hold the required protocol header"
-	ipv4: Ipv4PacketParser<FRAME_CAPACITY>
+	ethernet: EthernetFrameParser<S>
+	ipv4: Ipv4PacketParser<EthernetFrameParser<S>>
 	data: ArrayPacketData<FRAME_CAPACITY>
 	reply: IcmpEchoReply<ArrayPacketData<FRAME_CAPACITY>>
 	ip: Ipv4Packet<IcmpEchoReply<ArrayPacketData<FRAME_CAPACITY>>>
 	frame: EthernetFrame<Ipv4Packet<IcmpEchoReply<ArrayPacketData<FRAME_CAPACITY>>>, FRAME_CAPACITY>
-	new()
+	new(source: S)
 	{
-		ipv4 = new Ipv4PacketParser<FRAME_CAPACITY>()
+		ethernet = new EthernetFrameParser<S>(source)
+		ipv4 = new Ipv4PacketParser<EthernetFrameParser<S>>(ethernet)
 		data = new ArrayPacketData<FRAME_CAPACITY>()
 		reply = new IcmpEchoReply<ArrayPacketData<FRAME_CAPACITY>>(data)
 		ip = new Ipv4Packet<IcmpEchoReply<ArrayPacketData<FRAME_CAPACITY>>>(reply)
@@ -23,57 +25,71 @@ component IcmpEchoResponder<FRAME_CAPACITY: int = 128> : IPacketData
 	}
 	public fn Invalidate()
 	{
+		ipv4.Invalidate()
+		ethernet.Invalidate()
 		frame.Invalidate()
 		ip.Invalidate()
 		reply.Invalidate()
 		if (data.IsReady()) { data.TryRelease() }
 		else { data.TryClear() }
 	}
-	public fn ShouldRespond(frame: byte[FRAME_CAPACITY], localIp: byte[4]) bool
-	{
-		return this.ShouldRespond(frame, localIp, FRAME_CAPACITY)
-	}
 
-	/** Checks a caller-supplied valid prefix length before reading header bytes. */
-	public fn ShouldRespond(frame: byte[FRAME_CAPACITY], localIp: byte[4], validLength: int) bool
-	{
-		if (validLength < 42 || validLength > FRAME_CAPACITY) { return false }
-		var totalLengthHigh: int = frame[16] as int
-		var totalLengthLow: int = frame[17] as int
-
-		return frame[12] == 0x08
-			&& frame[13] == 0x00
-			&& this.ipv4.IsIcmpForIpv4(frame, localIp[0], localIp[1], localIp[2], localIp[3])
-			&& frame[34] == 0x08
-			&& frame[35] == 0x00
-			&& totalLengthHigh * 256 + totalLengthLow >= 28
-			&& totalLengthHigh * 256 + totalLengthLow <= validLength - 14
-	}
-
-	/** One admitted preparation invalidates the prior response even on failure. */
-	public fn TryPrepare(request: byte[FRAME_CAPACITY], localMac: byte[6], localIp: byte[4], validLength: int) PacketDataResult
+	/**
+	 * Snapshots a complete captured echo request; receive checksums remain unchecked.
+	 */
+	public fn TryPrepare(localMac: byte[6], localIp: byte[4]) PacketDataResult
 	{
 		this.Invalidate()
-		if (!this.ShouldRespond(request, localIp, validLength)) { return PacketDataResult.Invalid }
-		var peerMac: byte[6]
-		var peerIp: byte[4]
-		var identification: byte[2] = [request[18], request[19]]
-		var identifier: byte[2] = [request[38], request[39]]
-		var sequence: byte[2] = [request[40], request[41]]
-		for (var i = 0; i < 6; i++) { peerMac[i] = request[6 + i] }
-		for (var i = 0; i < 4; i++) { peerIp[i] = request[26 + i] }
-		var length = (request[16] as int) * 256 + (request[17] as int) - 28
+		ethernet.TryParse()
+
+		if (!ethernet.IsReady() || ethernet.GetEtherType() != 2048) { return PacketDataResult.Invalid }
+		if (ipv4.TryParse() != PacketParseResult.Success) { return PacketDataResult.Invalid }
+		if (ipv4.GetProtocol() != 1 || ipv4.GetAvailableLength() < 8) { return PacketDataResult.Invalid }
+
+		var destination = ipv4.GetDestinationIpv4()
+
+		for (var i = 0; i < 4; i++) {
+			if (destination[i] != localIp[i]) { return PacketDataResult.Invalid }
+		}
+
+		var echo: byte[8]
+
+		for (var i = 0; i < 8; i++) {
+			var value: byte = 0x00
+
+			if (ipv4.TryRead(i, value) != PacketDataResult.Success) { return PacketDataResult.Invalid }
+
+			echo[i] = value
+		}
+
+		if (echo[0] != 8 || echo[1] != 0) { return PacketDataResult.Invalid }
+
+		var peerMac = ethernet.GetSourceMac()
+		var peerIp = ipv4.GetSourceIpv4()
+		var id = ipv4.GetIdentification()
+		var identification: byte[2] = [(id / 256) as byte, (id % 256) as byte]
+		var identifier: byte[2] = [echo[4], echo[5]]
+		var sequence: byte[2] = [echo[6], echo[7]]
+		var length = ipv4.GetAvailableLength() - 8
+
 		for (var i = 0; i < length; i++) {
-			if (data.TryWrite(i, request[42 + i]) != PacketDataResult.Success) {
+			var value: byte = 0x00
+
+			if (ipv4.TryRead(8 + i, value) != PacketDataResult.Success || data.TryWrite(i, value) != PacketDataResult.Success) {
 				this.Invalidate()
 				return PacketDataResult.Invalid
 			}
 		}
+
+		ipv4.Invalidate()
+		ethernet.Invalidate()
 		data.TryPublish()
 		var result = reply.TryPrepare(identifier, sequence)
+
 		if (result == PacketDataResult.Success) { result = ip.TryPrepare(localIp, peerIp, identification) }
 		if (result == PacketDataResult.Success) { result = frame.TryPrepare(localMac, peerMac) }
 		if (result != PacketDataResult.Success) { this.Invalidate() }
+
 		return result
 	}
 	override fn IsReady() bool { return frame.IsReady() }

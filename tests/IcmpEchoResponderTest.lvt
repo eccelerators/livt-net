@@ -5,11 +5,12 @@ using Livt.Net
 @Test
 component IcmpEchoResponderTest
 {
-	responder: IcmpEchoResponder
+	data: ArrayPacketData<128>
+	responder: IcmpEchoResponder<ArrayPacketData<128>, 128>
 
 	new()
 	{
-		this.responder = new IcmpEchoResponder()
+		data = new ArrayPacketData<128>(); responder = new IcmpEchoResponder<ArrayPacketData<128>, 128>(data)
 	}
 
 	fn GetRequestByte(index: int) byte
@@ -87,14 +88,14 @@ component IcmpEchoResponderTest
 			frame[i] = requestByte
 		}
 
-		assert this.responder.ShouldRespond(frame, localIp) == true
+		assert (this.PrepareRequest(frame, [0x00, 0x00, 0x00, 0x00, 0x00, 0x00], localIp, 128) == PacketDataResult.Success) == true
 		var localMac: byte[6] = [0x02, 0x55, 0x66, 0x77, 0x11, 0x22]
-		assert this.responder.TryPrepare(frame, localMac, localIp, 128) == PacketDataResult.Success
+		assert this.PrepareRequest(frame, localMac, localIp, 128) == PacketDataResult.Success
 		assert this.responder.GetAvailableLength() == 60
 		this.responder.Invalidate()
 
 		localIp[3] = 0x03
-		assert this.responder.ShouldRespond(frame, localIp) == false
+		assert (this.PrepareRequest(frame, [0x00, 0x00, 0x00, 0x00, 0x00, 0x00], localIp, 128) == PacketDataResult.Success) == false
 	}
 
 	@Test
@@ -120,7 +121,7 @@ component IcmpEchoResponderTest
 			frame[i] = requestByte
 		}
 
-		assert this.responder.TryPrepare(frame, localMac, localIp, 128) == PacketDataResult.Success
+		assert this.PrepareRequest(frame, localMac, localIp, 128) == PacketDataResult.Success
 		var responderByte: byte = 0x00
 		assert this.responder.TryRead(0, responderByte) == PacketDataResult.Success
 		assert responderByte == 0x02
@@ -194,7 +195,7 @@ component IcmpEchoResponderTest
 		frame[36] = 0xF1
 		frame[37] = 0x02
 
-		assert this.responder.TryPrepare(frame, localMac, localIp, 128) == PacketDataResult.Success
+		assert this.PrepareRequest(frame, localMac, localIp, 128) == PacketDataResult.Success
 		var responderByte: byte = 0x00
 		assert this.responder.TryRead(24, responderByte) == PacketDataResult.Success
 		assert responderByte == 0x7B
@@ -214,23 +215,44 @@ component IcmpEchoResponderTest
 		var ip: byte[4] = [0x0A, 0x00, 0x00, 0x01]
 		var value: byte = 0x00
 		for (var i = 0; i < 128; i++) { request[i] = this.GetRequestByte(i) }
-		assert responder.TryPrepare(request, mac, ip, 54) == PacketDataResult.Success
+		assert this.PrepareRequest(request, mac, ip, 54) == PacketDataResult.Success
 		request[42] = 0xFF
 		request[33] = 0x03
-		// The prepared response owns its snapshot, including its checksum.
+		// Reuse the actual request provider; the reply owns its snapshot and checksum.
+		assert data.TryRelease() == PacketDataResult.Success
+		assert data.TryWrite(0, 0xEE) == PacketDataResult.Success
+		assert data.TryPublish() == PacketDataResult.Success
 		assert responder.TryRead(42, value) == PacketDataResult.Success
 		assert value == 0x61
 		assert responder.TryRead(36, value) == PacketDataResult.Success
 		assert value == 0x87
-		assert responder.TryPrepare(request, mac, ip, 54) == PacketDataResult.Invalid
+		assert this.PrepareRequest(request, mac, ip, 54) == PacketDataResult.Invalid
 		assert responder.IsReady() == false
 		assert responder.GetAvailableLength() == 0
 		assert responder.TryRead(0, value) == PacketDataResult.NotReady
 		request[33] = 0x01
-		assert responder.TryPrepare(request, mac, ip, 53) == PacketDataResult.Invalid
-		assert responder.TryPrepare(request, mac, ip, 54) == PacketDataResult.Success
+		assert this.PrepareRequest(request, mac, ip, 53) == PacketDataResult.Invalid
+		assert this.PrepareRequest(request, mac, ip, 54) == PacketDataResult.Success
 		assert responder.TryRead(42, value) == PacketDataResult.Success
 		assert value == 0xFF
 		responder.Invalidate()
+	}
+
+	/**
+	 * Loads the explicit test prefix into the component-based response API.
+	 */
+	fn PrepareRequest(bytes: byte[128], mac: byte[6], ip: byte[4], length: int) PacketDataResult
+	{
+		responder.Invalidate()
+
+		if (data.IsReady()) { data.TryRelease() }
+		else { data.TryClear() }
+
+		for (var i = 0; i < length; i++) {
+			assert data.TryWrite(i, bytes[i]) == PacketDataResult.Success
+		}
+
+		assert data.TryPublish() == PacketDataResult.Success
+		return responder.TryPrepare(mac, ip)
 	}
 }

@@ -2,83 +2,95 @@ namespace Livt.Net.Tests
 
 using Livt.Net
 
+/**
+ * Exercises provider-relative parsing, independent expected values and reuse.
+ */
 @Test
 component EthernetFrameParserTest
 {
-	parser: EthernetFrameParser
+	data: ArrayPacketData<128>
+	region: PacketRegion<ArrayPacketData<128>>
+	parser: EthernetFrameParser<PacketRegion<ArrayPacketData<128>>>
 
+	/**
+	 * Wires packet storage and a deliberately offset protocol region.
+	 */
 	new()
 	{
-		this.parser = new EthernetFrameParser()
+		data = new ArrayPacketData<128>()
+		region = new PacketRegion<ArrayPacketData<128>>(data)
+		parser = new EthernetFrameParser<PacketRegion<ArrayPacketData<128>>>(region)
 	}
 
-	@Test
-	fn DetectsIpv4EtherType()
+	/**
+	 * Replaces a fixture with correct descendant-first invalidation.
+	 */
+	fn Load(bytes: byte[128], length: int)
 	{
-		var frame: byte[64]
-		var etherTypeIpv4: byte[2]
-		etherTypeIpv4[0] = 0x08
-		etherTypeIpv4[1] = 0x00
+		parser.Invalidate()
+		region.TryClose()
 
-		frame[12] = etherTypeIpv4[0]
-		frame[13] = etherTypeIpv4[1]
+		if (data.IsReady()) { data.TryRelease() }
+		else { data.TryClear() }
 
-		assert this.parser.IsIpv4(frame) == true
-		assert this.parser.IsArp(frame) == false
-		assert this.parser.GetPayloadOffset() == 14
+		for (var i = 0; i < 3; i++) {
+			assert data.TryWrite(i, 0xA5) == PacketDataResult.Success
+		}
+
+		for (var i = 0; i < length; i++) {
+			assert data.TryWrite(3 + i, bytes[i]) == PacketDataResult.Success
+		}
+
+		assert data.TryPublish() == PacketDataResult.Success
+		assert region.TryOpen(3, length) == PacketDataResult.Success
 	}
 
+	/**
+	 * ReadsEthernetMetadataAndBoundsPayload.
+	 */
 	@Test
-	fn DetectsArpEtherType()
+	fn ReadsEthernetMetadataAndBoundsPayload()
 	{
-		var frame: byte[64]
-		var etherTypeArp: byte[2]
-		etherTypeArp[0] = 0x08
-		etherTypeArp[1] = 0x06
-
-		frame[12] = etherTypeArp[0]
-		frame[13] = etherTypeArp[1]
-
-		assert this.parser.IsArp(frame) == true
-		assert this.parser.IsIpv4(frame) == false
+		var bytes: byte[128]
+		bytes[0] = 0xFF
+		bytes[6] = 0x82
+		bytes[12] = 0x08
+		bytes[13] = 0x00
+		bytes[14] = 0xAB
+		this.Load(bytes, 15)
+		assert parser.TryParse() == PacketParseResult.HeaderOnly
+		assert parser.GetEtherType() == 2048
+		var mac = parser.GetSourceMac()
+		assert mac[0] == 0x82
+		var destination = parser.GetDestinationMac()
+		assert destination[0] == 0xFF
+		assert parser.GetAvailableLength() == 1
+		var value: byte = 0x00
+		assert parser.TryRead(0, value) == PacketDataResult.Success
+		assert value == 0xAB
+		assert parser.TryRead(1, value) == PacketDataResult.Invalid
 	}
 
+	/**
+	 * RejectsTruncationAndIeeeLengthWithoutStaleMetadata.
+	 */
 	@Test
-	fn ReadsMacAddressBytes()
+	fn RejectsTruncationAndIeeeLengthWithoutStaleMetadata()
 	{
-		var frame: byte[64]
-		var destinationMac: byte[6]
-		destinationMac[0] = 0x02
-		destinationMac[1] = 0x11
-		destinationMac[2] = 0x22
-		destinationMac[3] = 0x33
-		destinationMac[4] = 0x44
-		destinationMac[5] = 0x55
-		var sourceMac: byte[6]
-		sourceMac[0] = 0x0A
-		sourceMac[1] = 0x0B
-		sourceMac[2] = 0x0C
-		sourceMac[3] = 0x0D
-		sourceMac[4] = 0x0E
-		sourceMac[5] = 0x0F
-
-		frame[0] = destinationMac[0]
-		frame[1] = destinationMac[1]
-		frame[2] = destinationMac[2]
-		frame[3] = destinationMac[3]
-		frame[4] = destinationMac[4]
-		frame[5] = destinationMac[5]
-
-		frame[6] = sourceMac[0]
-		frame[7] = sourceMac[1]
-		frame[8] = sourceMac[2]
-		frame[9] = sourceMac[3]
-		frame[10] = sourceMac[4]
-		frame[11] = sourceMac[5]
-
-		assert this.parser.GetDestinationMacByte(frame, 0) == 0x02
-		assert this.parser.GetDestinationMacByte(frame, 5) == 0x55
-		assert this.parser.GetSourceMacByte(frame, 0) == 0x0A
-		assert this.parser.GetSourceMacByte(frame, 5) == 0x0F
+		var bytes: byte[128]
+		bytes[12] = 0x08
+		bytes[13] = 0x06
+		this.Load(bytes, 14)
+		assert parser.TryParse() == PacketParseResult.HeaderOnly
+		assert parser.GetEtherType() == 2054
+		this.Load(bytes, 13)
+		assert parser.TryParse() == PacketParseResult.Truncated
+		assert parser.GetEtherType() == 0
+		bytes[12] = 0x00
+		this.Load(bytes, 14)
+		assert parser.TryParse() == PacketParseResult.Unsupported
+		assert !parser.IsReady()
+		parser.Invalidate()
+		assert parser.GetStatus() == PacketParseResult.NotReady
 	}
 }

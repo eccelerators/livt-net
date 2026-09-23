@@ -5,17 +5,20 @@ using Livt.Net
 @Test
 component ArpResponderTest
 {
-	responder: ArpResponder
+	data: ArrayPacketData<64>
+	responder: ArpResponder<ArrayPacketData<64>>
 
 	new()
 	{
-		this.responder = new ArpResponder()
+		data = new ArrayPacketData<64>(); responder = new ArpResponder<ArrayPacketData<64>>(data)
 	}
 
 	@Test
 	fn RespondsOnlyToLocalIpv4Request()
 	{
 		var request: byte[64]
+		request[12] = 0x08
+		request[13] = 0x06
 		var arpEthernetIpv4Request: byte[8]
 		arpEthernetIpv4Request[0] = 0x00
 		arpEthernetIpv4Request[1] = 0x01
@@ -49,14 +52,16 @@ component ArpResponderTest
 		request[40] = localIp[2]
 		request[41] = localIp[3]
 
-		assert this.responder.ShouldRespond(request, localIp) == true
-		assert this.responder.ShouldRespond(request, wrongIp) == false
+		assert (this.PrepareRequest(request, [0x00, 0x00, 0x00, 0x00, 0x00, 0x00], localIp, 64) == PacketDataResult.Success) == true
+		assert (this.PrepareRequest(request, [0x00, 0x00, 0x00, 0x00, 0x00, 0x00], wrongIp, 64) == PacketDataResult.Success) == false
 	}
 
 	@Test
 	fn BuildsArpReplyBytes()
 	{
 		var request: byte[64]
+		request[12] = 0x08
+		request[13] = 0x06
 		var localMac: byte[6]
 		localMac[0] = 0x02
 		localMac[1] = 0x55
@@ -104,7 +109,7 @@ component ArpResponderTest
 		request[20] = 0x00
 		request[21] = 0x01
 		for (var j = 0; j < 4; j++) { request[38 + j] = localIp[j] }
-		assert this.responder.TryPrepare(request, localMac, localIp, 64) == PacketDataResult.Success
+		assert this.PrepareRequest(request, localMac, localIp, 64) == PacketDataResult.Success
 		var responderByte: byte = 0x00
 		assert this.responder.TryRead(0, responderByte) == PacketDataResult.Success
 		assert responderByte == 0x02
@@ -142,6 +147,8 @@ component ArpResponderTest
 	fn SnapshotsAddressesAndClearsRejectedRequest()
 	{
 		var request: byte[64]
+		request[12] = 0x08
+		request[13] = 0x06
 		var mac: byte[6] = [0x02, 0x55, 0x66, 0x77, 0x11, 0x22]
 		var ip: byte[4] = [0x0A, 0x00, 0x00, 0x01]
 		var value: byte = 0x00
@@ -157,16 +164,41 @@ component ArpResponderTest
 		request[21] = 0x01
 		request[22] = 0x82
 		for (var i = 0; i < 4; i++) { request[38 + i] = ip[i] }
-		assert responder.TryPrepare(request, mac, ip, 42) == PacketDataResult.Success
+		assert this.PrepareRequest(request, mac, ip, 42) == PacketDataResult.Success
 		request[22] = 0x01
+		// Success closed all input views; reuse the actual provider independently.
+		assert data.TryRelease() == PacketDataResult.Success
+		assert data.TryWrite(0, 0xEE) == PacketDataResult.Success
+		assert data.TryPublish() == PacketDataResult.Success
 		assert responder.TryRead(0, value) == PacketDataResult.Success
 		assert value == 0x82
-		assert responder.TryPrepare(request, mac, ip, 41) == PacketDataResult.Invalid
+		assert this.PrepareRequest(request, mac, ip, 41) == PacketDataResult.Invalid
 		assert responder.GetAvailableLength() == 0
 		assert responder.TryRead(0, value) == PacketDataResult.NotReady
-		assert responder.TryPrepare(request, mac, ip, 42) == PacketDataResult.Success
+		assert this.PrepareRequest(request, mac, ip, 42) == PacketDataResult.Success
 		assert responder.TryRead(0, value) == PacketDataResult.Success
 		assert value == 0x01
+		request[13] = 0x00
+		assert this.PrepareRequest(request, mac, ip, 42) == PacketDataResult.Invalid
+		assert !responder.IsReady()
 		responder.Invalidate()
+	}
+
+	/**
+	 * Loads the explicit test prefix into the component-based response API.
+	 */
+	fn PrepareRequest(bytes: byte[64], mac: byte[6], ip: byte[4], length: int) PacketDataResult
+	{
+		responder.Invalidate()
+
+		if (data.IsReady()) { data.TryRelease() }
+		else { data.TryClear() }
+
+		for (var i = 0; i < length; i++) {
+			assert data.TryWrite(i, bytes[i]) == PacketDataResult.Success
+		}
+
+		assert data.TryPublish() == PacketDataResult.Success
+		return responder.TryPrepare(mac, ip)
 	}
 }

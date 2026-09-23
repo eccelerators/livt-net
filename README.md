@@ -10,12 +10,12 @@ The 1.1.0-dev package surface is intentionally narrow and hardware-oriented:
 - `Livt.Net.EthernetFrameBuilder`: Ethernet reply-header byte builder.
 - `Livt.Net.ArpPacketParser`: ARP packet parser for Ethernet/IPv4 frames.
 - `Livt.Net.ArpResponder`: ARP request recognition and prepared reply composition.
-- `Livt.Net.Ipv4PacketParser`: fixed 20-byte IPv4 header classifier.
+- `Livt.Net.Ipv4PacketParser`: bounded fixed-header IPv4 parser.
 - `Livt.Net.Ipv4HeaderBuilder`: IPv4 response-header byte builder.
 - `Livt.Net.Ipv4HeaderChecksum`: checksum helper for fixed IPv4 responses.
 - `Livt.Net.InternetChecksum`: streaming RFC 1071 Internet checksum helper.
 - `Livt.Net.IcmpEchoResponder`: ICMP request recognition and prepared reply composition.
-- `Livt.Net.TcpHeaderParser`: fixed 20-byte TCP header classifier.
+- `Livt.Net.TcpHeaderParser`: bounded TCP header parser.
 - `Livt.Net.TcpConnectionRecognizer`: TCP packet recognizer for local endpoints.
 - `Livt.Net.TcpSegmentBuilder`: TCP response-header byte builder.
 - `Livt.Net.TcpSynAckFrameComposer`: Ethernet/IPv4/TCP SYN-ACK frame composer.
@@ -64,19 +64,16 @@ and migration from the old responder byte APIs.
 
 ### Protocol Helpers
 
-Parser components accept compile-time-sized frame arrays and answer protocol questions
-with `bool` return values. Builder and composer components return one byte for a
-requested frame index. This one-byte-at-a-time shape keeps offset ownership
-explicit and maps cleanly to frame-oriented hardware paths.
+Parsers bind `IPacketData` providers and expose checked, bounded payload views.
+Compose Ethernet → IPv4 → TCP, or parse a protocol directly from a region.
+`TryParse()` distinguishes complete structure, partial capture, unsupported
+formats and malformed headers. Getters expose decoded metadata rather than
+individual high/low field bytes. See [bounded packet parsing](docs/packet-parsing.md)
+for supported forms, checksum policy and lifetime rules.
 
-Core parser and builder APIs include:
-
-- `IsArp(frame)`, `IsIpv4(frame)`, and MAC byte getters.
-- `IsRequest(frame)`, `IsRequestForIpv4(frame, ...)`, and ARP sender getters.
-- `IsFixedHeader(frame)`, `IsTcp(frame)`, `IsIcmp(frame)`, and IPv4 byte getters.
-- `IsSynOnly(frame)`, `IsAckOnly(frame)`, `IsPshAck(frame)`, and TCP byte getters.
-- `TryPrepare(...)`, `TryRead(index, value)` and `GetAvailableLength()` on responders.
-- `GetResponseHeaderByte(...)` and `GetFrameByte(...)` on existing TCP helpers.
+Responders bind a frame provider and use `TryPrepare(localMac, localIp)`, followed
+by `TryRead(index, value)` and `GetAvailableLength()`. Existing TCP builders and
+composers retain their emission API pending the service redesign.
 
 `InternetChecksum` incrementally consumes network-order bytes with `AddByte()`.
 It returns either the unfolded word sum for use with `TcpChecksum` or the final

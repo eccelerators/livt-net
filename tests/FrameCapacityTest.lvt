@@ -2,97 +2,13 @@ namespace Livt.Net.Tests
 
 using Livt.Net
 
-/** Runs the same packet checks through independently specialized component graphs. */
-@Test
-component FrameCapacityChecks<CAPACITY: int>
-{
-	ethernet: EthernetFrameParser<CAPACITY>
-	arp: ArpResponder<CAPACITY>
-	ipv4: Ipv4PacketParser<CAPACITY>
-	tcp: TcpConnectionRecognizer<CAPACITY>
-	icmp: IcmpEchoResponder<CAPACITY>
-	composer: TcpSynAckFrameComposer<CAPACITY>
-
-	new()
-	{
-		this.ethernet = new EthernetFrameParser<CAPACITY>()
-		this.arp = new ArpResponder<CAPACITY>()
-		this.ipv4 = new Ipv4PacketParser<CAPACITY>()
-		this.tcp = new TcpConnectionRecognizer<CAPACITY>()
-		this.icmp = new IcmpEchoResponder<CAPACITY>()
-		this.composer = new TcpSynAckFrameComposer<CAPACITY>()
-	}
-
-	public fn Check()
-	{
-		var frame: byte[CAPACITY]
-		var ip: byte[4] = [0x0A, 0x00, 0x00, 0x01]
-		var mac: byte[6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01]
-		var port: byte[2] = [0x00, 0x50]
-		var word: byte[2] = [0x12, 0x34]
-		var sequence: byte[4] = [0x01, 0x02, 0x03, 0x04]
-		for (var i = 0; i < CAPACITY; i++) { frame[i] = 0x00 }
-		frame[12] = 0x08
-		frame[14] = 0x45
-		frame[17] = 0x28
-		frame[23] = 0x06
-		frame[30] = 0x0A
-		frame[33] = 0x01
-		frame[37] = 0x50
-		frame[46] = 0x50
-		frame[47] = 0x02
-		assert this.ethernet.IsIpv4(frame, 14) == true
-		assert this.ethernet.IsIpv4(frame, 13) == false
-		assert this.ethernet.IsIpv4(frame, CAPACITY + 1) == false
-		assert this.ipv4.IsTcp(frame, 34) == true
-		assert this.ipv4.IsTcp(frame, 33) == false
-		assert this.tcp.IsSynRequest(frame, ip, port, 54) == true
-		assert this.tcp.IsSynRequest(frame, ip, port, 53) == false
-		assert this.composer.GetFrameByte(frame, 14, mac, ip, word, sequence, sequence, word, word) == 0x45
-		assert this.composer.GetFrameByte(frame, 47, mac, ip, word, sequence, sequence, word, word) == 0x12
-		assert this.composer.GetFrameByte(frame, -1, mac, ip, word, sequence, sequence, word, word) == 0x00
-		frame[23] = 0x01
-		frame[34] = 0x08
-		frame[17] = 0x28
-		assert this.icmp.ShouldRespond(frame, ip, 54) == true
-		assert this.icmp.ShouldRespond(frame, ip, 53) == false
-		frame[17] = 0x1B
-		assert this.icmp.ShouldRespond(frame, ip) == false
-		frame[17] = (CAPACITY - 14) as byte
-		assert this.icmp.ShouldRespond(frame, ip) == true
-		frame[CAPACITY - 1] = 0xA5
-		assert this.icmp.TryPrepare(frame, mac, ip, CAPACITY) == PacketDataResult.Success
-		var icmpByte: byte = 0x00
-		assert this.icmp.TryRead(CAPACITY - 1, icmpByte) == PacketDataResult.Success
-		assert icmpByte == 0xA5
-		assert this.icmp.TryRead(CAPACITY, icmpByte) == PacketDataResult.Invalid
-		frame[13] = 0x06
-		frame[14] = 0x00
-		frame[15] = 0x01
-		frame[16] = 0x08
-		frame[17] = 0x00
-		frame[18] = 0x06
-		frame[19] = 0x04
-		frame[20] = 0x00
-		frame[21] = 0x01
-		frame[38] = 0x0A
-		frame[41] = 0x01
-		assert this.arp.ShouldRespond(frame, ip, 42) == true
-		assert this.arp.ShouldRespond(frame, ip, 41) == false
-		assert this.arp.TryPrepare(frame, mac, ip, CAPACITY) == PacketDataResult.Success
-		var arpByte: byte = 0x00
-		assert this.arp.TryRead(20, arpByte) == PacketDataResult.Success
-		assert arpByte == 0x00
-		assert this.arp.TryRead(21, arpByte) == PacketDataResult.Success
-		assert arpByte == 0x02
-	}
-}
-
 @Test
 component FrameCapacityTest
 {
-	small: FrameCapacityChecks<96>
-	large: FrameCapacityChecks<256>
+	icmpSmall: IcmpCapacityChecks<96>
+	icmpLarge: IcmpCapacityChecks<256>
+	small: ArpCompositionChecks<96>
+	large: ArpCompositionChecks<256>
 	axiSmall: Axi4LiteEthernetLiteAdapter
 	axiLarge: Axi4LiteEthernetLiteAdapter
 	ioSmall: EthernetFrameIo<64, 64, 5>
@@ -101,8 +17,10 @@ component FrameCapacityTest
 	new()
 	{
 		var mac: byte[6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01]
-		this.small = new FrameCapacityChecks<96>()
-		this.large = new FrameCapacityChecks<256>()
+		this.icmpSmall = new IcmpCapacityChecks<96>()
+		this.icmpLarge = new IcmpCapacityChecks<256>()
+		this.small = new ArpCompositionChecks<96>()
+		this.large = new ArpCompositionChecks<256>()
 		this.axiSmall = new Axi4LiteEthernetLiteAdapter()
 		this.axiLarge = new Axi4LiteEthernetLiteAdapter()
 		this.ioSmall = new EthernetFrameIo<64, 64, 5>(this.axiSmall, mac)
@@ -113,6 +31,8 @@ component FrameCapacityTest
 	@Test
 	fn SpecializesProtocolGraphsIndependently()
 	{
+		this.icmpSmall.Check()
+		this.icmpLarge.Check()
 		this.small.Check()
 		this.large.Check()
 	}

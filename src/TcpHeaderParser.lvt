@@ -1,136 +1,167 @@
 namespace Livt.Net
 
 /**
- * RFC 9293 — Transmission Control Protocol (TCP)
- * https://www.rfc-editor.org/rfc/rfc9293
- *
- * Parses fixed 20-byte TCP headers without options.
- * Classifiers check the valid prefix length; omitting it uses FRAME_CAPACITY.
+ * Parses TCP headers, including the extent of uninterpreted options.
+ * Success validates the captured header, not the complete enclosing IP packet
+ * or TCP checksum. Reserved/extended flags are unsupported.
+ * Bind a protocol-relative provider. Invalidate children before this parser, then
+ * release the source. Metadata is cached only for the current parse lifetime.
  */
-component TcpHeaderParser<FRAME_CAPACITY: int = 128>
+component TcpHeaderParser<S: IPacketData> : IPacketData
 {
-	static assert FRAME_CAPACITY >= 54, "Frame capacity must hold the required protocol header"
-	// Offset of the TCP header in the Ethernet/IPv4 frame.
-	public const TCP_OFFSET: int = 34
-	// Offset of the TCP payload for fixed IPv4 and TCP headers.
-	public const PAYLOAD_OFFSET: int = 54
-	// Offset of the TCP source port.
-	public const SOURCE_PORT_OFFSET: int = 34
-	// Offset of the TCP destination port.
-	public const DESTINATION_PORT_OFFSET: int = 36
-	// Offset of the TCP sequence number.
-	public const SEQUENCE_NUMBER_OFFSET: int = 38
-	// Offset of the TCP acknowledgment number.
-	public const ACKNOWLEDGMENT_NUMBER_OFFSET: int = 42
-	// Offset of the TCP data-offset byte.
-	public const DATA_OFFSET_BYTE: int = 46
-	// Offset of the TCP flags byte.
-	public const FLAGS_BYTE: int = 47
+	public const HEADER_LENGTH: int = 20
+	header: PacketHeader<S, HEADER_LENGTH>
+	status: PacketParseResult
 
 	/**
-	 * Returns true when the TCP data offset indicates a fixed 20-byte header (0x50).
+	 * Binds the protocol input; construction performs no reads.
 	 */
-	public fn IsFixedHeader(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
+	new(source: S)
 	{
-		if (validLength < 54 || validLength > FRAME_CAPACITY) { return false }
-		return frame[DATA_OFFSET_BYTE] == 0x50
+		header = new PacketHeader<S, HEADER_LENGTH>(source)
 	}
 
 	/**
-	 * Returns true when the destination port matches the supplied local port.
+	 * Discards validated metadata and closes the borrowed payload view.
 	 */
-	public fn IsForLocalPort(frame: byte[FRAME_CAPACITY], portHigh: byte, portLow: byte, validLength: int = FRAME_CAPACITY) bool
+	public fn Invalidate()
 	{
-		if (validLength < 54 || validLength > FRAME_CAPACITY) { return false }
-		return frame[DESTINATION_PORT_OFFSET] == portHigh
-			&& frame[DESTINATION_PORT_OFFSET + 1] == portLow
+		status = PacketParseResult.NotReady
+		header.Invalidate()
 	}
 
 	/**
-	 * Returns true when the TCP flags byte contains only SYN (0x02).
+	 * Parses once and replaces prior state even on failure. Checks structure,
+	 * not endpoint policy or transport checksums.
 	 */
-	public fn IsSynOnly(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
+	public fn TryParse() PacketParseResult
 	{
-		if (validLength < 54 || validLength > FRAME_CAPACITY) { return false }
-		return frame[FLAGS_BYTE] == 0x02
+		status = header.TryLoad()
+
+		if (status != PacketParseResult.Success) { return status }
+
+		var dataOffset = header.GetByte(12)
+		var size = ((dataOffset as int) / 16) * 4
+
+		if (size < HEADER_LENGTH) {
+			status = PacketParseResult.Invalid
+			return status
+		}
+
+		if ((dataOffset as int) % 16 != 0) {
+			status = PacketParseResult.Unsupported
+			return status
+		}
+
+		if (size > header.GetCapturedLength()) {
+			status = PacketParseResult.Truncated
+			return status
+		}
+
+		status = header.TryOpenPayload(size, header.GetCapturedLength() - size)
+		return status
 	}
 
 	/**
-	 * Returns true when the TCP flags byte contains only ACK (0x10).
+	 * Returns current validation state; unavailable sources invalidate access.
 	 */
-	public fn IsAckOnly(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
+	public fn GetStatus() PacketParseResult
 	{
-		if (validLength < 54 || validLength > FRAME_CAPACITY) { return false }
-		return frame[FLAGS_BYTE] == 0x10
+		if ((status == PacketParseResult.Success || status == PacketParseResult.HeaderOnly) && !header.IsReady()) { return PacketParseResult.NotReady }
+
+		return status
 	}
 
 	/**
-	 * Returns true when the TCP flags byte contains PSH and ACK (0x18).
+	 * Reports available supported metadata, including partial captures.
 	 */
-	public fn IsPshAck(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
+	override fn IsReady() bool
 	{
-		if (validLength < 54 || validLength > FRAME_CAPACITY) { return false }
-		return frame[FLAGS_BYTE] == 0x18
+		return (status == PacketParseResult.Success || status == PacketParseResult.HeaderOnly) && header.IsReady()
 	}
 
 	/**
-	 * Returns true when the TCP flags byte contains FIN and ACK (0x11).
+	 * Returns bounded captured payload bytes, not declared or wire length.
 	 */
-	public fn IsFinAck(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
+	override fn GetAvailableLength() int
 	{
-		if (validLength < 54 || validLength > FRAME_CAPACITY) { return false }
-		return frame[FLAGS_BYTE] == 0x11
+		if (!this.IsReady()) { return 0 }
+
+		return header.GetAvailableLength()
 	}
 
 	/**
-	 * Returns true for a fixed-header TCP segment targeting the supplied local port.
+	 * Reads the borrowed payload relative to this protocol's header.
 	 */
-	public fn IsFixedHeaderForLocalPort(frame: byte[FRAME_CAPACITY], portHigh: byte, portLow: byte, validLength: int = FRAME_CAPACITY) bool
+	override fn TryRead(index: int, value: out byte) PacketDataResult
 	{
-		if (validLength < 54 || validLength > FRAME_CAPACITY) { return false }
-		return this.IsFixedHeader(frame)
-			&& this.IsForLocalPort(frame, portHigh, portLow)
+		value = 0x00
+
+		if (!this.IsReady()) { return PacketDataResult.NotReady }
+
+		var readValue: byte = 0x00
+		var result = header.TryRead(index, readValue)
+		value = readValue
+		return result
 	}
 
 	/**
-	 * Returns the fixed TCP payload offset (Ethernet II + 20-byte IPv4 + 20-byte TCP = 54).
+	 * Returns SourcePort from the supported cached header; unavailable metadata returns 0.
 	 */
-	public fn GetPayloadOffset() int
+	public fn GetSourcePort() int
 	{
-		return PAYLOAD_OFFSET
+		if (!this.IsReady()) { return 0 }
+
+		return header.GetWord(0)
 	}
 
 	/**
-	 * Reads the high byte of the TCP source port.
+	 * Returns DestinationPort from the supported cached header; unavailable metadata returns 0.
 	 */
-	public fn GetSourcePortHighByte(frame: byte[FRAME_CAPACITY]) byte
+	public fn GetDestinationPort() int
 	{
-		return frame[SOURCE_PORT_OFFSET]
+		if (!this.IsReady()) { return 0 }
+
+		return header.GetWord(2)
 	}
 
 	/**
-	 * Reads the low byte of the TCP source port.
+	 * Returns SequenceNumber from the supported cached header; unavailable metadata returns 0.
 	 */
-	public fn GetSourcePortLowByte(frame: byte[FRAME_CAPACITY]) byte
+	public fn GetSequenceNumber() uint
 	{
-		return frame[SOURCE_PORT_OFFSET + 1]
+		if (!this.IsReady()) { return 0 }
+
+		return header.GetSequence(4)
 	}
 
 	/**
-	 * Reads one byte from the TCP sequence number.
+	 * Returns AcknowledgmentNumber from the supported cached header; unavailable metadata returns 0.
 	 */
-	public fn GetSequenceNumberByte(frame: byte[FRAME_CAPACITY], index: int) byte
+	public fn GetAcknowledgmentNumber() uint
 	{
-		if (index < 0 || index >= 4) { return 0x00 }
-		return frame[SEQUENCE_NUMBER_OFFSET + index]
+		if (!this.IsReady()) { return 0 }
+
+		return header.GetSequence(8)
 	}
 
 	/**
-	 * Reads one byte from the TCP acknowledgment number.
+	 * Returns HeaderLength from the supported cached header; unavailable metadata returns 0.
 	 */
-	public fn GetAcknowledgmentNumberByte(frame: byte[FRAME_CAPACITY], index: int) byte
+	public fn GetHeaderLength() int
 	{
-		if (index < 0 || index >= 4) { return 0x00 }
-		return frame[ACKNOWLEDGMENT_NUMBER_OFFSET + index]
+		if (!this.IsReady()) { return 0 }
+
+		return ((header.GetByte(12) as int) / 16) * 4
+	}
+
+	/**
+	 * Returns Flags from the supported cached header; unavailable metadata returns 0.
+	 */
+	public fn GetFlags() byte
+	{
+		if (!this.IsReady()) { return 0 }
+
+		return header.GetByte(13)
 	}
 }

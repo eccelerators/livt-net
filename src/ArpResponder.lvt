@@ -1,49 +1,78 @@
 namespace Livt.Net
 
 /**
- * Checked request recognition and prepared reply composition. One serialized
- * owner must finish all reads/TX borrows before preparing or invalidating again.
- * Preparation snapshots request metadata; emission does not read the request.
+ * Prepares an ARP reply from a bound frame provider; response addresses are snapshots.
  */
-component ArpResponder<FRAME_CAPACITY: int = 64> : IPacketData
+component ArpResponder<S: IPacketData> : IPacketData
 {
-	static assert FRAME_CAPACITY >= 42, "Frame capacity must hold the required protocol header"
-	parser: ArpPacketParser<FRAME_CAPACITY>
+	ethernet: EthernetFrameParser<S>
+	parser: ArpPacketParser<EthernetFrameParser<S>>
 	reply: ArpReply
 	frame: EthernetFrame<ArpReply>
-	new()
+
+	/**
+	 * Wires recognition and reply composition without reading the source.
+	 */
+	new(source: S)
 	{
-		parser = new ArpPacketParser<FRAME_CAPACITY>()
+		ethernet = new EthernetFrameParser<S>(source)
+		parser = new ArpPacketParser<EthernetFrameParser<S>>(ethernet)
 		reply = new ArpReply()
 		frame = new EthernetFrame<ArpReply>(reply)
 	}
-	public fn Invalidate() { frame.Invalidate(); reply.Invalidate() }
-	public fn ShouldRespond(frame: byte[FRAME_CAPACITY], localIp: byte[4]) bool
+
+	/**
+	 * Invalidates response and input views after outstanding response borrows finish.
+	 */
+	public fn Invalidate()
 	{
-		return this.ShouldRespond(frame, localIp, FRAME_CAPACITY)
+		frame.Invalidate()
+		reply.Invalidate()
+		parser.Invalidate()
+		ethernet.Invalidate()
 	}
 
-	/** Checks a caller-supplied valid prefix length before reading header bytes. */
-	public fn ShouldRespond(frame: byte[FRAME_CAPACITY], localIp: byte[4], validLength: int) bool
-	{
-		if (validLength < 42 || validLength > FRAME_CAPACITY) { return false }
-		return this.parser.IsRequestForIpv4(frame, localIp[0], localIp[1], localIp[2], localIp[3])
-	}
-
-	/** One admitted preparation invalidates the prior response even on failure. */
-	public fn TryPrepare(request: byte[FRAME_CAPACITY], localMac: byte[6], localIp: byte[4], validLength: int) PacketDataResult
+	/**
+	 * Replaces the prior response even on rejection; requires Ethernet/IPv4 ARP for the local IP.
+	 */
+	public fn TryPrepare(localMac: byte[6], localIp: byte[4]) PacketDataResult
 	{
 		this.Invalidate()
-		if (!this.ShouldRespond(request, localIp, validLength)) { return PacketDataResult.Invalid }
-		var peerMac: byte[6]
-		var peerIp: byte[4]
-		for (var i = 0; i < 6; i++) { peerMac[i] = request[22 + i] }
-		for (var i = 0; i < 4; i++) { peerIp[i] = request[28 + i] }
+		ethernet.TryParse()
+
+		if (!ethernet.IsReady() || ethernet.GetEtherType() != 2054) { return PacketDataResult.Invalid }
+		if (parser.TryParse() != PacketParseResult.Success) { return PacketDataResult.Invalid }
+		if (parser.GetOperation() != 1) { return PacketDataResult.Invalid }
+
+		var destination = parser.GetTargetIpv4()
+
+		for (var i = 0; i < 4; i++) {
+			if (destination[i] != localIp[i]) { return PacketDataResult.Invalid }
+		}
+
+		var peerMac = parser.GetSenderMac()
+		var peerIp = parser.GetSenderIpv4()
+		parser.Invalidate()
+		ethernet.Invalidate()
 		var result = reply.TryPrepare(localMac, localIp, peerMac, peerIp)
+
 		if (result != PacketDataResult.Success) { return result }
+
 		return frame.TryPrepare(localMac, peerMac)
 	}
+
+	/**
+	 * Reports prepared reply availability.
+	 */
 	override fn IsReady() bool { return frame.IsReady() }
+
+	/**
+	 * Returns the complete padded reply length.
+	 */
 	override fn GetAvailableLength() int { return frame.GetAvailableLength() }
+
+	/**
+	 * Reads a prepared reply byte; request storage is no longer needed.
+	 */
 	override fn TryRead(index: int, value: out byte) PacketDataResult { return frame.TryRead(index, value) }
 }

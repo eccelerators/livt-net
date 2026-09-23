@@ -6,20 +6,20 @@ using Livt.Net
  * Exercises provider-relative parsing, independent expected values and reuse.
  */
 @Test
-component Ipv4PacketParserTest
+component RamIpv4PacketParserTest
 {
-	data: ArrayPacketData<128>
-	region: PacketRegion<ArrayPacketData<128>>
-	parser: Ipv4PacketParser<PacketRegion<ArrayPacketData<128>>>
+	data: RamPacketData<128>
+	region: PacketRegion<RamPacketData<128>>
+	parser: Ipv4PacketParser<PacketRegion<RamPacketData<128>>>
 
 	/**
 	 * Wires packet storage and a deliberately offset protocol region.
 	 */
 	new()
 	{
-		data = new ArrayPacketData<128>()
-		region = new PacketRegion<ArrayPacketData<128>>(data)
-		parser = new Ipv4PacketParser<PacketRegion<ArrayPacketData<128>>>(region)
+		data = new RamPacketData<128>()
+		region = new PacketRegion<RamPacketData<128>>(data)
+		parser = new Ipv4PacketParser<PacketRegion<RamPacketData<128>>>(region)
 	}
 
 	/**
@@ -33,16 +33,16 @@ component Ipv4PacketParserTest
 		if (data.IsReady()) { data.TryRelease() }
 		else { data.TryClear() }
 
-		for (var i = 0; i < 7; i++) {
+		for (var i = 0; i < 11; i++) {
 			assert data.TryWrite(i, 0xA5) == PacketDataResult.Success
 		}
 
 		for (var i = 0; i < length; i++) {
-			assert data.TryWrite(7 + i, bytes[i]) == PacketDataResult.Success
+			assert data.TryWrite(11 + i, bytes[i]) == PacketDataResult.Success
 		}
 
 		assert data.TryPublish() == PacketDataResult.Success
-		assert region.TryOpen(7, length) == PacketDataResult.Success
+		assert region.TryOpen(11, length) == PacketDataResult.Success
 	}
 
 	/**

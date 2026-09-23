@@ -5,8 +5,9 @@ using Livt.Net
 @Test
 component ArpCompositionChecks<CAPACITY: int>
 {
-	responder: ArpResponder<CAPACITY>
-	new() { responder = new ArpResponder<CAPACITY>() }
+	data: ArrayPacketData<CAPACITY>
+	responder: ArpResponder<ArrayPacketData<CAPACITY>>
+	new() { data = new ArrayPacketData<CAPACITY>(); responder = new ArpResponder<ArrayPacketData<CAPACITY>>(data) }
 
 	public fn Check()
 	{
@@ -37,7 +38,7 @@ component ArpCompositionChecks<CAPACITY: int>
 		request[20] = 0x00
 		request[21] = 0x01
 		for (var j = 0; j < 4; j++) { request[38 + j] = localIp[j] }
-		assert responder.TryPrepare(request, localMac, localIp, CAPACITY) == PacketDataResult.Success
+		assert this.PrepareRequest(request, localMac, localIp, CAPACITY) == PacketDataResult.Success
 		var responderByte: byte = 0x00
 		for (var i = 0; i < 60; i++) {
 			assert responder.TryRead(i, responderByte) == PacketDataResult.Success
@@ -46,6 +47,24 @@ component ArpCompositionChecks<CAPACITY: int>
 		assert responder.TryRead(-1, responderByte) == PacketDataResult.Invalid
 		assert responder.TryRead(60, responderByte) == PacketDataResult.Invalid
 		assert responder.TryRead(CAPACITY + 60, responderByte) == PacketDataResult.Invalid
+	}
+
+	/**
+	 * Loads the explicit test prefix into the component-based response API.
+	 */
+	fn PrepareRequest(bytes: byte[CAPACITY], mac: byte[6], ip: byte[4], length: int) PacketDataResult
+	{
+		responder.Invalidate()
+
+		if (data.IsReady()) { data.TryRelease() }
+		else { data.TryClear() }
+
+		for (var i = 0; i < length; i++) {
+			assert data.TryWrite(i, bytes[i]) == PacketDataResult.Success
+		}
+
+		assert data.TryPublish() == PacketDataResult.Success
+		return responder.TryPrepare(mac, ip)
 	}
 }
 

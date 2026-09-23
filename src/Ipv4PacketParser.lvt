@@ -1,144 +1,209 @@
 namespace Livt.Net
 
 /**
- * RFC 791 — Internet Protocol
- * https://www.rfc-editor.org/rfc/rfc791
- *
- * Parses the fixed IPv4 header subset used for Ethernet/IPv4/TCP frames.
- * Classifiers check the valid prefix length; omitting it uses FRAME_CAPACITY.
+ * Parses fixed, unfragmented IPv4 headers and bounds payload by total length.
+ * Options and fragmentation are Unsupported. Success means declared bytes are
+ * captured; checksum verification is a separate explicit query.
+ * Bind a protocol-relative provider. Invalidate children before this parser, then
+ * release the source. Metadata is cached only for the current parse lifetime.
  */
-component Ipv4PacketParser<FRAME_CAPACITY: int = 128>
+component Ipv4PacketParser<S: IPacketData> : IPacketData
 {
-	static assert FRAME_CAPACITY >= 34, "Frame capacity must hold the required protocol header"
-	// Offset of the IPv4 header in an Ethernet II frame.
-	public const IPV4_OFFSET: int = 14
-	// Offset of the IPv4 source address.
-	public const SOURCE_IPV4_OFFSET: int = 26
-	// Offset of the IPv4 destination address.
-	public const DESTINATION_IPV4_OFFSET: int = 30
-	// Offset of the IPv4 payload for fixed 20-byte IPv4 headers.
-	public const PAYLOAD_OFFSET: int = 34
+	public const HEADER_LENGTH: int = 20
+	header: PacketHeader<S, HEADER_LENGTH>
+	status: PacketParseResult
 
 	/**
-	 * Returns true when the IPv4 header has version 4 and IHL 5 (fixed 20-byte header).
+	 * Binds the protocol input; construction performs no reads.
 	 */
-	public fn IsFixedHeader(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
+	new(source: S)
 	{
-		if (validLength < 34 || validLength > FRAME_CAPACITY) { return false }
-		return frame[IPV4_OFFSET] == 0x45
+		header = new PacketHeader<S, HEADER_LENGTH>(source)
 	}
 
 	/**
-	 * Returns true when the IPv4 protocol field is TCP (0x06).
+	 * Discards validated metadata and closes the borrowed payload view.
 	 */
-	public fn IsTcp(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
+	public fn Invalidate()
 	{
-		if (validLength < 34 || validLength > FRAME_CAPACITY) { return false }
-		return frame[IPV4_OFFSET + 9] == 0x06
+		status = PacketParseResult.NotReady
+		header.Invalidate()
 	}
 
 	/**
-	 * Returns true when the IPv4 protocol field is ICMP (0x01).
+	 * Parses once and replaces prior state even on failure. Checks structure,
+	 * not endpoint policy or transport checksums.
 	 */
-	public fn IsIcmp(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
+	public fn TryParse() PacketParseResult
 	{
-		if (validLength < 34 || validLength > FRAME_CAPACITY) { return false }
-		return frame[IPV4_OFFSET + 9] == 0x01
-	}
+		status = header.TryLoad()
 
-	/**
-	 * Returns true for the accepted no-fragment flags/offset combinations
-	 * (flags=0x00/offset=0 or Don't Fragment/offset=0).
-	 */
-	public fn IsNotFragmented(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
-	{
-		if (validLength < 34 || validLength > FRAME_CAPACITY) { return false }
-		if (frame[IPV4_OFFSET + 6] == 0x00 && frame[IPV4_OFFSET + 7] == 0x00) {
-			return true
+		if (status != PacketParseResult.Success) { return status }
+
+		var versionAndLength = header.GetByte(0)
+		var version = (versionAndLength as int) / 16
+		var ihl = (versionAndLength as int) % 16
+		var total = header.GetWord(2)
+
+		if (version != 4) {
+			status = PacketParseResult.Unsupported
+			return status
 		}
 
-		if (frame[IPV4_OFFSET + 6] == 0x40 && frame[IPV4_OFFSET + 7] == 0x00) {
-			return true
+		if (ihl < 5 || total < ihl * 4) {
+			status = PacketParseResult.Invalid
+			return status
 		}
 
-		return false
+		var fragment = header.GetWord(6)
+
+		if (ihl != 5 || (fragment != 0 && fragment != 16384)) {
+			status = PacketParseResult.Unsupported
+			return status
+		}
+
+		var captured = header.GetCapturedLength()
+		var bounded = total
+
+		if (bounded > captured) { bounded = captured }
+
+		status = header.TryOpenPayload(HEADER_LENGTH, bounded - HEADER_LENGTH)
+
+		if (status == PacketParseResult.Success && captured < total) { status = PacketParseResult.HeaderOnly }
+		return status
 	}
 
 	/**
-	 * Returns true when the destination IPv4 address matches the supplied bytes.
+	 * Returns current validation state; unavailable sources invalidate access.
 	 */
-	public fn IsForIpv4(frame: byte[FRAME_CAPACITY], ip0: byte, ip1: byte, ip2: byte, ip3: byte, validLength: int = FRAME_CAPACITY) bool
+	public fn GetStatus() PacketParseResult
 	{
-		if (validLength < 34 || validLength > FRAME_CAPACITY) { return false }
-		return frame[DESTINATION_IPV4_OFFSET] == ip0
-			&& frame[DESTINATION_IPV4_OFFSET + 1] == ip1
-			&& frame[DESTINATION_IPV4_OFFSET + 2] == ip2
-			&& frame[DESTINATION_IPV4_OFFSET + 3] == ip3
+		if ((status == PacketParseResult.Success || status == PacketParseResult.HeaderOnly) && !header.IsReady()) { return PacketParseResult.NotReady }
+
+		return status
 	}
 
 	/**
-	 * Returns true for fixed-header, non-fragmented TCP packets targeting the supplied IPv4 address.
+	 * Reports available supported metadata, including partial captures.
 	 */
-	public fn IsTcpForIpv4(frame: byte[FRAME_CAPACITY], ip0: byte, ip1: byte, ip2: byte, ip3: byte, validLength: int = FRAME_CAPACITY) bool
+	override fn IsReady() bool
 	{
-		if (validLength < 34 || validLength > FRAME_CAPACITY) { return false }
-		return this.IsFixedHeader(frame)
-			&& this.IsTcp(frame)
-			&& this.IsNotFragmented(frame)
-			&& this.IsForIpv4(frame, ip0, ip1, ip2, ip3)
+		return (status == PacketParseResult.Success || status == PacketParseResult.HeaderOnly) && header.IsReady()
 	}
 
 	/**
-	 * Returns true for fixed-header, non-fragmented ICMP packets targeting the supplied IPv4 address.
+	 * Returns bounded captured payload bytes, not declared or wire length.
 	 */
-	public fn IsIcmpForIpv4(frame: byte[FRAME_CAPACITY], ip0: byte, ip1: byte, ip2: byte, ip3: byte, validLength: int = FRAME_CAPACITY) bool
+	override fn GetAvailableLength() int
 	{
-		if (validLength < 34 || validLength > FRAME_CAPACITY) { return false }
-		return this.IsFixedHeader(frame)
-			&& this.IsIcmp(frame)
-			&& this.IsNotFragmented(frame)
-			&& this.IsForIpv4(frame, ip0, ip1, ip2, ip3)
+		if (!this.IsReady()) { return 0 }
+
+		return header.GetAvailableLength()
 	}
 
 	/**
-	 * Returns the fixed IPv4 payload offset (Ethernet II + 20-byte IPv4 header = 34).
+	 * Reads the borrowed payload relative to this protocol's header.
 	 */
-	public fn GetPayloadOffset() int
+	override fn TryRead(index: int, value: out byte) PacketDataResult
 	{
-		return PAYLOAD_OFFSET
+		value = 0x00
+
+		if (!this.IsReady()) { return PacketDataResult.NotReady }
+
+		var readValue: byte = 0x00
+		var result = header.TryRead(index, readValue)
+		value = readValue
+		return result
 	}
 
 	/**
-	 * Reads one byte from the IPv4 source address.
+	 * Returns TotalLength from the supported cached header; unavailable metadata returns 0.
 	 */
-	public fn GetSourceIpv4Byte(frame: byte[FRAME_CAPACITY], index: int) byte
+	public fn GetTotalLength() int
 	{
-		if (index < 0 || index >= 4) { return 0x00 }
-		return frame[SOURCE_IPV4_OFFSET + index]
+		if (!this.IsReady()) { return 0 }
+
+		return header.GetWord(2)
 	}
 
 	/**
-	 * Reads one byte from the IPv4 destination address.
+	 * Returns Identification from the supported cached header; unavailable metadata returns 0.
 	 */
-	public fn GetDestinationIpv4Byte(frame: byte[FRAME_CAPACITY], index: int) byte
+	public fn GetIdentification() int
 	{
-		if (index < 0 || index >= 4) { return 0x00 }
-		return frame[DESTINATION_IPV4_OFFSET + index]
+		if (!this.IsReady()) { return 0 }
+
+		return header.GetWord(4)
 	}
 
 	/**
-	 * Reads the high byte of the IPv4 total length field.
+	 * Returns Protocol from the supported cached header; unavailable metadata returns 0.
 	 */
-	public fn GetTotalLengthHighByte(frame: byte[FRAME_CAPACITY]) byte
+	public fn GetProtocol() byte
 	{
-		return frame[IPV4_OFFSET + 2]
+		if (!this.IsReady()) { return 0 }
+
+		return header.GetByte(9)
 	}
 
 	/**
-	 * Reads the low byte of the IPv4 total length field.
+	 * Returns DeclaredPayloadLength from the supported cached header; unavailable metadata returns 0.
 	 */
-	public fn GetTotalLengthLowByte(frame: byte[FRAME_CAPACITY]) byte
+	public fn GetDeclaredPayloadLength() int
 	{
-		return frame[IPV4_OFFSET + 3]
+		if (!this.IsReady()) { return 0 }
+
+		return header.GetWord(2) - HEADER_LENGTH
+	}
+
+	/**
+	 * Copies the cached SourceIpv4 value; unavailable metadata returns zero bytes.
+	 */
+	public fn GetSourceIpv4() byte[4]
+	{
+		var value: byte[4]
+
+		for (var i = 0; i < 4; i++) {
+			value[i] = 0x00
+
+			if (this.IsReady()) { value[i] = header.GetByte(12 + i) }
+		}
+
+		return value
+	}
+
+	/**
+	 * Copies the cached DestinationIpv4 value; unavailable metadata returns zero bytes.
+	 */
+	public fn GetDestinationIpv4() byte[4]
+	{
+		var value: byte[4]
+
+		for (var i = 0; i < 4; i++) {
+			value[i] = 0x00
+
+			if (this.IsReady()) { value[i] = header.GetByte(16 + i) }
+		}
+
+		return value
+	}
+
+	/**
+	 * Checks the cached IPv4 header checksum only. Parsing does not enforce it,
+	 * preserving the endpoint's existing unchecked receive-checksum policy.
+	 */
+	public fn IsHeaderChecksumValid() bool
+	{
+		if (!this.IsReady()) { return false }
+
+		var sum: int = 0
+
+		for (var i = 0; i < HEADER_LENGTH; i = i + 2) {
+			sum = sum + header.GetWord(i)
+		}
+
+		sum = sum % 65536 + sum / 65536
+		sum = sum % 65536 + sum / 65536
+		return sum == 65535
 	}
 }

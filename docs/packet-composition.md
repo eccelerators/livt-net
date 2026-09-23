@@ -80,11 +80,11 @@ checksums, general TCP, streaming and other protocol extensions remain separate.
 
 ## Common request/reply API and migration
 
-`ArpResponder<CAPACITY>` and `IcmpEchoResponder<CAPACITY>` own their prepared graphs
-and expose one checked operation:
+`ArpResponder<S>` and `IcmpEchoResponder<S, CAPACITY>` own their prepared graphs
+bind an Ethernet-frame provider and expose one checked operation:
 
 ```livt
-var result = responder.TryPrepare(request, localMac, localIp, validLength)
+var result = responder.TryPrepare(localMac, localIp)
 if (result == PacketDataResult.Success) {
     var value: byte = 0x00
     for (var i = 0; i < responder.GetAvailableLength(); i++) {
@@ -95,17 +95,18 @@ if (result == PacketDataResult.Success) {
 }
 ```
 
-The caller supplies an initialized prefix length bounded by its request array.
+The caller publishes the initialized prefix of the constructor-bound provider.
 Preparation performs the existing supported request recognition; it is not full
 input checksum validation. A nonmatching or truncated request returns Invalid and
 clears any prior response. ARP snapshots addresses; ICMP snapshots addresses,
-identifiers and echo data. The caller can reuse the input array after preparation,
+identifiers and echo data. After successful preparation the caller can release and reuse the source,
 while keeping the prepared response stable until emission finishes.
 
 This replaces `GetReplyByte(request, index, localMac, localIp)` and
 `GetReplyLength(request)`. Prepare once, then use checked reads and the prepared
-length. `ShouldRespond` remains available for recognition-only callers until the
-bounded-parser migration. No old emission signatures or duplicate byte encoders
+length. Recognition-only callers use the bounded parsers; `ShouldRespond` and
+array-based preparation signatures have been removed. See [packet parsing](packet-parsing.md)
+for failure-path invalidation and checksum policy. No old emission signatures or duplicate byte encoders
 are retained. The existing TCP builders and composers are unchanged.
 
 Livt.Web's NetworkEndpoint uses the new preparation API and invalidates responses

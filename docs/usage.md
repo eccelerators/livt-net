@@ -2,25 +2,12 @@
 
 ## Parse a configured capture
 
-```livt
-using Livt.Net
-
-component EthernetExample
-{
-    parser: EthernetFrameParser<256>
-
-    new() { this.parser = new EthernetFrameParser<256>() }
-
-    public fn IsIpv4Frame(frame: byte[256], receivedLength: int) bool
-    {
-        return this.parser.IsIpv4(frame, receivedLength)
-    }
-}
-```
-
-The classifier rejects lengths smaller than its required header or larger than
-its configured capacity. Byte getters and builders require initialized request
-bytes. Fixed IPv4/TCP headers remain the supported protocol shape.
+Bind `EthernetFrameParser<ArrayPacketData<256>>` to a published provider, call
+`TryParse()`, and check `IsReady()` and `GetEtherType()`. Compose an
+`Ipv4PacketParser` over that parser's bounded payload, or bind it directly to an
+IP-only provider. See [packet parsing](packet-parsing.md) for a construction
+example, result meanings, metadata and lifetime rules. Storage capacity belongs
+to the provider; protocol parsers do not take raw frame arrays or valid lengths.
 
 ## Queue a complete response
 

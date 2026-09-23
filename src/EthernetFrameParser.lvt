@@ -1,63 +1,137 @@
 namespace Livt.Net
 
 /**
- * RFC 894 — A Standard for the Transmission of IP Datagrams over Ethernet Networks
- * https://www.rfc-editor.org/rfc/rfc894
- *
- * Parses fixed Ethernet II frame headers (destination MAC, source MAC, EtherType).
- * Classifiers check the valid prefix length; omitting it uses FRAME_CAPACITY.
+ * Parses Ethernet II headers. HeaderOnly is intentional: IPacketData supplies
+ * no original wire length or FCS validity. VLAN tags are not decoded here.
+ * Bind a protocol-relative provider. Invalidate children before this parser, then
+ * release the source. Metadata is cached only for the current parse lifetime.
  */
-component EthernetFrameParser<FRAME_CAPACITY: int = 64>
+component EthernetFrameParser<S: IPacketData> : IPacketData
 {
-	static assert FRAME_CAPACITY >= 14, "Frame capacity must hold the required protocol header"
-	// Number of bytes in an Ethernet II header.
 	public const HEADER_LENGTH: int = 14
-	// Offset where the Ethernet payload starts.
-	public const PAYLOAD_OFFSET: int = 14
-	// Number of bytes in a MAC address.
-	public const MAC_LENGTH: int = 6
+	header: PacketHeader<S, HEADER_LENGTH>
+	status: PacketParseResult
 
 	/**
-	 * Returns true when the frame EtherType is IPv4 (0x0800).
+	 * Binds the protocol input; construction performs no reads.
 	 */
-	public fn IsIpv4(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
+	new(source: S)
 	{
-		if (validLength < 14 || validLength > FRAME_CAPACITY) { return false }
-		return frame[12] == 0x08 && frame[13] == 0x00
+		header = new PacketHeader<S, HEADER_LENGTH>(source)
 	}
 
 	/**
-	 * Returns true when the frame EtherType is ARP (0x0806).
+	 * Discards validated metadata and closes the borrowed payload view.
 	 */
-	public fn IsArp(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
+	public fn Invalidate()
 	{
-		if (validLength < 14 || validLength > FRAME_CAPACITY) { return false }
-		return frame[12] == 0x08 && frame[13] == 0x06
+		status = PacketParseResult.NotReady
+		header.Invalidate()
 	}
 
 	/**
-	 * Returns the fixed Ethernet II payload offset.
+	 * Parses once and replaces prior state even on failure. Checks structure,
+	 * not endpoint policy or transport checksums.
 	 */
-	public fn GetPayloadOffset() int
+	public fn TryParse() PacketParseResult
 	{
-		return PAYLOAD_OFFSET
+		status = header.TryLoad()
+
+		if (status != PacketParseResult.Success) { return status }
+
+		if (header.GetWord(12) < 1536) {
+			status = PacketParseResult.Unsupported
+			return status
+		}
+
+		status = header.TryOpenPayload(HEADER_LENGTH, header.GetCapturedLength() - HEADER_LENGTH)
+
+		if (status == PacketParseResult.Success) { status = PacketParseResult.HeaderOnly }
+		return status
 	}
 
 	/**
-	 * Reads one byte from the destination MAC address.
+	 * Returns current validation state; unavailable sources invalidate access.
 	 */
-	public fn GetDestinationMacByte(frame: byte[FRAME_CAPACITY], index: int) byte
+	public fn GetStatus() PacketParseResult
 	{
-		if (index < 0 || index >= 6) { return 0x00 }
-		return frame[index]
+		if ((status == PacketParseResult.Success || status == PacketParseResult.HeaderOnly) && !header.IsReady()) { return PacketParseResult.NotReady }
+
+		return status
 	}
 
 	/**
-	 * Reads one byte from the source MAC address.
+	 * Reports available supported metadata, including partial captures.
 	 */
-	public fn GetSourceMacByte(frame: byte[FRAME_CAPACITY], index: int) byte
+	override fn IsReady() bool
 	{
-		if (index < 0 || index >= 6) { return 0x00 }
-		return frame[index + MAC_LENGTH]
+		return (status == PacketParseResult.Success || status == PacketParseResult.HeaderOnly) && header.IsReady()
+	}
+
+	/**
+	 * Returns bounded captured payload bytes, not declared or wire length.
+	 */
+	override fn GetAvailableLength() int
+	{
+		if (!this.IsReady()) { return 0 }
+
+		return header.GetAvailableLength()
+	}
+
+	/**
+	 * Reads the borrowed payload relative to this protocol's header.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (!this.IsReady()) { return PacketDataResult.NotReady }
+
+		var readValue: byte = 0x00
+		var result = header.TryRead(index, readValue)
+		value = readValue
+		return result
+	}
+
+	/**
+	 * Returns EtherType from the supported cached header; unavailable metadata returns 0.
+	 */
+	public fn GetEtherType() int
+	{
+		if (!this.IsReady()) { return 0 }
+
+		return header.GetWord(12)
+	}
+
+	/**
+	 * Copies the cached SourceMac value; unavailable metadata returns zero bytes.
+	 */
+	public fn GetSourceMac() byte[6]
+	{
+		var value: byte[6]
+
+		for (var i = 0; i < 6; i++) {
+			value[i] = 0x00
+
+			if (this.IsReady()) { value[i] = header.GetByte(6 + i) }
+		}
+
+		return value
+	}
+
+	/**
+	 * Copies the cached DestinationMac value; unavailable metadata returns zero bytes.
+	 */
+	public fn GetDestinationMac() byte[6]
+	{
+		var value: byte[6]
+
+		for (var i = 0; i < 6; i++) {
+			value[i] = 0x00
+
+			if (this.IsReady()) { value[i] = header.GetByte(0 + i) }
+		}
+
+		return value
 	}
 }

@@ -1,0 +1,15 @@
+namespace Livt.Net
+
+/**
+ * Structural parsing result; Success does not assert checksum validity.
+ * HeaderOnly exposes a supported header and bounded captured payload, not a complete packet.
+ */
+enum PacketParseResult
+{
+	NotReady
+	Success
+	HeaderOnly
+	Truncated
+	Invalid
+	Unsupported
+}

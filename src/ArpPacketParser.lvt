@@ -1,109 +1,167 @@
 namespace Livt.Net
 
 /**
- * RFC 826 — An Ethernet Address Resolution Protocol
- * https://www.rfc-editor.org/rfc/rfc826
- *
- * Parses Ethernet/IPv4 ARP packets (hardware type 0x0001, protocol type 0x0800,
- * 6-byte hardware address, 4-byte protocol address).
- * Classifiers check the valid prefix length; omitting it uses FRAME_CAPACITY.
+ * Parses complete Ethernet/IPv4 ARP messages relative to their ARP header.
+ * ARP has no checksum; trailing Ethernet padding is excluded.
+ * Bind a protocol-relative provider. Invalidate children before this parser, then
+ * release the source. Metadata is cached only for the current parse lifetime.
  */
-component ArpPacketParser<FRAME_CAPACITY: int = 64>
+component ArpPacketParser<S: IPacketData> : IPacketData
 {
-	static assert FRAME_CAPACITY >= 42, "Frame capacity must hold the required protocol header"
-	// Offset of the ARP payload inside an Ethernet II frame.
-	public const ARP_OFFSET: int = 14
-	// Offset of the ARP hardware type field.
-	public const HARDWARE_TYPE_OFFSET: int = 14
-	// Offset of the ARP protocol type field.
-	public const PROTOCOL_TYPE_OFFSET: int = 16
-	// Offset of the ARP hardware address length field.
-	public const HARDWARE_LENGTH_OFFSET: int = 18
-	// Offset of the ARP protocol address length field.
-	public const PROTOCOL_LENGTH_OFFSET: int = 19
-	// Offset of the ARP operation field.
-	public const OPERATION_OFFSET: int = 20
-	// Offset of the sender hardware address.
-	public const SENDER_MAC_OFFSET: int = 22
-	// Offset of the sender IPv4 address.
-	public const SENDER_IPV4_OFFSET: int = 28
-	// Offset of the target hardware address.
-	public const TARGET_MAC_OFFSET: int = 32
-	// Offset of the target IPv4 address.
-	public const TARGET_IPV4_OFFSET: int = 38
+	public const HEADER_LENGTH: int = 28
+	header: PacketHeader<S, HEADER_LENGTH>
+	status: PacketParseResult
 
 	/**
-	 * Returns true for Ethernet hardware, IPv4 protocol, 6-byte MAC, and 4-byte IPv4 ARP packets.
+	 * Binds the protocol input; construction performs no reads.
 	 */
-	public fn IsEthernetIpv4(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
+	new(source: S)
 	{
-		if (validLength < 42 || validLength > FRAME_CAPACITY) { return false }
-		return frame[HARDWARE_TYPE_OFFSET] == 0x00
-			&& frame[HARDWARE_TYPE_OFFSET + 1] == 0x01
-			&& frame[PROTOCOL_TYPE_OFFSET] == 0x08
-			&& frame[PROTOCOL_TYPE_OFFSET + 1] == 0x00
-			&& frame[HARDWARE_LENGTH_OFFSET] == 0x06
-			&& frame[PROTOCOL_LENGTH_OFFSET] == 0x04
+		header = new PacketHeader<S, HEADER_LENGTH>(source)
 	}
 
 	/**
-	 * Returns true when the ARP operation is request (opcode 1).
+	 * Discards validated metadata and closes the borrowed payload view.
 	 */
-	public fn IsRequest(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
+	public fn Invalidate()
 	{
-		if (validLength < 42 || validLength > FRAME_CAPACITY) { return false }
-		return frame[OPERATION_OFFSET] == 0x00
-			&& frame[OPERATION_OFFSET + 1] == 0x01
+		status = PacketParseResult.NotReady
+		header.Invalidate()
 	}
 
 	/**
-	 * Returns true when the ARP operation is reply (opcode 2).
+	 * Parses once and replaces prior state even on failure. Checks structure,
+	 * not endpoint policy or transport checksums.
 	 */
-	public fn IsReply(frame: byte[FRAME_CAPACITY], validLength: int = FRAME_CAPACITY) bool
+	public fn TryParse() PacketParseResult
 	{
-		if (validLength < 42 || validLength > FRAME_CAPACITY) { return false }
-		return frame[OPERATION_OFFSET] == 0x00
-			&& frame[OPERATION_OFFSET + 1] == 0x02
+		status = header.TryLoad()
+
+		if (status != PacketParseResult.Success) { return status }
+
+		if (header.GetWord(0) != 1 || header.GetWord(2) != 2048 || header.GetByte(4) != 6 || header.GetByte(5) != 4) {
+			status = PacketParseResult.Unsupported
+			return status
+		}
+
+		status = header.TryOpenPayload(HEADER_LENGTH, 0)
+		return status
 	}
 
 	/**
-	 * Returns true for an Ethernet/IPv4 ARP request targeting the supplied IPv4 address.
+	 * Returns current validation state; unavailable sources invalidate access.
 	 */
-	public fn IsRequestForIpv4(frame: byte[FRAME_CAPACITY], ip0: byte, ip1: byte, ip2: byte, ip3: byte, validLength: int = FRAME_CAPACITY) bool
+	public fn GetStatus() PacketParseResult
 	{
-		if (validLength < 42 || validLength > FRAME_CAPACITY) { return false }
-		return this.IsEthernetIpv4(frame)
-			&& this.IsRequest(frame)
-			&& frame[TARGET_IPV4_OFFSET] == ip0
-			&& frame[TARGET_IPV4_OFFSET + 1] == ip1
-			&& frame[TARGET_IPV4_OFFSET + 2] == ip2
-			&& frame[TARGET_IPV4_OFFSET + 3] == ip3
+		if ((status == PacketParseResult.Success || status == PacketParseResult.HeaderOnly) && !header.IsReady()) { return PacketParseResult.NotReady }
+
+		return status
 	}
 
 	/**
-	 * Reads one byte from the sender MAC address.
+	 * Reports available supported metadata, including partial captures.
 	 */
-	public fn GetSenderMacByte(frame: byte[FRAME_CAPACITY], index: int) byte
+	override fn IsReady() bool
 	{
-		if (index < 0 || index >= 6) { return 0x00 }
-		return frame[SENDER_MAC_OFFSET + index]
+		return (status == PacketParseResult.Success || status == PacketParseResult.HeaderOnly) && header.IsReady()
 	}
 
 	/**
-	 * Reads one byte from the sender IPv4 address.
+	 * Returns bounded captured payload bytes, not declared or wire length.
 	 */
-	public fn GetSenderIpv4Byte(frame: byte[FRAME_CAPACITY], index: int) byte
+	override fn GetAvailableLength() int
 	{
-		if (index < 0 || index >= 4) { return 0x00 }
-		return frame[SENDER_IPV4_OFFSET + index]
+		if (!this.IsReady()) { return 0 }
+
+		return header.GetAvailableLength()
 	}
 
 	/**
-	 * Reads one byte from the target IPv4 address.
+	 * Reads the borrowed payload relative to this protocol's header.
 	 */
-	public fn GetTargetIpv4Byte(frame: byte[FRAME_CAPACITY], index: int) byte
+	override fn TryRead(index: int, value: out byte) PacketDataResult
 	{
-		if (index < 0 || index >= 4) { return 0x00 }
-		return frame[TARGET_IPV4_OFFSET + index]
+		value = 0x00
+
+		if (!this.IsReady()) { return PacketDataResult.NotReady }
+
+		var readValue: byte = 0x00
+		var result = header.TryRead(index, readValue)
+		value = readValue
+		return result
+	}
+
+	/**
+	 * Returns Operation from the supported cached header; unavailable metadata returns 0.
+	 */
+	public fn GetOperation() int
+	{
+		if (!this.IsReady()) { return 0 }
+
+		return header.GetWord(6)
+	}
+
+	/**
+	 * Copies the cached SenderMac value; unavailable metadata returns zero bytes.
+	 */
+	public fn GetSenderMac() byte[6]
+	{
+		var value: byte[6]
+
+		for (var i = 0; i < 6; i++) {
+			value[i] = 0x00
+
+			if (this.IsReady()) { value[i] = header.GetByte(8 + i) }
+		}
+
+		return value
+	}
+
+	/**
+	 * Copies the cached SenderIpv4 value; unavailable metadata returns zero bytes.
+	 */
+	public fn GetSenderIpv4() byte[4]
+	{
+		var value: byte[4]
+
+		for (var i = 0; i < 4; i++) {
+			value[i] = 0x00
+
+			if (this.IsReady()) { value[i] = header.GetByte(14 + i) }
+		}
+
+		return value
+	}
+
+	/**
+	 * Copies the cached TargetMac value; unavailable metadata returns zero bytes.
+	 */
+	public fn GetTargetMac() byte[6]
+	{
+		var value: byte[6]
+
+		for (var i = 0; i < 6; i++) {
+			value[i] = 0x00
+
+			if (this.IsReady()) { value[i] = header.GetByte(18 + i) }
+		}
+
+		return value
+	}
+
+	/**
+	 * Copies the cached TargetIpv4 value; unavailable metadata returns zero bytes.
+	 */
+	public fn GetTargetIpv4() byte[4]
+	{
+		var value: byte[4]
+
+		for (var i = 0; i < 4; i++) {
+			value[i] = 0x00
+
+			if (this.IsReady()) { value[i] = header.GetByte(24 + i) }
+		}
+
+		return value
 	}
 }

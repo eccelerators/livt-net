@@ -1,0 +1,68 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+/**
+ * Verifies header caching and safe failure without relying on array storage.
+ */
+@Test
+component PacketParserFailureTest
+{
+	data: CountingPacketData
+	parser: EthernetFrameParser<CountingPacketData>
+
+	/**
+	 * Binds a controllable provider.
+	 */
+	new()
+	{
+		data = new CountingPacketData()
+		parser = new EthernetFrameParser<CountingPacketData>(data)
+	}
+
+	/**
+	 * Header getters use snapshots while payload reads still access the source.
+	 */
+	@Test
+	fn ReadsHeaderOnceAndBorrowsPayload()
+	{
+		parser.Invalidate()
+		data.Initialize(-1)
+		assert parser.TryParse() == PacketParseResult.HeaderOnly
+		assert data.GetReadCount() == 14
+		assert parser.GetEtherType() == 2048
+		var mac = parser.GetSourceMac()
+		assert mac[0] == 0x00
+		assert data.GetReadCount() == 14
+		var value: byte = 0x00
+		assert parser.TryRead(0, value) == PacketDataResult.Success
+		assert value == 0xAB
+		assert data.GetReadCount() == 15
+	}
+
+	/**
+	 * Failure and explicit reuse cannot expose the previous parsed metadata.
+	 */
+	@Test
+	fn DiscardsMetadataAfterFailedReadAndSourceRelease()
+	{
+		parser.Invalidate()
+		data.Initialize(-1)
+		assert parser.TryParse() == PacketParseResult.HeaderOnly
+		parser.Invalidate()
+		data.Initialize(7)
+		assert parser.TryParse() == PacketParseResult.NotReady
+		assert parser.GetEtherType() == 0
+		assert !parser.IsReady()
+		parser.Invalidate()
+		data.Initialize(-1)
+		assert parser.TryParse() == PacketParseResult.HeaderOnly
+		data.Release()
+		assert parser.GetStatus() == PacketParseResult.NotReady
+		assert parser.GetEtherType() == 0
+		parser.Invalidate()
+		data.Initialize(-1)
+		assert parser.GetStatus() == PacketParseResult.NotReady
+		assert parser.GetEtherType() == 0
+	}
+}

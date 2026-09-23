@@ -1,0 +1,149 @@
+namespace Livt.Net
+
+/**
+ * Internal fixed-header cache and bounded payload view.
+ * The owner invalidates descendants before reloading or releasing the source.
+ * Only the header is copied; payload reads remain scheduled source operations.
+ */
+component PacketHeader<S: IPacketData, SIZE: int> : IPacketData
+{
+	source: S
+	header: byte[SIZE]
+	loaded: bool
+	opened: bool
+	payloadOffset: int
+	payloadLength: int
+
+	/**
+	 * Binds stable packet storage.
+	 */
+	new(source: S)
+	{
+		this.source = source
+	}
+
+	/**
+	 * Invalidates both the cache and its payload view before source reuse.
+	 */
+	public fn Invalidate()
+	{
+		loaded = false
+		opened = false
+		payloadLength = 0
+	}
+
+	/**
+	 * Reads the fixed header once; any failure discards the prior cache.
+	 */
+	public fn TryLoad() PacketParseResult
+	{
+		this.Invalidate()
+
+		if (!source.IsReady()) { return PacketParseResult.NotReady }
+		var captured = source.GetAvailableLength()
+
+		if (captured < SIZE) { return PacketParseResult.Truncated }
+
+		for (var i = 0; i < SIZE; i++) {
+			var value: byte = 0x00
+
+			var result = source.TryRead(i, value)
+
+			if (result != PacketDataResult.Success) { return PacketParseResult.NotReady }
+
+			header[i] = value
+		}
+
+		loaded = true
+		return PacketParseResult.Success
+	}
+
+	/**
+	 * Returns source capture size, never a wire-length claim.
+	 */
+	public fn GetCapturedLength() int
+	{
+		return source.GetAvailableLength()
+	}
+
+	/**
+	 * Reads a cached octet for internal protocol decoding.
+	 */
+	public fn GetByte(index: int) byte
+	{
+		if (!loaded || !source.IsReady() || index < 0 || index >= SIZE) { return 0x00 }
+
+		return header[index]
+	}
+
+	/**
+	 * Decodes an unsigned network-order word from the cache.
+	 */
+	public fn GetWord(index: int) int
+	{
+		var high = this.GetByte(index)
+		var low = this.GetByte(index + 1)
+		return (high as int) * 256 + (low as int)
+	}
+
+	/**
+	 * Decodes a network-order sequence number without signed overflow.
+	 */
+	public fn GetSequence(index: int) uint
+	{
+		var high = this.GetWord(index)
+		var low = this.GetWord(index + 2)
+		return (high as uint) * (65536 as uint) + (low as uint)
+	}
+
+	/**
+	 * Opens only a range contained in the captured prefix.
+	 */
+	public fn TryOpenPayload(offset: int, length: int) PacketParseResult
+	{
+		opened = false
+		var available = source.GetAvailableLength()
+
+		if (!loaded || !source.IsReady()) { return PacketParseResult.NotReady }
+		if (offset < SIZE || offset > available || length < 0 || length > available - offset) { return PacketParseResult.Invalid }
+
+		payloadOffset = offset
+		payloadLength = length
+		opened = true
+		return PacketParseResult.Success
+	}
+
+	/**
+	 * Reports whether validated payload bounds are available.
+	 */
+	override fn IsReady() bool
+	{
+		return opened && source.IsReady()
+	}
+
+	/**
+	 * Returns the captured payload length, excluding enclosing padding.
+	 */
+	override fn GetAvailableLength() int
+	{
+		if (!this.IsReady()) { return 0 }
+
+		return payloadLength
+	}
+
+	/**
+	 * Reads a payload-relative byte without copying payload storage.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (!this.IsReady()) { return PacketDataResult.NotReady }
+		if (index < 0 || index >= payloadLength) { return PacketDataResult.Invalid }
+
+		var readValue: byte = 0x00
+		var result = source.TryRead(payloadOffset + index, readValue)
+		value = readValue
+		return result
+	}
+}

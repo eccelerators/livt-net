@@ -1,81 +1,187 @@
 namespace Livt.Net
 
 /**
- * RFC 9293 — Transmission Control Protocol (TCP) (section 3.5, Connection Establishment)
- * https://www.rfc-editor.org/rfc/rfc9293
- *
- * Recognizes TCP SYN and ACK-only segments for the minimal three-way handshake FSM.
+ * Recognizes endpoint policy over one parsed Ethernet/IPv4/TCP graph.
  */
-component TcpConnectionRecognizer<FRAME_CAPACITY: int = 128>
+component TcpConnectionRecognizer<S: IPacketData> : IPacketData
 {
-	static assert FRAME_CAPACITY >= 54, "Frame capacity must hold the required protocol header"
-	ipv4: Ipv4PacketParser<FRAME_CAPACITY>
-	tcp: TcpHeaderParser<FRAME_CAPACITY>
+	ethernet: EthernetFrameParser<S>
+	ipv4: Ipv4PacketParser<EthernetFrameParser<S>>
+	tcp: TcpHeaderParser<Ipv4PacketParser<EthernetFrameParser<S>>>
+	status: PacketParseResult
 
-	new()
+	/**
+	 * Binds the captured frame provider; payload reads remain borrowed.
+	 */
+	new(source: S)
 	{
-		this.ipv4 = new Ipv4PacketParser<FRAME_CAPACITY>()
-		this.tcp = new TcpHeaderParser<FRAME_CAPACITY>()
+		ethernet = new EthernetFrameParser<S>(source)
+		ipv4 = new Ipv4PacketParser<EthernetFrameParser<S>>(ethernet)
+		tcp = new TcpHeaderParser<Ipv4PacketParser<EthernetFrameParser<S>>>(ipv4)
 	}
 
 	/**
-	 * Returns true for an IPv4/TCP SYN-only segment targeting localIp/localPort.
-	 * Does not require a fixed 20-byte TCP header because host stacks often include
-	 * TCP options in the SYN.
+	 * Closes descendants before ancestors; call before source release or reuse.
 	 */
-	public fn IsSynRequest(frame: byte[FRAME_CAPACITY], localIp: byte[4], localPort: byte[2]) bool
+	public fn Invalidate()
 	{
-		return this.IsSynRequest(frame, localIp, localPort, FRAME_CAPACITY)
-	}
-
-	/** Checks a caller-supplied valid prefix length before reading header bytes. */
-	public fn IsSynRequest(frame: byte[FRAME_CAPACITY], localIp: byte[4], localPort: byte[2], validLength: int) bool
-	{
-		if (validLength < 54 || validLength > FRAME_CAPACITY) { return false }
-		return frame[12] == 0x08
-			&& frame[13] == 0x00
-			&& this.ipv4.IsTcpForIpv4(frame, localIp[0], localIp[1], localIp[2], localIp[3])
-			&& this.tcp.IsForLocalPort(frame, localPort[0], localPort[1])
-			&& this.tcp.IsSynOnly(frame)
+		tcp.Invalidate()
+		ipv4.Invalidate()
+		ethernet.Invalidate()
+		status = PacketParseResult.NotReady
 	}
 
 	/**
-	 * Returns true for an IPv4/TCP ACK-only segment targeting localIp/localPort.
+	 * Parses once; HeaderOnly preserves incomplete IP capture explicitly. No checksum enforcement.
 	 */
-	public fn IsAckOnlyPacket(frame: byte[FRAME_CAPACITY], localIp: byte[4], localPort: byte[2]) bool
+	public fn TryParse() PacketParseResult
 	{
-		return this.IsAckOnlyPacket(frame, localIp, localPort, FRAME_CAPACITY)
-	}
+		this.Invalidate()
+		status = ethernet.TryParse()
 
-	/** Checks a caller-supplied valid prefix length before reading header bytes. */
-	public fn IsAckOnlyPacket(frame: byte[FRAME_CAPACITY], localIp: byte[4], localPort: byte[2], validLength: int) bool
-	{
-		if (validLength < 54 || validLength > FRAME_CAPACITY) { return false }
-		return frame[12] == 0x08
-			&& frame[13] == 0x00
-			&& this.ipv4.IsTcpForIpv4(frame, localIp[0], localIp[1], localIp[2], localIp[3])
-			&& this.tcp.IsFixedHeaderForLocalPort(frame, localPort[0], localPort[1])
-			&& this.tcp.IsAckOnly(frame)
+		if (!ethernet.IsReady()) { return status }
+		if (ethernet.GetEtherType() != 2048) {
+			status = PacketParseResult.Unsupported
+			return status
+		}
+
+		status = ipv4.TryParse()
+
+		if (!ipv4.IsReady()) { return status }
+		if (ipv4.GetProtocol() != 6) {
+			status = PacketParseResult.Unsupported
+			return status
+		}
+
+		var tcpStatus = tcp.TryParse()
+
+		if (tcpStatus != PacketParseResult.Success) { status = tcpStatus }
+
+		return status
 	}
 
 	/**
-	 * Returns true for an IPv4/TCP PSH+ACK segment targeting localIp/localPort.
-	 * Some host TCP stacks combine the three-way handshake ACK with the first
-	 * data segment (PSH+ACK, flags 0x18), skipping the ACK-only frame.
+	 * Returns structural status without implying checksum or wire-length validation.
 	 */
-	public fn IsPshAckPacket(frame: byte[FRAME_CAPACITY], localIp: byte[4], localPort: byte[2]) bool
+	public fn GetStatus() PacketParseResult
 	{
-		return this.IsPshAckPacket(frame, localIp, localPort, FRAME_CAPACITY)
+		if ((status == PacketParseResult.Success || status == PacketParseResult.HeaderOnly) && !tcp.IsReady()) { return PacketParseResult.NotReady }
+
+		return status
 	}
 
-	/** Checks a caller-supplied valid prefix length before reading header bytes. */
-	public fn IsPshAckPacket(frame: byte[FRAME_CAPACITY], localIp: byte[4], localPort: byte[2], validLength: int) bool
+	/**
+	 * Applies endpoint policy separately from structural parsing.
+	 */
+	public fn IsForEndpoint(localIp: byte[4], localPort: int) bool
 	{
-		if (validLength < 54 || validLength > FRAME_CAPACITY) { return false }
-		return frame[12] == 0x08
-			&& frame[13] == 0x00
-			&& this.ipv4.IsTcpForIpv4(frame, localIp[0], localIp[1], localIp[2], localIp[3])
-			&& this.tcp.IsFixedHeaderForLocalPort(frame, localPort[0], localPort[1])
-			&& this.tcp.IsPshAck(frame)
+		if (!this.IsReady()) { return false }
+
+		var destination = ipv4.GetDestinationIpv4()
+
+		for (var i = 0; i < 4; i++) {
+			if (destination[i] != localIp[i]) { return false }
+		}
+
+		return tcp.GetDestinationPort() == localPort
+	}
+
+	/**
+	 * Recognizes the supported flags and endpoint; SYN options are accepted but not interpreted.
+	 */
+	public fn IsSynRequest(localIp: byte[4], localPort: int) bool
+	{
+		return this.IsForEndpoint(localIp, localPort) && tcp.GetFlags() == 2
+	}
+
+	/**
+	 * Recognizes the supported flags and endpoint; SYN options are accepted but not interpreted.
+	 */
+	public fn IsAckOnlyPacket(localIp: byte[4], localPort: int) bool
+	{
+		return this.IsForEndpoint(localIp, localPort) && tcp.GetFlags() == 16 && tcp.GetHeaderLength() == 20
+	}
+
+	/**
+	 * Recognizes the supported flags and endpoint; SYN options are accepted but not interpreted.
+	 */
+	public fn IsPshAckPacket(localIp: byte[4], localPort: int) bool
+	{
+		return this.IsForEndpoint(localIp, localPort) && tcp.GetFlags() == 24 && tcp.GetHeaderLength() == 20
+	}
+
+	/**
+	 * Returns cached metadata only while the composed parse is usable.
+	 */
+	public fn GetSourceIpv4() byte[4]
+	{
+		var empty: byte[4]
+		for (var i = 0; i < 4; i++) { empty[i] = 0x00 }
+		if (!this.IsReady()) { return empty }
+
+		return ipv4.GetSourceIpv4()
+	}
+
+	/**
+	 * Returns cached metadata only while the composed parse is usable.
+	 */
+	public fn GetSourcePort() int
+	{
+		if (!this.IsReady()) { return 0 }
+
+		return tcp.GetSourcePort()
+	}
+
+	/**
+	 * Returns cached metadata only while the composed parse is usable.
+	 */
+	public fn GetSequenceNumber() uint
+	{
+		if (!this.IsReady()) { return 0 }
+
+		return tcp.GetSequenceNumber()
+	}
+
+	/**
+	 * Returns cached metadata only while the composed parse is usable.
+	 */
+	public fn GetDeclaredPayloadLength() int
+	{
+		if (!this.IsReady()) { return 0 }
+
+		return ipv4.GetDeclaredPayloadLength() - tcp.GetHeaderLength()
+	}
+
+	/**
+	 * Reports supported headers, allowing a captured prefix of the payload.
+	 */
+	override fn IsReady() bool
+	{
+		return (status == PacketParseResult.Success || status == PacketParseResult.HeaderOnly) && tcp.IsReady()
+	}
+
+	/**
+	 * Returns captured TCP payload size, excluding enclosing padding.
+	 */
+	override fn GetAvailableLength() int
+	{
+		if (!this.IsReady()) { return 0 }
+
+		return tcp.GetAvailableLength()
+	}
+
+	/**
+	 * Reads the bounded TCP payload. The source remains borrowed until invalidation.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (!this.IsReady()) { return PacketDataResult.NotReady }
+
+		var readValue: byte = 0x00
+		var result = tcp.TryRead(index, readValue)
+		value = readValue
+		return result
 	}
 }

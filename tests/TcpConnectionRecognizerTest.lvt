@@ -2,109 +2,112 @@ namespace Livt.Net.Tests
 
 using Livt.Net
 
+/**
+ * Exercises provider-relative parsing, independent expected values and reuse.
+ */
 @Test
 component TcpConnectionRecognizerTest
 {
-	recog: TcpConnectionRecognizer
-	rxFrame: byte[128]
+	data: ArrayPacketData<128>
+	region: PacketRegion<ArrayPacketData<128>>
+	parser: TcpConnectionRecognizer<PacketRegion<ArrayPacketData<128>>>
 
+	/**
+	 * Wires packet storage and a deliberately offset protocol region.
+	 */
 	new()
 	{
-		this.recog = new TcpConnectionRecognizer()
+		data = new ArrayPacketData<128>()
+		region = new PacketRegion<ArrayPacketData<128>>(data)
+		parser = new TcpConnectionRecognizer<PacketRegion<ArrayPacketData<128>>>(region)
 	}
 
-	fn SetupIpv4TcpFrame(flags: byte)
+	/**
+	 * Replaces a fixture with correct descendant-first invalidation.
+	 */
+	fn Load(bytes: byte[128], length: int)
 	{
-		this.rxFrame[12] = 0x08
-		this.rxFrame[13] = 0x00
-		this.rxFrame[14] = 0x45
-		this.rxFrame[20] = 0x40
-		this.rxFrame[21] = 0x00
-		this.rxFrame[23] = 0x06
-		this.rxFrame[30] = 0x0A
-		this.rxFrame[31] = 0x00
-		this.rxFrame[32] = 0x00
-		this.rxFrame[33] = 0x01
-		this.rxFrame[36] = 0x00
-		this.rxFrame[37] = 0x50
-		this.rxFrame[46] = 0x50
-		this.rxFrame[47] = flags
+		parser.Invalidate()
+		region.TryClose()
+
+		if (data.IsReady()) { data.TryRelease() }
+		else { data.TryClear() }
+
+		for (var i = 0; i < 1; i++) {
+			assert data.TryWrite(i, 0xA5) == PacketDataResult.Success
+		}
+
+		for (var i = 0; i < length; i++) {
+			assert data.TryWrite(1 + i, bytes[i]) == PacketDataResult.Success
+		}
+
+		assert data.TryPublish() == PacketDataResult.Success
+		assert region.TryOpen(1, length) == PacketDataResult.Success
 	}
 
+	/**
+	 * SeparatesEndpointAcceptanceFromSupportedHeaders.
+	 */
 	@Test
-	fn RecognizesSynRequest()
+	fn SeparatesEndpointAcceptanceFromSupportedHeaders()
 	{
-		this.SetupIpv4TcpFrame(0x02)
-
-		var localIp: byte[4]
-		localIp[0] = 0x0A
-		localIp[1] = 0x00
-		localIp[2] = 0x00
-		localIp[3] = 0x01
-
-		var localPort: byte[2]
-		localPort[0] = 0x00
-		localPort[1] = 0x50
-
-		assert this.recog.IsSynRequest(this.rxFrame, localIp, localPort) == true
-		assert this.recog.IsAckOnlyPacket(this.rxFrame, localIp, localPort) == false
+		var bytes: byte[128]
+		var ip: byte[4] = [0x0A, 0x00, 0x00, 0x01]
+		bytes[12] = 0x08
+		bytes[14] = 0x45
+		bytes[17] = 0x28
+		bytes[23] = 0x06
+		bytes[30] = 0x0A
+		bytes[33] = 0x01
+		bytes[37] = 0x50
+		bytes[46] = 0x50
+		bytes[47] = 0x02
+		this.Load(bytes, 60)
+		assert parser.TryParse() == PacketParseResult.Success
+		assert parser.IsSynRequest(ip, 80)
+		assert !parser.IsSynRequest(ip, 81)
+		assert !parser.IsAckOnlyPacket(ip, 80)
+		bytes[47] = 0x10
+		this.Load(bytes, 60)
+		assert parser.TryParse() == PacketParseResult.Success
+		assert parser.IsAckOnlyPacket(ip, 80)
+		bytes[47] = 0x18
+		bytes[17] = 0x80
+		this.Load(bytes, 60)
+		assert parser.TryParse() == PacketParseResult.HeaderOnly
+		assert parser.IsPshAckPacket(ip, 80)
+		assert parser.GetAvailableLength() == 6
+		assert parser.GetDeclaredPayloadLength() == 88
 	}
 
+	/**
+	 * AcceptsSynOptionsButRejectsTruncatedOptionExtent.
+	 */
 	@Test
-	fn RecognizesAckOnlyPacket()
+	fn AcceptsSynOptionsButRejectsTruncatedOptionExtent()
 	{
-		this.SetupIpv4TcpFrame(0x10)
-
-		var localIp: byte[4]
-		localIp[0] = 0x0A
-		localIp[1] = 0x00
-		localIp[2] = 0x00
-		localIp[3] = 0x01
-
-		var localPort: byte[2]
-		localPort[0] = 0x00
-		localPort[1] = 0x50
-
-		assert this.recog.IsSynRequest(this.rxFrame, localIp, localPort) == false
-		assert this.recog.IsAckOnlyPacket(this.rxFrame, localIp, localPort) == true
-	}
-
-	@Test
-	fn RejectsPshAckAsSynOrAck()
-	{
-		this.SetupIpv4TcpFrame(0x18)
-
-		var localIp: byte[4]
-		localIp[0] = 0x0A
-		localIp[1] = 0x00
-		localIp[2] = 0x00
-		localIp[3] = 0x01
-
-		var localPort: byte[2]
-		localPort[0] = 0x00
-		localPort[1] = 0x50
-
-		assert this.recog.IsSynRequest(this.rxFrame, localIp, localPort) == false
-		assert this.recog.IsAckOnlyPacket(this.rxFrame, localIp, localPort) == false
-	}
-
-	@Test
-	fn DetectsPshAckPacket()
-	{
-		this.SetupIpv4TcpFrame(0x18)
-
-		var localIp: byte[4]
-		localIp[0] = 0x0A
-		localIp[1] = 0x00
-		localIp[2] = 0x00
-		localIp[3] = 0x01
-
-		var localPort: byte[2]
-		localPort[0] = 0x00
-		localPort[1] = 0x50
-
-		assert this.recog.IsSynRequest(this.rxFrame, localIp, localPort) == false
-		assert this.recog.IsAckOnlyPacket(this.rxFrame, localIp, localPort) == false
-		assert this.recog.IsPshAckPacket(this.rxFrame, localIp, localPort) == true
+		var bytes: byte[128]
+		var ip: byte[4] = [0x0A, 0x00, 0x00, 0x01]
+		bytes[12] = 0x08
+		bytes[14] = 0x45
+		bytes[17] = 0x28
+		bytes[23] = 0x06
+		bytes[30] = 0x0A
+		bytes[33] = 0x01
+		bytes[37] = 0x50
+		bytes[46] = 0x50
+		bytes[47] = 0x02
+		bytes[17] = 0x2C
+		bytes[46] = 0x60
+		this.Load(bytes, 58)
+		assert parser.TryParse() == PacketParseResult.Success
+		assert parser.IsSynRequest(ip, 80)
+		this.Load(bytes, 57)
+		assert parser.TryParse() == PacketParseResult.Truncated
+		assert !parser.IsSynRequest(ip, 80)
+		bytes[23] = 0x01
+		this.Load(bytes, 58)
+		assert parser.TryParse() == PacketParseResult.Unsupported
+		assert !parser.IsReady()
 	}
 }

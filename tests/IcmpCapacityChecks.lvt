@@ -1,0 +1,73 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+/**
+ * Verifies complete echo snapshots at independently specialized capacities.
+ */
+component IcmpCapacityChecks<CAPACITY: int>
+{
+	data: ArrayPacketData<CAPACITY>
+	responder: IcmpEchoResponder<ArrayPacketData<CAPACITY>, CAPACITY>
+
+	/**
+	 * Wires the source and reply storage at the same capacity.
+	 */
+	new()
+	{
+		data = new ArrayPacketData<CAPACITY>()
+		responder = new IcmpEchoResponder<ArrayPacketData<CAPACITY>, CAPACITY>(data)
+	}
+
+	/**
+	 * Checks full-capacity data and rejection of incomplete declared packets.
+	 */
+	public fn Check()
+	{
+		responder.Invalidate()
+
+		if (data.IsReady()) { data.TryRelease() }
+		else { data.TryClear() }
+
+		var ip: byte[4] = [0x0A, 0x00, 0x00, 0x01]
+		var mac: byte[6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01]
+
+		for (var i = 0; i < CAPACITY; i++) {
+			assert data.TryWrite(i, 0x00) == PacketDataResult.Success
+		}
+
+		data.TryWrite(12, 0x08)
+		data.TryWrite(14, 0x45)
+		data.TryWrite(16, ((CAPACITY - 14) / 256) as byte)
+		data.TryWrite(17, ((CAPACITY - 14) % 256) as byte)
+		data.TryWrite(23, 0x01)
+		data.TryWrite(30, 0x0A)
+		data.TryWrite(33, 0x01)
+		data.TryWrite(34, 0x08)
+		data.TryWrite(CAPACITY - 1, 0xA5)
+		data.TryPublish()
+		assert responder.TryPrepare(mac, ip) == PacketDataResult.Success
+		assert responder.GetAvailableLength() == CAPACITY
+		var value: byte = 0x00
+		assert responder.TryRead(CAPACITY - 1, value) == PacketDataResult.Success
+		assert value == 0xA5
+		assert responder.TryRead(CAPACITY, value) == PacketDataResult.Invalid
+		responder.Invalidate()
+		data.TryRelease()
+
+		for (var i = 0; i < 42; i++) {
+			data.TryWrite(i, 0x00)
+		}
+
+		data.TryWrite(12, 0x08)
+		data.TryWrite(14, 0x45)
+		data.TryWrite(17, 0x29)
+		data.TryWrite(23, 0x01)
+		data.TryWrite(30, 0x0A)
+		data.TryWrite(33, 0x01)
+		data.TryWrite(34, 0x08)
+		data.TryPublish()
+		assert responder.TryPrepare(mac, ip) == PacketDataResult.Invalid
+		assert !responder.IsReady()
+	}
+}
