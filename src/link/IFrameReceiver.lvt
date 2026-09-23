@@ -1,0 +1,54 @@
+namespace Livt.Net
+
+/**
+ * One acquired RX frame at a time. Packet reads are valid only while acquired.
+ * Close all dependent regions/responses before release; no reference counting.
+ * Bytes start at destination MAC and exclude preamble/FCS, including captured padding.
+ */
+interface IFrameReceiver : IPacketData
+{
+	/**
+	 * Returns the maximum captured prefix length in bytes, not the wire length.
+	 */
+	fn GetReceiveCapacity() int
+
+	/**
+	 * Reports an available or already acquired frame; this snapshot does not acquire it.
+	 */
+	fn HasReceiveFrame() bool
+
+	/**
+	 * Acquires the available frame on Success; packet reads then become valid.
+	 * Busy means already acquired, NotReady means unavailable/resetting, and
+	 * DeviceFailure reports a receive error. Failed acquisition grants no ownership.
+	 */
+	fn TryAcquire() FrameLinkResult
+
+	/**
+	 * Releases the acquired frame on Success. Close dependent views and finish reads
+	 * first; after release the bytes may be reused. Invalid means no acquisition,
+	 * and NotReady means reset prevents release.
+	 */
+	fn TryRelease() FrameLinkResult
+
+	/**
+	 * Reports whether the acquired frame has an exact wire length.
+	 */
+	fn HasKnownWireLength() bool
+
+	/**
+	 * Returns the acquired frame length excluding preamble/FCS. Use only when
+	 * HasKnownWireLength is true; zero does not identify an unknown length.
+	 */
+	fn GetWireLength() int
+
+	/**
+	 * Reports a latched receive failure independently of frame ownership.
+	 */
+	fn HasReceiveError() bool
+
+	/**
+	 * Clears a pending receive error. Returns NotReady if no error can be acknowledged.
+	 */
+	fn TryAcknowledgeReceiveError() FrameLinkResult
+}

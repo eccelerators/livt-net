@@ -1,0 +1,59 @@
+namespace Livt.Net
+
+/**
+ * Buffered TX capability, bound to a fixed IPacketData source at construction.
+ * Submission borrows that prepared source and every dependency until a terminal
+ * result (or completed coordinated reset). No runtime source replacement.
+ * One serialized owner in the same clock/reset context coordinates all readers.
+ */
+interface IFrameTransmitter
+{
+	/**
+	 * Returns the minimum supported submission length in bytes, including padding and excluding FCS.
+	 */
+	fn GetMinimumFrameLength() int
+
+	/**
+	 * Returns the maximum supported submission length in bytes, excluding FCS.
+	 */
+	fn GetMaximumFrameLength() int
+
+	/**
+	 * Reports whether cancellation can be requested; it does not guarantee immediate quiescence.
+	 */
+	fn SupportsCancellation() bool
+
+	/**
+	 * Requests transmission of the fixed, prepared source. Accepted starts the borrow,
+	 * not delivery. Rejection leaves the source unborrowed and preserves old results.
+	 * Busy means an active transfer or unacknowledged completion; NotReady means
+	 * admission is paused. Invalid means unprepared/empty data; Unsupported means
+	 * length outside the advertised bounds; DeviceFailure means admission failed.
+	 */
+	fn TrySubmit() FrameLinkResult
+
+	/**
+	 * Reports whether the source and its dependencies must remain published and unchanged.
+	 */
+	fn IsSourceBorrowed() bool
+
+	/**
+	 * Requests cancellation of an active borrow. Accepted is not terminal completion;
+	 * keep the source unchanged until completion or coordinated reset finishes.
+	 * Unsupported preserves ownership; Busy means already requested, Invalid means
+	 * no pending transfer, and NotReady means reset prevents cancellation.
+	 */
+	fn TryCancel() FrameLinkResult
+
+	/**
+	 * Returns Success and a retained terminal outcome when available, otherwise
+	 * NotReady. The output is meaningful only on Success. This does not acknowledge it.
+	 */
+	fn TryGetCompletion(outcome: out FrameTransmitOutcome) FrameLinkResult
+
+	/**
+	 * Acknowledges a retained terminal result, allowing another submission.
+	 * Returns NotReady when no terminal result is available.
+	 */
+	fn TryAcknowledgeCompletion() FrameLinkResult
+}

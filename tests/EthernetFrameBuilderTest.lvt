@@ -2,9 +2,15 @@ namespace Livt.Net.Tests
 
 using Livt.Net
 
+/**
+ * Checks explicit Ethernet addresses and EtherType against header octets.
+ */
 @Test
 component EthernetFrameBuilderTest
 {
+	/**
+	 * Compares emitted header fields with explicit expected octets; no timing property is asserted.
+	 */
 	@Test
 	fn BuildsReplyEthernetHeader()
 	{

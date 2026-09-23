@@ -1,0 +1,52 @@
+namespace Livt.Net.Tests
+using Livt.Net
+
+/**
+ * Reusable receive checks; publication/reset controls stay in the harness.
+ */
+component ReceiveContractChecks<R: IFrameReceiver>
+{
+	// Borrowed receiver whose publication lifecycle remains with the harness.
+	link: R
+
+	/**
+	 * Borrows the receiver under test; ownership remains with the harness.
+	 */
+	new(link: R)
+	{
+		this.link = link
+	}
+
+	/**
+	 * Checks that the bound receiver exposes neither data nor a releasable frame.
+	 */
+	public fn Empty()
+	{
+		var value: byte = 0x00
+		assert link.HasReceiveFrame() == false
+		assert link.IsReady() == false
+		assert link.TryAcquire() == FrameLinkResult.NotReady
+		assert link.TryRead(0, value) == PacketDataResult.NotReady
+		assert link.TryRelease() == FrameLinkResult.Invalid
+	}
+
+	/**
+	 * Checks acquired length metadata and rejects a second acquisition and out-of-bounds reads.
+	 */
+	public fn Acquired(length: int, known: bool, wireLength: int)
+	{
+		var value: byte = 0x00
+		assert link.IsReady() == true
+		assert link.HasReceiveFrame() == true
+		assert link.GetAvailableLength() == length
+		assert link.HasKnownWireLength() == known
+
+		if (known) {
+			assert link.GetWireLength() == wireLength
+		}
+
+		assert link.TryAcquire() == FrameLinkResult.Busy
+		assert link.TryRead(-1, value) == PacketDataResult.Invalid
+		assert link.TryRead(length, value) == PacketDataResult.Invalid
+	}
+}

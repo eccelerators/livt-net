@@ -9,13 +9,20 @@ using Livt.Net
 component ChecksumApiTest
 {
 	stream: InternetChecksum
+
+	/**
+	 * Owns the accumulator used to supply payload word sums to static checksum calls.
+	 */
 	new()
 	{
 		stream = new InternetChecksum()
 	}
 
+	/**
+	 * Compares the supplied network-order inputs with an independent expected checksum or sum.
+	 */
 	@Test
-	fn Ipv4Typical()
+	fn ChecksTypicalIpv4Header()
 	{
 		var length: byte[2] = [0x00, 0xBB]
 		var identification: byte[2] = [0x00, 0x01]
@@ -25,8 +32,11 @@ component ChecksumApiTest
 		assert Ipv4HeaderChecksum.Calculate(NetworkOrder.Word(length[0], length[1]), identification, local, remote, 0x01) == 9791
 	}
 
+	/**
+	 * Compares the supplied network-order inputs with an independent expected checksum or sum.
+	 */
 	@Test
-	fn Ipv4HighBytes()
+	fn InterpretsHighIpv4OctetsAsUnsigned()
 	{
 		var length: byte[2] = [0x81, 0x23]
 		var identification: byte[2] = [0xFE, 0xDC]
@@ -36,8 +46,11 @@ component ChecksumApiTest
 		assert Ipv4HeaderChecksum.Calculate(NetworkOrder.Word(length[0], length[1]), identification, local, remote, 0x01) == 16734
 	}
 
+	/**
+	 * Compares the supplied network-order inputs with an independent expected checksum or sum.
+	 */
 	@Test
-	fn Ipv4CarryHeavy()
+	fn FoldsCarriesAcrossIpv4Words()
 	{
 		var length: byte[2] = [0xFF, 0xFF]
 		var identification: byte[2] = [0xFF, 0xFF]
@@ -47,8 +60,11 @@ component ChecksumApiTest
 		assert Ipv4HeaderChecksum.Calculate(NetworkOrder.Word(length[0], length[1]), identification, local, remote, 0x01) == 15102
 	}
 
+	/**
+	 * Compares the supplied network-order inputs with an independent expected checksum or sum.
+	 */
 	@Test
-	fn TcpEmptyPayload()
+	fn ChecksTcpHeaderWithoutPayload()
 	{
 		var local: byte[4] = [0xC0, 0xA8, 0x01, 0x80]
 		var remote: byte[4] = [0xFE, 0xDC, 0xBA, 0x98]
@@ -64,8 +80,11 @@ component ChecksumApiTest
 		assert TcpChecksum.CalculateFixedHeaderChecksum(local, remote, port, remotePort, sequence, acknowledgment, 0x12, window) == 33720
 	}
 
+	/**
+	 * Compares the supplied network-order inputs with an independent expected checksum or sum.
+	 */
 	@Test
-	fn TcpOddPayload()
+	fn PadsOddTcpPayloadForChecksum()
 	{
 		var local: byte[4] = [0xC0, 0xA8, 0x01, 0x80]
 		var remote: byte[4] = [0xFE, 0xDC, 0xBA, 0x98]
@@ -86,8 +105,11 @@ component ChecksumApiTest
 		assert TcpChecksum.CalculatePayloadChecksum(local, remote, port, remotePort, sequence, acknowledgment, 0x12, window, 23, wordSum) == 438
 	}
 
+	/**
+	 * Compares the supplied network-order inputs with an independent expected checksum or sum.
+	 */
 	@Test
-	fn TcpEvenPayload()
+	fn ChecksEvenTcpPayload()
 	{
 		var local: byte[4] = [0xC0, 0xA8, 0x01, 0x80]
 		var remote: byte[4] = [0xFE, 0xDC, 0xBA, 0x98]
@@ -108,8 +130,11 @@ component ChecksumApiTest
 		assert TcpChecksum.CalculatePayloadChecksum(local, remote, port, remotePort, sequence, acknowledgment, 0x12, window, 24, wordSum) == 33716
 	}
 
+	/**
+	 * Compares the supplied network-order inputs with an independent expected checksum or sum.
+	 */
 	@Test
-	fn TcpCarryHeavyPayload()
+	fn FoldsCarriesAcrossTcpPayload()
 	{
 		var local: byte[4] = [0xFF, 0xFF, 0xFF, 0xFF]
 		var remote: byte[4] = [0xFF, 0xFF, 0xFF, 0xFF]
@@ -124,6 +149,9 @@ component ChecksumApiTest
 		assert TcpChecksum.CalculatePayloadChecksum(local, remote, port, remotePort, sequence, acknowledgment, 0xFF, window, 65515, wordSum) == 45069
 	}
 
+	/**
+	 * Compares the supplied network-order inputs with an independent expected checksum or sum.
+	 */
 	@Test
 	fn FoldsNonNegativeIntBoundary()
 	{

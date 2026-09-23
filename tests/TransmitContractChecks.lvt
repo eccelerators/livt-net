@@ -1,0 +1,48 @@
+namespace Livt.Net.Tests
+using Livt.Net
+
+/**
+ * Reusable assertions: this consumer has no test-adapter controls.
+ */
+component TransmitContractChecks<T: IFrameTransmitter>
+{
+	// Borrowed transmitter whose admission and ticking remain with the harness.
+	link: T
+
+	/**
+	 * Borrows the transmitter under test; admission and ticking remain with the harness.
+	 */
+	new(link: T)
+	{
+		this.link = link
+	}
+
+	/**
+	 * Checks that an accepted transfer retains its source and has no terminal completion yet.
+	 */
+	public fn Pending()
+	{
+		var outcome: FrameTransmitOutcome = FrameTransmitOutcome.Delivered
+		assert link.IsSourceBorrowed() == true
+		assert link.TrySubmit() == FrameLinkResult.Busy
+		assert link.TryGetCompletion(outcome) == FrameLinkResult.NotReady
+		assert link.TryAcknowledgeCompletion() == FrameLinkResult.NotReady
+	}
+
+	/**
+	 * Checks retained completion, then acknowledges it and verifies it is cleared.
+	 */
+	public fn Completed(expected: FrameTransmitOutcome)
+	{
+		var outcome: FrameTransmitOutcome = FrameTransmitOutcome.DeviceFailure
+		assert link.IsSourceBorrowed() == false
+		assert link.TryGetCompletion(outcome) == FrameLinkResult.Success
+		assert outcome == expected
+		assert link.TrySubmit() == FrameLinkResult.Busy
+		assert link.TryGetCompletion(outcome) == FrameLinkResult.Success
+		assert outcome == expected
+		assert link.TryAcknowledgeCompletion() == FrameLinkResult.Success
+		assert link.TryGetCompletion(outcome) == FrameLinkResult.NotReady
+		assert link.TryAcknowledgeCompletion() == FrameLinkResult.NotReady
+	}
+}

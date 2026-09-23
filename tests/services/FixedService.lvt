@@ -1,0 +1,99 @@
+namespace Livt.Net.Tests
+using Livt.Net
+
+/**
+ * A minimal custom protocol handler used to verify dispatch priority.
+ */
+component FixedService<V: int> : IResponseService
+{
+	ready: bool
+	disabled: bool
+	calls: int
+
+	/**
+	 * Selects this handler until explicitly disabled by the test owner.
+	 */
+	override fn TryHandle() ServiceResult
+	{
+		if (this.ready) {
+			return ServiceResult.Busy
+		}
+
+		this.calls++
+
+		if (this.disabled) {
+			return ServiceResult.Ignored
+		}
+
+		this.ready = true
+		return ServiceResult.Prepared
+	}
+
+	/**
+	 * Ends the selected response publication.
+	 */
+	override fn TryReleaseResponse() PacketDataResult
+	{
+		if (!this.ready) {
+			return PacketDataResult.Invalid
+		}
+
+		this.ready = false
+		return PacketDataResult.Success
+	}
+
+	/**
+	 * Reports whether this handler has prepared its response.
+	 */
+	override fn IsReady() bool
+	{
+		return this.ready
+	}
+
+	/**
+	 * Returns the single test byte only while published.
+	 */
+	override fn GetAvailableLength() int
+	{
+		if (this.ready) {
+			return 1
+		}
+
+		return 0
+	}
+
+	/**
+	 * Reads the distinguishing byte without changing publication.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (!this.ready) {
+			return PacketDataResult.NotReady
+		}
+
+		if (index != 0) {
+			return PacketDataResult.Invalid
+		}
+
+		value = V as byte
+		return PacketDataResult.Success
+	}
+
+	/**
+	 * Changes request acceptance between response lifecycles.
+	 */
+	public fn Disable()
+	{
+		this.disabled = true
+	}
+
+	/**
+	 * Counts dispatch attempts to detect unexpected fallthrough.
+	 */
+	public fn GetCalls() int
+	{
+		return this.calls
+	}
+}

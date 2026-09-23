@@ -2,30 +2,44 @@ namespace Livt.Net.Tests
 
 using Livt.Net
 
+/**
+ * Checks IPv4 length, protocol, identification and unsigned address contributions.
+ */
 @Test
 component Ipv4HeaderChecksumTest
 {
-
+	/**
+	 * Compares the supplied network-order inputs with an independent expected checksum or sum.
+	 */
 	@Test
 	fn CalculatesFixedShowcaseResponseHeaderChecksum()
 	{
 		assert Ipv4HeaderChecksum.Calculate((0) * 256 + (187), [0 as byte, 1 as byte], [10 as byte, 0 as byte, 0 as byte, 1 as byte], [10 as byte, 0 as byte, 0 as byte, 2 as byte], 0x06) == 9786
 	}
 
+	/**
+	 * Compares the supplied network-order inputs with an independent expected checksum or sum.
+	 */
 	@Test
 	fn CalculatesFixedIcmpEchoResponseHeaderChecksum()
 	{
 		assert Ipv4HeaderChecksum.Calculate((0) * 256 + (40), [18 as byte, 52 as byte], [10 as byte, 0 as byte, 0 as byte, 1 as byte], [10 as byte, 0 as byte, 0 as byte, 2 as byte], 0x01) == 5279
 	}
 
+	/**
+	 * Compares the supplied network-order inputs with an independent expected checksum or sum.
+	 */
 	@Test
 	fn IncludesLengthAndIdentificationFields()
 	{
 		assert Ipv4HeaderChecksum.Calculate((0) * 256 + (40), [18 as byte, 52 as byte], [10 as byte, 0 as byte, 0 as byte, 1 as byte], [10 as byte, 0 as byte, 0 as byte, 2 as byte], 0x06) == 5274
 	}
 
+	/**
+	 * Checks high/low byte extraction from independently expected checksum values.
+	 */
 	@Test
-	fn ExposesChecksumBytesAsIntegers()
+	fn ExtractsNetworkOrderChecksumOctets()
 	{
 		assert NetworkOrder.HighByte(9786) == 38
 		assert NetworkOrder.LowByte(9786) == 58

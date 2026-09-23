@@ -5,7 +5,7 @@ namespace Livt.Net.Tests
  * The assertion verifies the value, not single-cycle or combinational timing.
  */
 @Test
-component CombinatorialForLoopTest
+component ScheduledWordSumTest
 {
 	const INDEX_CONTENT : byte[] = "<!doctype html><html><body><h1>Livt FPGA Web</h1></body></html>\n".Encode()
 
@@ -54,7 +54,7 @@ component CombinatorialForLoopTest
 	 * Compares the fixed input against an independently calculated word sum.
 	 */
 	@Test
-	fn ComputesWordSumCombinatorially()
+	fn MatchesIndependentWordSum()
 	{
 		var checksum = this.ComputeWordSum()
 

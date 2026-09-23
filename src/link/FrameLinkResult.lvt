@@ -1,0 +1,15 @@
+namespace Livt.Net
+
+/**
+ * Immediate link operation result; Accepted is not a delivery completion.
+ */
+enum FrameLinkResult
+{
+	Success
+	Accepted
+	NotReady
+	Busy
+	Invalid
+	Unsupported
+	DeviceFailure
+}

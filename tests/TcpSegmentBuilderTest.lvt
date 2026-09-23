@@ -2,11 +2,17 @@ namespace Livt.Net.Tests
 
 using Livt.Net
 
+/**
+ * Checks explicit TCP metadata; endpoint swapping belongs to the caller.
+ */
 @Test
 component TcpSegmentBuilderTest
 {
+	/**
+	 * Compares emitted header fields with explicit expected octets; no timing property is asserted.
+	 */
 	@Test
-	fn SwapsPortsForResponse()
+	fn WritesExplicitSourceAndDestinationPorts()
 	{
 		var request: byte[128]
 		var clientPort: byte[2]
@@ -45,6 +51,9 @@ component TcpSegmentBuilderTest
 		assert TcpSegmentBuilder.GetByte(3, sourcePort, destinationPort, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x01
 	}
 
+	/**
+	 * Compares emitted header fields with explicit expected octets; no timing property is asserted.
+	 */
 	@Test
 	fn WritesSequenceAndAcknowledgmentNumbers()
 	{
@@ -76,6 +85,9 @@ component TcpSegmentBuilderTest
 		assert TcpSegmentBuilder.GetByte(11, sourcePort, destinationPort, tcpSequence, acknowledgment, 0x12, window, checksum) == 0xDD
 	}
 
+	/**
+	 * Compares emitted header fields with explicit expected octets; no timing property is asserted.
+	 */
 	@Test
 	fn WritesFixedHeaderControlFields()
 	{

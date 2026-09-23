@@ -5,6 +5,8 @@ namespace Livt.Net
  * https://www.rfc-editor.org/rfc/rfc9293
  *
  * Composes a minimum-sized Ethernet/IPv4/TCP SYN-ACK response frame byte by byte.
+ * The caller supplies a validated fixed-header request and retains its bytes and
+ * response metadata throughout emission. This encoder does not validate requests.
  */
 component TcpSynAckFrameComposer<FRAME_CAPACITY: int = 128>
 {
@@ -20,7 +22,8 @@ component TcpSynAckFrameComposer<FRAME_CAPACITY: int = 128>
 	public const TCP_FLAGS_SYN_ACK: byte = 0x12
 
 	/**
-	 * Returns one byte of the SYN-ACK frame.
+	 * Returns one byte of the SYN-ACK frame; out-of-frame indices return zero.
+	 * Scheduled call with no fixed-cycle guarantee; no preparation state is retained.
 	 * Bytes 0–13: Ethernet II reply header.
 	 * Bytes 14–33: IPv4 header (total-length=40, proto=TCP, src=localIp, dst=request src IP).
 	 * Bytes 34–53: TCP header (src/dst port swapped, SYN-ACK flags, seq/ack/window/checksum).
@@ -43,7 +46,7 @@ component TcpSynAckFrameComposer<FRAME_CAPACITY: int = 128>
 
 		if (index < 14) {
 			var destinationMac: byte[6] = [request[6], request[7], request[8], request[9], request[10], request[11]]
-			return EthernetFrameBuilder.GetByte(index, localMac, destinationMac, NetworkOrder.Word(0x08, 0x00))
+			return EthernetFrameBuilder.GetByte(index, localMac, destinationMac, IEthernetPayload.ETHER_TYPE_IPV4)
 		}
 
 		if (index < 34) {
@@ -56,7 +59,7 @@ component TcpSynAckFrameComposer<FRAME_CAPACITY: int = 128>
 			}
 
 			var destinationIp: byte[4] = [request[26], request[27], request[28], request[29]]
-			return Ipv4HeaderBuilder.GetByte(index - 14, IPV4_TOTAL_LENGTH, [0x00, 0x02], localIp, destinationIp, 0x06, 0)
+			return Ipv4HeaderBuilder.GetByte(index - 14, IPV4_TOTAL_LENGTH, [0x00, 0x02], localIp, destinationIp, IIpv4Payload.PROTOCOL_TCP, 0)
 		}
 
 		if (index < 54) {

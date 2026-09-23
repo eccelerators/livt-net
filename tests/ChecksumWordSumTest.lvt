@@ -8,15 +8,25 @@ namespace Livt.Net.Tests
 //
 // This keeps the payload checksum fixture covered until the
 // package has a dedicated payload abstraction.
+
+/**
+ * Checks the fixed HTML fixture against an independently calculated unfolded sum.
+ */
 @Test
 component ChecksumWordSumTest
 {
 	const INDEX_CONTENT : byte[] = "<!doctype html><html><body><h1>Livt FPGA Web</h1></body></html>\n".Encode()
 
+	/**
+	 * No mutable fixture state is needed; the content table is fixed for this test.
+	 */
 	new()
 	{
 	}
 
+	/**
+	 * Compares the supplied network-order inputs with an independent expected checksum or sum.
+	 */
 	@Test
 	fn ComputesWordSumOf64ByteHtmlContent()
 	{

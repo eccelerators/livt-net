@@ -2,174 +2,8 @@ namespace Livt.Net.Tests
 using Livt.Net
 
 /**
- * Reusable receive checks; publication/reset controls stay in the harness.
+ * Checks RX/TX ownership, backpressure, cancellation and coordinated reset through capability-bound consumers.
  */
-component ReceiveContractChecks<R: IFrameReceiver>
-{
-	link: R
-	new(link: R)
-	{
-		this.link = link
-	}
-	public fn Empty()
-	{
-		var value: byte = 0x00
-		assert link.HasReceiveFrame() == false
-		assert link.IsReady() == false
-		assert link.TryAcquire() == FrameLinkResult.NotReady
-		assert link.TryRead(0, value) == PacketDataResult.NotReady
-		assert link.TryRelease() == FrameLinkResult.Invalid
-	}
-	public fn Acquired(length: int, known: bool, wireLength: int)
-	{
-		var value: byte = 0x00
-		assert link.IsReady() == true
-		assert link.HasReceiveFrame() == true
-		assert link.GetAvailableLength() == length
-		assert link.HasKnownWireLength() == known
-
-		if (known) {
-			assert link.GetWireLength() == wireLength
-		}
-
-		assert link.TryAcquire() == FrameLinkResult.Busy
-		assert link.TryRead(-1, value) == PacketDataResult.Invalid
-		assert link.TryRead(length, value) == PacketDataResult.Invalid
-	}
-}
-
-/**
- * Reusable assertions: this consumer has no test-adapter controls.
- */
-component TransmitContractChecks<T: IFrameTransmitter>
-{
-	link: T
-	new(link: T)
-	{
-		this.link = link
-	}
-	public fn Pending()
-	{
-		var outcome: FrameTransmitOutcome = FrameTransmitOutcome.Delivered
-		assert link.IsSourceBorrowed() == true
-		assert link.TrySubmit() == FrameLinkResult.Busy
-		assert link.TryGetCompletion(outcome) == FrameLinkResult.NotReady
-		assert link.TryAcknowledgeCompletion() == FrameLinkResult.NotReady
-	}
-	public fn Completed(expected: FrameTransmitOutcome)
-	{
-		var outcome: FrameTransmitOutcome = FrameTransmitOutcome.DeviceFailure
-		assert link.IsSourceBorrowed() == false
-		assert link.TryGetCompletion(outcome) == FrameLinkResult.Success
-		assert outcome == expected
-		assert link.TrySubmit() == FrameLinkResult.Busy
-		assert link.TryGetCompletion(outcome) == FrameLinkResult.Success
-		assert outcome == expected
-		assert link.TryAcknowledgeCompletion() == FrameLinkResult.Success
-		assert link.TryGetCompletion(outcome) == FrameLinkResult.NotReady
-		assert link.TryAcknowledgeCompletion() == FrameLinkResult.NotReady
-	}
-}
-
-/**
- * Small service using only public capabilities; TX is wired to its RX source.
- */
-component FrameForwarder<R: IFrameReceiver, T: IFrameTransmitter>
-{
-	receiver: R
-	transmitter: T
-	active: bool
-	new(receiver: R, transmitter: T)
-	{
-		this.receiver = receiver
-		this.transmitter = transmitter
-		active = false
-	}
-	public fn TryStart() FrameLinkResult
-	{
-		if (active) {
-			return FrameLinkResult.Busy
-		}
-
-		var result = receiver.TryAcquire()
-
-		if (result != FrameLinkResult.Success) {
-			return result
-		}
-
-		if (!receiver.HasKnownWireLength() || receiver.GetWireLength() != receiver.GetAvailableLength()) {
-			receiver.TryRelease()
-			return FrameLinkResult.Invalid
-		}
-
-		result = transmitter.TrySubmit()
-
-		if (result != FrameLinkResult.Accepted) {
-			receiver.TryRelease();
-			return result
-		}
-
-		active = true
-		return FrameLinkResult.Accepted
-	}
-	public fn TryFinish(outcome: out FrameTransmitOutcome) FrameLinkResult
-	{
-		outcome = FrameTransmitOutcome.DeviceFailure
-
-		if (!active) {
-			return FrameLinkResult.NotReady
-		}
-
-		var result = transmitter.TryGetCompletion(outcome)
-
-		if (result != FrameLinkResult.Success) {
-			return result
-		}
-
-		receiver.TryRelease()
-		transmitter.TryAcknowledgeCompletion()
-		active = false
-		return FrameLinkResult.Success
-	}
-}
-
-component FaultingFrameData : IPacketData
-{
-	length: int
-	failAt: int
-	reads: int
-	public fn Configure(length: int, failAt: int)
-	{
-		this.length = length;
-		this.failAt = failAt;
-		reads = 0
-	}
-	public fn GetReadCount() int
-	{
-		return reads
-	}
-	override fn IsReady() bool
-	{
-		return true
-	}
-	override fn GetAvailableLength() int
-	{
-		return length
-	}
-	override fn TryRead(index: int, value: out byte) PacketDataResult
-	{
-		value = 0x00
-		reads = reads + 1
-
-		if (index < 0 || index >= length || index == failAt) {
-			return PacketDataResult.Invalid
-		}
-
-		value = (index + 128) as byte
-		return PacketDataResult.Success
-	}
-}
-
 @Test
 component FrameLinkTest
 {
@@ -185,6 +19,10 @@ component FrameLinkTest
 	forwardRx: TestFrameReceiver<64>
 	forwardTx: TestFrameTransmitter<TestFrameReceiver<64>, 64>
 	service: FrameForwarder<TestFrameReceiver<64>, TestFrameTransmitter<TestFrameReceiver<64>, 64>>
+
+	/**
+	 * Wires simulated links, capability-bound assertions and a forwarder in the same clock context.
+	 */
 	new()
 	{
 		rx = new TestFrameReceiver<64>()
@@ -200,6 +38,10 @@ component FrameLinkTest
 		forwardTx = new TestFrameTransmitter<TestFrameReceiver<64>, 64>(forwardRx)
 		service = new FrameForwarder<TestFrameReceiver<64>, TestFrameTransmitter<TestFrameReceiver<64>, 64>>(forwardRx, forwardTx)
 	}
+
+	/**
+	 * Quiesces the test transmitters, closes the view and clears owned source/receiver state.
+	 */
 	fn Clean()
 	{
 		tx.BeginReset()
@@ -221,6 +63,10 @@ component FrameLinkTest
 
 		faulty.Configure(60, -1)
 	}
+
+	/**
+	 * Publishes the requested initialized prefix using deterministic high-bit octets.
+	 */
 	fn Prepare(length: int)
 	{
 		if (data.IsReady()) {
@@ -237,6 +83,9 @@ component FrameLinkTest
 		assert data.TryPublish() == PacketDataResult.Success
 	}
 
+	/**
+	 * Checks acquisition, valid-prefix reads and the distinction between known and unknown wire length.
+	 */
 	@Test
 	fn ReceiveOwnershipAndLengthKnowledge()
 	{
@@ -296,6 +145,9 @@ component FrameLinkTest
 		assert rx.TryRelease() == FrameLinkResult.Success
 	}
 
+	/**
+	 * Checks RX error acknowledgment and that coordinated reset discards a partial capture.
+	 */
 	@Test
 	fn ReceiveErrorsAndResetDiscardPartialData()
 	{
@@ -332,6 +184,9 @@ component FrameLinkTest
 		assert rx.TryRelease() == FrameLinkResult.Success
 	}
 
+	/**
+	 * Checks admission errors before a transmitter borrows any source data.
+	 */
 	@Test
 	fn RejectsUnpreparedEmptyAndUnsupportedSources()
 	{
@@ -367,6 +222,9 @@ component FrameLinkTest
 		assert data.TryRelease() == PacketDataResult.Success
 	}
 
+	/**
+	 * Checks source retention under backpressure and explicit acknowledgment of the terminal result.
+	 */
 	@Test
 	fn HoldsSourceThroughBackpressureAndLatchedCompletion()
 	{
@@ -414,6 +272,9 @@ component FrameLinkTest
 		assert data.TryRelease() == PacketDataResult.Success
 	}
 
+	/**
+	 * Checks that cancellation and device failure release the borrow only when reads stop.
+	 */
 	@Test
 	fn CancellationAndFailureReleaseOnlyAtTerminal()
 	{
@@ -442,6 +303,9 @@ component FrameLinkTest
 		assert data.TryRelease() == PacketDataResult.Success
 	}
 
+	/**
+	 * Checks unsupported cancellation and propagation of a source read failure.
+	 */
 	@Test
 	fn UnsupportedCancellationAndReadFailure()
 	{
@@ -471,6 +335,9 @@ component FrameLinkTest
 		assert faulty.GetReadCount() == 60
 	}
 
+	/**
+	 * Checks that beginning reset retains ownership until reset completion guarantees quiescence.
+	 */
 	@Test
 	fn ResetBarrierKeepsBorrowUntilQuiescent()
 	{
@@ -507,6 +374,9 @@ component FrameLinkTest
 		assert data.TryRelease() == PacketDataResult.Success
 	}
 
+	/**
+	 * Forwards a complete received frame without test-adapter controls in the service implementation.
+	 */
 	@Test
 	fn ServiceUsesOnlyReceiverAndTransmitterCapabilities()
 	{

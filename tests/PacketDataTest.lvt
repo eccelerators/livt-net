@@ -2,9 +2,13 @@ namespace Livt.Net.Tests
 
 using Livt.Net
 
+/**
+ * Checks array/RAM publication and nested views. Each case closes views and resets its provider at entry.
+ */
 @Test
 component PacketDataTest
 {
+	// Owned providers and borrowed region views; close descendants before provider reuse.
 	array: ArrayPacketData<3>
 	ram: RamPacketData<3>
 	single: RamPacketData<1>
@@ -12,6 +16,9 @@ component PacketDataTest
 	ramRegion: PacketRegion<RamPacketData<3>>
 	nested: PacketRegion<PacketRegion<RamPacketData<3>>>
 
+	/**
+	 * Creates unpublished array/RAM providers and closed nested views borrowing those providers.
+	 */
 	new()
 	{
 		array = new ArrayPacketData<3>()
@@ -22,9 +29,21 @@ component PacketDataTest
 		nested = new PacketRegion<PacketRegion<RamPacketData<3>>>(ramRegion)
 	}
 
+	/**
+	 * Checks prefix bounds, publication immutability, empty publication and array reuse.
+	 */
 	@Test
-	fn ArrayPrefixAndReuse()
+	fn PublishesOnlyInitializedArrayBytesAndAllowsReuse()
 	{
+		arrayRegion.TryClose()
+
+		if (array.IsReady()) {
+			array.TryRelease()
+		}
+		else {
+			array.TryClear()
+		}
+
 		var value: byte = 0xEE
 		assert array.IsReady() == false
 		assert array.GetCapacity() == 3
@@ -73,9 +92,21 @@ component PacketDataTest
 		assert array.TryRelease() == PacketDataResult.Success
 	}
 
+	/**
+	 * Checks relative array views, overflow-safe bounds and close-before-reopen behavior.
+	 */
 	@Test
-	fn ArrayBoundedRegion()
+	fn BoundsArrayViewsAndRequiresCloseBeforeReuse()
 	{
+		arrayRegion.TryClose()
+
+		if (array.IsReady()) {
+			array.TryRelease()
+		}
+		else {
+			array.TryClear()
+		}
+
 		var value: byte = 0xEE
 		assert arrayRegion.TryOpen(0, 0) == PacketDataResult.NotReady
 		assert array.TryWrite(0, 0x11) == PacketDataResult.Success
@@ -116,9 +147,22 @@ component PacketDataTest
 		assert array.TryRelease() == PacketDataResult.Success
 	}
 
+	/**
+	 * Checks RAM prefix bounds, publication immutability and reuse without clearing retained memory.
+	 */
 	@Test
-	fn RamPrefixAndReuse()
+	fn PublishesOnlyInitializedRamBytesAndAllowsReuse()
 	{
+		nested.TryClose()
+		ramRegion.TryClose()
+
+		if (ram.IsReady()) {
+			ram.TryRelease()
+		}
+		else {
+			ram.TryClear()
+		}
+
 		var value: byte = 0xEE
 		assert ram.IsReady() == false
 		assert ram.GetCapacity() == 3
@@ -167,9 +211,22 @@ component PacketDataTest
 		assert ram.TryRelease() == PacketDataResult.Success
 	}
 
+	/**
+	 * Checks scheduled RAM-backed views against relative and overflowing extents.
+	 */
 	@Test
-	fn RamBoundedRegion()
+	fn BoundsRamViewsAndRequiresCloseBeforeReuse()
 	{
+		nested.TryClose()
+		ramRegion.TryClose()
+
+		if (ram.IsReady()) {
+			ram.TryRelease()
+		}
+		else {
+			ram.TryClear()
+		}
+
 		var value: byte = 0xEE
 		assert ramRegion.TryOpen(0, 0) == PacketDataResult.NotReady
 		assert ram.TryWrite(0, 0x11) == PacketDataResult.Success
@@ -210,9 +267,22 @@ component PacketDataTest
 		assert ram.TryRelease() == PacketDataResult.Success
 	}
 
+	/**
+	 * Composes two views and verifies that child indices are relative to the parent region.
+	 */
 	@Test
 	fn NestedRegionsUseRelativeOffsets()
 	{
+		nested.TryClose()
+		ramRegion.TryClose()
+
+		if (ram.IsReady()) {
+			ram.TryRelease()
+		}
+		else {
+			ram.TryClear()
+		}
+
 		var value: byte = 0x00
 		assert ram.TryWrite(0, 0x12) == PacketDataResult.Success
 		assert ram.TryWrite(1, 0x80) == PacketDataResult.Success
@@ -229,9 +299,19 @@ component PacketDataTest
 		assert ram.TryRelease() == PacketDataResult.Success
 	}
 
+	/**
+	 * Republishes an empty single-cell RAM and verifies that retained bytes are not readable.
+	 */
 	@Test
-	fn SingleCellRamAndRetainedStorage()
+	fn HidesRetainedRamBytesAfterRelease()
 	{
+		if (single.IsReady()) {
+			single.TryRelease()
+		}
+		else {
+			single.TryClear()
+		}
+
 		var value: byte = 0x00
 		assert single.TryWrite(0, 0xFF) == PacketDataResult.Success
 		assert single.TryWrite(1, 0x80) == PacketDataResult.Invalid

@@ -2,17 +2,26 @@ namespace Livt.Net.Tests
 
 using Livt.Net
 
+/**
+ * Owns request storage and a responder; request setup invalidates replies before replacing input.
+ */
 @Test
 component ArpResponderTest
 {
 	data: ArrayPacketData<64>
 	responder: ArpResponder<ArrayPacketData<64>>
 
+	/**
+	 * Binds the responder to owned request storage; request setup controls publication.
+	 */
 	new()
 	{
 		data = new ArrayPacketData<64>(); responder = new ArpResponder<ArrayPacketData<64>>(data)
 	}
 
+	/**
+	 * Prepares an independently initialized request and checks reply bytes or rejection behavior.
+	 */
 	@Test
 	fn RespondsOnlyToLocalIpv4Request()
 	{
@@ -56,6 +65,9 @@ component ArpResponderTest
 		assert (this.PrepareRequest(request, [0x00, 0x00, 0x00, 0x00, 0x00, 0x00], wrongIp, 64) == PacketDataResult.Success) == false
 	}
 
+	/**
+	 * Prepares an independently initialized request and checks reply bytes or rejection behavior.
+	 */
 	@Test
 	fn BuildsArpReplyBytes()
 	{
@@ -147,6 +159,9 @@ component ArpResponderTest
 		assert responderByte == 0x02
 	}
 
+	/**
+	 * Prepares an independently initialized request and checks reply bytes or rejection behavior.
+	 */
 	@Test
 	fn SnapshotsAddressesAndClearsRejectedRequest()
 	{

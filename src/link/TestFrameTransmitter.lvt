@@ -215,6 +215,7 @@ component TestFrameTransmitter<P: IPacketData, MAX_LENGTH: int = 1514, CANCELLAB
 		}
 
 		// Quiescence/error handling continues even when data transfer is paused.
+
 		if (failureRequested) {
 			outcome = FrameTransmitOutcome.DeviceFailure;
 			borrowed = false;

@@ -1,0 +1,78 @@
+namespace Livt.Net.Tests
+using Livt.Net
+
+/**
+ * User-defined protocol data; injected read failures test preparation cleanup.
+ */
+component PacketMetadataStub : IPacketData, IEthernetPayload, IIpv4Payload
+{
+	// Configured lengths, identities, readiness and the injected failing read index.
+	length: int
+	etherType: int
+	protocol: int
+	available: bool
+	failAt: int
+
+	/**
+	 * Replaces test metadata and failure injection settings before the next preparation.
+	 */
+	public fn Configure(length: int, etherType: int, protocol: int, available: bool, failAt: int)
+	{
+		this.length = length
+		this.etherType = etherType
+		this.protocol = protocol
+		this.available = available
+		this.failAt = failAt
+	}
+
+	/**
+	 * Reports configured availability; this test provider performs no publication handshake.
+	 */
+	override fn IsReady() bool
+	{
+		return available
+	}
+
+	/**
+	 * Returns the configured test length, including deliberately invalid metadata.
+	 */
+	override fn GetAvailableLength() int
+	{
+		return length
+	}
+
+	/**
+	 * Returns the configured Ethernet identity without validating it.
+	 */
+	override fn GetEtherType() int
+	{
+		return etherType
+	}
+
+	/**
+	 * Returns the configured IPv4 protocol value without validating it.
+	 */
+	override fn GetProtocol() int
+	{
+		return protocol
+	}
+
+	/**
+	 * Returns deterministic data only for valid, non-faulting indices; failed output is not usable data.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (!available) {
+			return PacketDataResult.NotReady
+		}
+
+		if (index < 0 || index >= length || index == failAt) {
+			return PacketDataResult.Invalid
+		}
+
+		value = 0xA5
+		return PacketDataResult.Success
+	}
+}

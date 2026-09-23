@@ -1,0 +1,77 @@
+namespace Livt.Net.Tests
+using Livt.Net
+
+/**
+ * Small service using only public capabilities; TX is wired to its RX source.
+ */
+component FrameForwarder<R: IFrameReceiver, T: IFrameTransmitter>
+{
+	// Borrowed RX/TX endpoints and ownership of the current forwarding operation.
+	receiver: R
+	transmitter: T
+	active: bool
+
+	/**
+	 * Borrows RX and TX in the same clock context; starts without an active forward.
+	 */
+	new(receiver: R, transmitter: T)
+	{
+		this.receiver = receiver
+		this.transmitter = transmitter
+		active = false
+	}
+
+	/**
+	 * Acquires a complete RX frame and submits it to TX; releases RX if admission fails.
+	 */
+	public fn TryStart() FrameLinkResult
+	{
+		if (active) {
+			return FrameLinkResult.Busy
+		}
+
+		var result = receiver.TryAcquire()
+
+		if (result != FrameLinkResult.Success) {
+			return result
+		}
+
+		if (!receiver.HasKnownWireLength() || receiver.GetWireLength() != receiver.GetAvailableLength()) {
+			receiver.TryRelease()
+			return FrameLinkResult.Invalid
+		}
+
+		result = transmitter.TrySubmit()
+
+		if (result != FrameLinkResult.Accepted) {
+			receiver.TryRelease();
+			return result
+		}
+
+		active = true
+		return FrameLinkResult.Accepted
+	}
+
+	/**
+	 * Releases RX and acknowledges TX only after a terminal completion; propagates pending state.
+	 */
+	public fn TryFinish(outcome: out FrameTransmitOutcome) FrameLinkResult
+	{
+		outcome = FrameTransmitOutcome.DeviceFailure
+
+		if (!active) {
+			return FrameLinkResult.NotReady
+		}
+
+		var result = transmitter.TryGetCompletion(outcome)
+
+		if (result != FrameLinkResult.Success) {
+			return result
+		}
+
+		receiver.TryRelease()
+		transmitter.TryAcknowledgeCompletion()
+		active = false
+		return FrameLinkResult.Success
+	}
+}

@@ -2,17 +2,26 @@ namespace Livt.Net.Tests
 
 using Livt.Net
 
+/**
+ * Builds a fresh SYN request for each scenario and checks emitted header fields.
+ */
 @Test
 component TcpSynAckFrameComposerTest
 {
 	composer: TcpSynAckFrameComposer
 	rxFrame: byte[128]
 
+	/**
+	 * Creates the fixed-capacity composer; request bytes are initialized separately for each scenario.
+	 */
 	new()
 	{
 		this.composer = new TcpSynAckFrameComposer()
 	}
 
+	/**
+	 * Overwrites the stored request with the Ethernet, IPv4 and TCP metadata needed by each case.
+	 */
 	fn SetupSynRequest()
 	{
 		// Client MAC at bytes 6..11 (used for reply dst MAC)
@@ -38,7 +47,10 @@ component TcpSynAckFrameComposerTest
 		this.rxFrame[37] = 0x50
 	}
 
-	fn GetTestByte(index: int) logic[8]
+	/**
+	 * Emits a frame-relative byte using the fixture endpoints, sequence, acknowledgment and supplied checksums.
+	 */
+	fn GetTestByte(index: int) byte
 	{
 		var localMac: byte[6]
 		localMac[0] = 0x02
@@ -81,6 +93,9 @@ component TcpSynAckFrameComposerTest
 		return this.composer.GetFrameByte(this.rxFrame, index, localMac, localIp, ipv4Cs, ourSeq, ackNum, window, tcpCs)
 	}
 
+	/**
+	 * Rebuilds the SYN fixture and compares the selected header with literal expected octets.
+	 */
 	@Test
 	fn ComposesEthernetHeader()
 	{
@@ -97,6 +112,9 @@ component TcpSynAckFrameComposerTest
 		assert this.GetTestByte(13) == 0x00
 	}
 
+	/**
+	 * Rebuilds the SYN fixture and compares the selected header with literal expected octets.
+	 */
 	@Test
 	fn ComposesIpv4Header()
 	{
@@ -116,6 +134,9 @@ component TcpSynAckFrameComposerTest
 		assert this.GetTestByte(33) == 0x02
 	}
 
+	/**
+	 * Rebuilds the SYN fixture and compares the selected header with literal expected octets.
+	 */
 	@Test
 	fn ComposesTcpHeader()
 	{

@@ -38,7 +38,7 @@ components = [
 	"TcpHeaderParserTest",
 	"TcpSegmentBuilderTest",
 	"TcpSynAckFrameComposerTest",
-	"CombinatorialForLoopTest"
+	"ScheduledWordSumTest"
 ]
 
 [dependencies]

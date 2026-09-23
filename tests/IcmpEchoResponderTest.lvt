@@ -2,17 +2,26 @@ namespace Livt.Net.Tests
 
 using Livt.Net
 
+/**
+ * Checks prepared echo replies against request fixtures, independent bytes and rejected replacements.
+ */
 @Test
 component IcmpEchoResponderTest
 {
 	data: ArrayPacketData<128>
 	responder: IcmpEchoResponder<ArrayPacketData<128>, 128>
 
+	/**
+	 * Constructs the request buffer and responder in one clock context; request setup publishes data.
+	 */
 	new()
 	{
 		data = new ArrayPacketData<128>(); responder = new IcmpEchoResponder<ArrayPacketData<128>, 128>(data)
 	}
 
+	/**
+	 * Returns one octet of the deterministic echo-request fixture, including its padding.
+	 */
 	fn GetRequestByte(index: int) byte
 	{
 		if (index == 0) {
@@ -234,6 +243,9 @@ component IcmpEchoResponderTest
 		return 0x00
 	}
 
+	/**
+	 * Prepares an independently initialized request and checks reply bytes or rejection behavior.
+	 */
 	@Test
 	fn RecognizesEchoRequestForLocalIpv4()
 	{
@@ -259,6 +271,9 @@ component IcmpEchoResponderTest
 		assert (this.PrepareRequest(frame, [0x00, 0x00, 0x00, 0x00, 0x00, 0x00], localIp, 128) == PacketDataResult.Success) == false
 	}
 
+	/**
+	 * Prepares an independently initialized request and checks reply bytes or rejection behavior.
+	 */
 	@Test
 	fn BuildsEchoReplyBytes()
 	{
@@ -327,6 +342,9 @@ component IcmpEchoResponderTest
 		assert responderByte == 0x00
 	}
 
+	/**
+	 * Prepares an independently initialized request and checks reply bytes or rejection behavior.
+	 */
 	@Test
 	fn TreatsHighBitBytesAsUnsigned()
 	{
@@ -367,6 +385,9 @@ component IcmpEchoResponderTest
 		assert responderByte == 0x5E
 	}
 
+	/**
+	 * Prepares an independently initialized request and checks reply bytes or rejection behavior.
+	 */
 	@Test
 	fn HoldsPreparedBytesAndClearsFailedReplacement()
 	{

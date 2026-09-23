@@ -2,9 +2,15 @@ namespace Livt.Net.Tests
 
 using Livt.Net
 
+/**
+ * Checks the fixed IPv4 layout and caller-supplied addresses and checksum.
+ */
 @Test
 component Ipv4HeaderBuilderTest
 {
+	/**
+	 * Compares emitted header fields with explicit expected octets; no timing property is asserted.
+	 */
 	@Test
 	fn BuildsFixedIpv4TcpResponseHeader()
 	{
@@ -42,6 +48,9 @@ component Ipv4HeaderBuilderTest
 		assert Ipv4HeaderBuilder.GetByte(9, totalLength, identification, localIp, destinationIp, 0x06, 0) == 0x06
 	}
 
+	/**
+	 * Compares emitted header fields with explicit expected octets; no timing property is asserted.
+	 */
 	@Test
 	fn EmitsSuppliedChecksum()
 	{
@@ -61,6 +70,9 @@ component Ipv4HeaderBuilderTest
 		assert Ipv4HeaderBuilder.GetByte(11, totalLength, identification, localIp, destinationIp, 0x06, 0xABCD) == 0xCD
 	}
 
+	/**
+	 * Compares emitted header fields with explicit expected octets; no timing property is asserted.
+	 */
 	@Test
 	fn WritesConfiguredIpv4Addresses()
 	{

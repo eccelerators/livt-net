@@ -79,5 +79,4 @@ component InternetChecksum
 		var s: int = this.GetWordSum()
 		return ChecksumArithmetic.Finish(s)
 	}
-
 }

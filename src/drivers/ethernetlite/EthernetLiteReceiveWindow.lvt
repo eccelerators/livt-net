@@ -73,7 +73,6 @@ component EthernetLiteReceiveWindow<CAPACITY: int = 128>
 	/**
 	 * Reports whether the scan has certified a prefix.
 	 */
-
 	public fn IsFinished() bool
 	{
 		return this.finished

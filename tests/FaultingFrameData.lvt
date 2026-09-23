@@ -1,0 +1,63 @@
+namespace Livt.Net.Tests
+using Livt.Net
+
+/**
+ * Test payload with deterministic bytes and one injectable read failure. Configure resets its read counter.
+ */
+component FaultingFrameData : IPacketData
+{
+	// Configured extent, failing index and attempted-read count.
+	length: int
+	failAt: int
+	reads: int
+
+	/**
+	 * Replaces test metadata and failure injection settings before the next preparation.
+	 */
+	public fn Configure(length: int, failAt: int)
+	{
+		this.length = length;
+		this.failAt = failAt;
+		reads = 0
+	}
+
+	/**
+	 * Returns the number of attempted reads since Configure, including failed reads.
+	 */
+	public fn GetReadCount() int
+	{
+		return reads
+	}
+
+	/**
+	 * Always reports ready so tests can isolate length admission and read failures.
+	 */
+	override fn IsReady() bool
+	{
+		return true
+	}
+
+	/**
+	 * Returns the configured test length, including deliberately invalid metadata.
+	 */
+	override fn GetAvailableLength() int
+	{
+		return length
+	}
+
+	/**
+	 * Returns deterministic data only for valid, non-faulting indices; failed output is not usable data.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+		reads = reads + 1
+
+		if (index < 0 || index >= length || index == failAt) {
+			return PacketDataResult.Invalid
+		}
+
+		value = (index + 128) as byte
+		return PacketDataResult.Success
+	}
+}

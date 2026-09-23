@@ -2,9 +2,13 @@ namespace Livt.Net.Tests
 
 using Livt.Net
 
+/**
+ * Checks complete literal frame vectors for array/RAM graphs, including odd data and reuse. Each case initializes its graph.
+ */
 @Test
 component GenericPacketTest
 {
+	// Independent array/RAM packet graphs; each test initializes its own graph.
 	small: ArrayPacketData<32>
 	smallEcho: IcmpEchoReply<ArrayPacketData<32>>
 	smallIp: Ipv4Packet<IcmpEchoReply<ArrayPacketData<32>>>
@@ -19,6 +23,10 @@ component GenericPacketTest
 	ramFrame: EthernetFrame<Ipv4Packet<IcmpEchoReply<RamPacketData<96>>>>
 	arp: ArpReply
 	arpFrame: EthernetFrame<ArpReply>
+
+	/**
+	 * Constructs independent array/RAM echo graphs and an ARP graph without preparing them.
+	 */
 	new()
 	{
 		small = new ArrayPacketData<32>()
@@ -37,9 +45,23 @@ component GenericPacketTest
 		arpFrame = new EthernetFrame<ArpReply>(arp)
 	}
 
+	/**
+	 * Checks every frame byte, lengths and bounds across odd, even, empty and reused small-array payloads.
+	 */
 	@Test
-	fn SmallCompleteFrames()
+	fn EmitsExpectedFramesFromSmallArray()
 	{
+		smallFrame.Invalidate()
+		smallIp.Invalidate()
+		smallEcho.Invalidate()
+
+		if (small.IsReady()) {
+			small.TryRelease()
+		}
+		else {
+			small.TryClear()
+		}
+
 		var mac: byte[6] = [0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE]
 		var peer: byte[6] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE]
 		var localIp: byte[4] = [0xC0, 0xA8, 0x01, 0x80]
@@ -234,9 +256,23 @@ component GenericPacketTest
 		assert small.TryRelease() == PacketDataResult.Success
 	}
 
+	/**
+	 * Checks complete frames from the larger array graph without sharing preparation state with other cases.
+	 */
 	@Test
-	fn LargeCompleteFrames()
+	fn EmitsExpectedFramesFromLargeArray()
 	{
+		largeFrame.Invalidate()
+		largeIp.Invalidate()
+		largeEcho.Invalidate()
+
+		if (large.IsReady()) {
+			large.TryRelease()
+		}
+		else {
+			large.TryClear()
+		}
+
 		var mac: byte[6] = [0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE]
 		var peer: byte[6] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE]
 		var localIp: byte[4] = [0xC0, 0xA8, 0x01, 0x80]
@@ -431,9 +467,23 @@ component GenericPacketTest
 		assert large.TryRelease() == PacketDataResult.Success
 	}
 
+	/**
+	 * Checks the same wire expectations with scheduled RAM reads and retained-storage reuse.
+	 */
 	@Test
-	fn RamCompleteFrames()
+	fn EmitsExpectedFramesFromRam()
 	{
+		ramFrame.Invalidate()
+		ramIp.Invalidate()
+		ramEcho.Invalidate()
+
+		if (ram.IsReady()) {
+			ram.TryRelease()
+		}
+		else {
+			ram.TryClear()
+		}
+
 		var mac: byte[6] = [0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE]
 		var peer: byte[6] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE]
 		var localIp: byte[4] = [0xC0, 0xA8, 0x01, 0x80]
@@ -628,9 +678,15 @@ component GenericPacketTest
 		assert ram.TryRelease() == PacketDataResult.Success
 	}
 
+	/**
+	 * Checks all ARP frame bytes and minimum padding, then reverses the endpoints for reuse.
+	 */
 	@Test
-	fn ArpEnvelopeAndReuse()
+	fn PadsArpRepliesAndRefreshesAddressesOnReuse()
 	{
+		arpFrame.Invalidate()
+		arp.Invalidate()
+
 		var mac: byte[6] = [0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE]
 		var peer: byte[6] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE]
 		var localIp: byte[4] = [0xC0, 0xA8, 0x01, 0x80]

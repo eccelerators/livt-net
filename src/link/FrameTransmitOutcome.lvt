@@ -1,0 +1,16 @@
+namespace Livt.Net
+
+/**
+ * Meaningful only after a successful TryGetCompletion.
+ */
+enum FrameTransmitOutcome
+{
+	// Accepted by the device transmit mechanism; not proof of remote receipt.
+	Delivered
+
+	// Local source reads have stopped after an accepted cancellation request.
+	Cancelled
+
+	// Local source reads have stopped after failure; a committed send may remain.
+	DeviceFailure
+}

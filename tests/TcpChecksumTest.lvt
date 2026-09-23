@@ -2,24 +2,35 @@ namespace Livt.Net.Tests
 
 using Livt.Net
 
+/**
+ * Checks fixed TCP checksums against independent numeric expectations.
+ */
 @Test
 component TcpChecksumTest
 {
-
+	/**
+	 * Compares the supplied network-order inputs with an independent expected checksum or sum.
+	 */
 	@Test
 	fn CalculatesSynAckStyleFixedHeaderChecksum()
 	{
 		assert TcpChecksum.CalculateFixedHeaderChecksum([10 as byte, 0 as byte, 0 as byte, 1 as byte], [10 as byte, 0 as byte, 0 as byte, 2 as byte], [0 as byte, 80 as byte], [192 as byte, 1 as byte], [17 as byte, 34 as byte, 51 as byte, 68 as byte], [170 as byte, 187 as byte, 204 as byte, 221 as byte], 18 as byte, [4 as byte, 0 as byte]) == 7039
 	}
 
+	/**
+	 * Compares the supplied network-order inputs with an independent expected checksum or sum.
+	 */
 	@Test
 	fn CalculatesAckOnlyFixedHeaderChecksum()
 	{
 		assert TcpChecksum.CalculateFixedHeaderChecksum([192 as byte, 168 as byte, 0 as byte, 10 as byte], [192 as byte, 168 as byte, 0 as byte, 11 as byte], [0 as byte, 80 as byte], [18 as byte, 52 as byte], [0 as byte, 0 as byte, 0 as byte, 1 as byte], [0 as byte, 0 as byte, 0 as byte, 2 as byte], 16 as byte, [16 as byte, 0 as byte]) == 3048
 	}
 
+	/**
+	 * Checks high/low byte extraction from independently expected checksum values.
+	 */
 	@Test
-	fn ExposesChecksumBytesAsIntegers()
+	fn ExtractsNetworkOrderChecksumOctets()
 	{
 		assert NetworkOrder.HighByte(7039) == 27
 		assert NetworkOrder.LowByte(7039) == 127

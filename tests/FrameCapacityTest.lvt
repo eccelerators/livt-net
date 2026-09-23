@@ -2,6 +2,9 @@ namespace Livt.Net.Tests
 
 using Livt.Net
 
+/**
+ * Runs complete protocol checks against independently sized component graphs.
+ */
 @Test
 component FrameCapacityTest
 {
@@ -10,6 +13,9 @@ component FrameCapacityTest
 	small: ArpCompositionChecks<96>
 	large: ArpCompositionChecks<256>
 
+	/**
+	 * Constructs independent capacities so generic graphs cannot share mutable preparation state.
+	 */
 	new()
 	{
 		this.icmpSmall = new IcmpCapacityChecks<96>()
@@ -18,6 +24,9 @@ component FrameCapacityTest
 		this.large = new ArpCompositionChecks<256>()
 	}
 
+	/**
+	 * Exercises independent capacities to detect accidental sharing between generic specializations.
+	 */
 	@Test
 	fn SpecializesProtocolGraphsIndependently()
 	{
@@ -26,5 +35,4 @@ component FrameCapacityTest
 		this.small.Check()
 		this.large.Check()
 	}
-
 }

@@ -1,0 +1,104 @@
+namespace Livt.Net.Tests
+using Livt.Net
+
+/**
+ * Owns a bounded ARP request and responder; compares all output bytes to a literal frame.
+ * Generic assertion helper invoked by FrameCompositionTest, not a standalone test entry.
+ */
+@Test
+component ArpCompositionChecks<CAPACITY: int>
+{
+	data: ArrayPacketData<CAPACITY>
+	responder: ArpResponder<ArrayPacketData<CAPACITY>>
+
+	/**
+	 * Owns request storage and an ARP responder at CAPACITY; the source starts unpublished.
+	 */
+	new()
+	{
+		data = new ArrayPacketData<CAPACITY>();
+		responder = new ArpResponder<ArrayPacketData<CAPACITY>>(data)
+	}
+
+	/**
+	 * Prepares the fixture and checks complete expected frame bytes and capacity-dependent bounds.
+	 */
+	public fn Check()
+	{
+		var request: byte[CAPACITY]
+
+		for (var i = 0; i < CAPACITY; i++) {
+			request[i] = 0xFF
+		}
+
+		var localMac: byte[6] = [0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE]
+		var localIp: byte[4] = [0xC0, 0xA8, 0x01, 0x80]
+		var remoteMac: byte[6] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE]
+		var remoteIp: byte[4] = [0xC0, 0xA8, 0x01, 0xFF]
+
+		for (var i = 0; i < 6; i++) {
+			request[22 + i] = remoteMac[i]
+		}
+
+		for (var i = 0; i < 4; i++) {
+			request[28 + i] = remoteIp[i]
+		}
+
+		// Complete reply including zero padding through byte 59.
+		var expected: byte[60] = [
+			0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0x02, 0xAA, 0xBB, 0xCC,
+			0xDD, 0xEE, 0x08, 0x06, 0x00, 0x01, 0x08, 0x00, 0x06, 0x04,
+			0x00, 0x02, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xC0, 0xA8,
+			0x01, 0x80, 0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0xC0, 0xA8,
+			0x01, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+		request[12] = 0x08
+		request[13] = 0x06
+		request[14] = 0x00
+		request[15] = 0x01
+		request[16] = 0x08
+		request[17] = 0x00
+		request[18] = 0x06
+		request[19] = 0x04
+		request[20] = 0x00
+		request[21] = 0x01
+
+		for (var j = 0; j < 4; j++) {
+			request[38 + j] = localIp[j]
+		}
+
+		assert this.PrepareRequest(request, localMac, localIp, CAPACITY) == PacketDataResult.Success
+		var responderByte: byte = 0x00
+
+		for (var i = 0; i < 60; i++) {
+			assert responder.TryRead(i, responderByte) == PacketDataResult.Success
+			assert responderByte == expected[i]
+		}
+
+		assert responder.TryRead(-1, responderByte) == PacketDataResult.Invalid
+		assert responder.TryRead(60, responderByte) == PacketDataResult.Invalid
+		assert responder.TryRead(CAPACITY + 60, responderByte) == PacketDataResult.Invalid
+	}
+
+	/**
+	 * Loads the explicit test prefix into the component-based response API.
+	 */
+	fn PrepareRequest(bytes: byte[CAPACITY], mac: byte[6], ip: byte[4], length: int) PacketDataResult
+	{
+		responder.Invalidate()
+
+		if (data.IsReady()) {
+			data.TryRelease()
+		}
+		else {
+			data.TryClear()
+		}
+
+		for (var i = 0; i < length; i++) {
+			assert data.TryWrite(i, bytes[i]) == PacketDataResult.Success
+		}
+
+		assert data.TryPublish() == PacketDataResult.Success
+		return responder.TryPrepare(mac, ip)
+	}
+}

@@ -224,7 +224,6 @@ component EthernetLiteDeviceFixture
 	/**
 	 * Accepts AW/W in either order, delays B and checks stability during stalls.
 	 */
-
 	process WriteChannels()
 	{
 		var address = 0
@@ -351,7 +350,6 @@ component EthernetLiteDeviceFixture
 	/**
 	 * Selects the independent write-channel acceptance order.
 	 */
-
 	public fn SetAddressFirst(value: bool)
 	{
 		this.addressFirst = value
