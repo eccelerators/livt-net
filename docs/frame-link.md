@@ -7,8 +7,8 @@ can overlap when storage is independent.
 
 `TestFrameReceiver<CAPACITY>` and
 `TestFrameTransmitter<P: IPacketData, MAX_LENGTH = 1514, CANCELLABLE = true>` are
-deterministic test implementations. EthernetFrameIo has not yet been migrated to
-these capabilities; its driver extraction is a separate change.
+deterministic test implementations. The production EthernetLite implementation
+uses the same capabilities; see [device construction and limits](ethernetlite.md).
 
 ## Construction
 

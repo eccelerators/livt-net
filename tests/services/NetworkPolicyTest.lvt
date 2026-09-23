@@ -1,0 +1,100 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+/**
+ * Exercises successive protocol requests and held response ownership through a test link.
+ */
+@Test
+component NetworkPolicyTest
+{
+	receiver: TestFrameReceiver<128>
+	policy: TrustedPeer
+	arp: ArpService<TestFrameReceiver<128>, TrustedPeer>
+	icmp: IcmpEchoService<TestFrameReceiver<128>, TrustedPeer>
+	service: ServiceChain<ArpService<TestFrameReceiver<128>, TrustedPeer>, IcmpEchoService<TestFrameReceiver<128>, TrustedPeer>>
+	transmitter: TestFrameTransmitter<ServiceChain<ArpService<TestFrameReceiver<128>, TrustedPeer>, IcmpEchoService<TestFrameReceiver<128>, TrustedPeer>>>
+	endpoint: FrameService<TestFrameReceiver<128>, ServiceChain<ArpService<TestFrameReceiver<128>, TrustedPeer>, IcmpEchoService<TestFrameReceiver<128>, TrustedPeer>>, TestFrameTransmitter<ServiceChain<ArpService<TestFrameReceiver<128>, TrustedPeer>, IcmpEchoService<TestFrameReceiver<128>, TrustedPeer>>>>
+
+	/**
+	 * Builds the fixed link, common service and lifecycle coordinator.
+	 */
+	new()
+	{
+		this.receiver = new TestFrameReceiver<128>()
+		var mac: byte[6] = [0x00,0x00,0x5E,0x00,0xFA,0xCE]
+		var ip: byte[4] = [10,0,0,1]
+		this.policy = new TrustedPeer()
+		this.arp = new ArpService<TestFrameReceiver<128>, TrustedPeer>(this.receiver, this.policy, mac, ip)
+		this.icmp = new IcmpEchoService<TestFrameReceiver<128>, TrustedPeer>(this.receiver, this.policy, mac, ip)
+		this.service = new ServiceChain<ArpService<TestFrameReceiver<128>, TrustedPeer>, IcmpEchoService<TestFrameReceiver<128>, TrustedPeer>>(this.arp, this.icmp)
+		this.transmitter = new TestFrameTransmitter<ServiceChain<ArpService<TestFrameReceiver<128>, TrustedPeer>, IcmpEchoService<TestFrameReceiver<128>, TrustedPeer>>>(this.service)
+		this.endpoint = new FrameService<TestFrameReceiver<128>, ServiceChain<ArpService<TestFrameReceiver<128>, TrustedPeer>, IcmpEchoService<TestFrameReceiver<128>, TrustedPeer>>, TestFrameTransmitter<ServiceChain<ArpService<TestFrameReceiver<128>, TrustedPeer>, IcmpEchoService<TestFrameReceiver<128>, TrustedPeer>>>>(this.receiver, this.service, this.transmitter)
+	}
+
+	/**
+	 * Publishes a fresh initialized frame independently of response storage.
+	 */
+	fn Inject(frame: byte[60])
+	{
+		for (var i = 0; i < 60; i++) {
+			assert this.receiver.InjectByte(i, frame[i]) == FrameLinkResult.Success
+		}
+
+		assert this.receiver.Publish(false, 0) == FrameLinkResult.Success
+	}
+
+	/**
+	 * Checks every emitted byte and retained completion, then permits the next request.
+	 */
+	fn Complete(expected: byte[60])
+	{
+		for (var i = 0; i <= 60; i++) {
+			this.transmitter.Advance()
+		}
+
+		assert this.endpoint.Poll() == FrameServiceProgress.Completed
+		assert !this.service.IsReady()
+		assert !this.transmitter.IsSourceBorrowed()
+		var value: byte = 0xEE
+
+		for (var i = 0; i < 60; i++) {
+			assert this.transmitter.TryReadCaptured(i, value) == PacketDataResult.Success
+			assert value == expected[i]
+		}
+
+		var outcome = FrameTransmitOutcome.DeviceFailure
+		assert this.endpoint.TryGetCompletion(outcome) == FrameLinkResult.Success
+		assert outcome == FrameTransmitOutcome.Delivered
+		assert this.endpoint.Poll() == FrameServiceProgress.Completed
+		assert this.endpoint.TryGetCompletion(outcome) == FrameLinkResult.Success
+		assert outcome == FrameTransmitOutcome.Delivered
+		assert this.endpoint.TryAcknowledgeCompletion() == FrameLinkResult.Success
+		assert this.endpoint.TryGetCompletion(outcome) == FrameLinkResult.NotReady
+	}
+
+	/**
+	 * Checks policy substitution without changing ARP/ICMP encoding or device code.
+	 */
+	@Test
+	fn RejectsUntrustedPeersAndComposesBothAcceptedProtocols()
+	{
+		var denied: byte[60] = ServicePackets.ARP
+		denied[6] = 0x03
+		this.Inject(denied)
+		assert this.endpoint.Poll() == FrameServiceProgress.Ignored
+		assert !this.service.IsReady()
+		this.Inject(ServicePackets.ARP)
+		assert this.endpoint.Poll() == FrameServiceProgress.Pending
+		assert this.endpoint.Poll() == FrameServiceProgress.Pending
+		this.Complete(ServicePackets.ARP_REPLY)
+		denied = ServicePackets.ICMP
+		denied[6] = 0x03
+		this.Inject(denied)
+		assert this.endpoint.Poll() == FrameServiceProgress.Ignored
+		this.Inject(ServicePackets.ICMP)
+		assert this.endpoint.Poll() == FrameServiceProgress.Pending
+		assert this.endpoint.Poll() == FrameServiceProgress.Pending
+		this.Complete(ServicePackets.ICMP_REPLY)
+	}
+}

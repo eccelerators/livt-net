@@ -1,0 +1,121 @@
+namespace Livt.Net
+
+/**
+ * Common ARP/ICMP endpoint with owned handlers, admission policy and selection.
+ * Construct over a receiver/provider and bind the transmitter to this response
+ * source. TryHandle snapshots requests, so RX can be released immediately after
+ * it returns. Keep responses until TX completion, then TryReleaseResponse.
+ * Custom policies/handlers compose through ArpService, IcmpEchoService and ServiceChain.
+ */
+component NetworkService<S: IPacketData, CAPACITY: int = 128> : IResponseService
+{
+	// Owned default strategy, response graphs and priority chain.
+	acceptance: AcceptAllFrames
+	arp: ArpService<S, AcceptAllFrames>
+	icmp: IcmpEchoService<S, AcceptAllFrames, CAPACITY>
+	services: ServiceChain<ArpService<S, AcceptAllFrames>, IcmpEchoService<S, AcceptAllFrames, CAPACITY>>
+	classification: FrameClassification<S>
+	localIp: byte[4]
+
+	/**
+	 * Creates the common local endpoint; no request reads occur at construction.
+	 */
+	new(source: S, localMac: byte[6], localIp: byte[4])
+	{
+		this.localIp = localIp
+		this.acceptance = new AcceptAllFrames()
+		this.arp = new ArpService<S, AcceptAllFrames>(source, this.acceptance, localMac, localIp)
+		this.icmp = new IcmpEchoService<S, AcceptAllFrames, CAPACITY>(source, this.acceptance, localMac, localIp)
+		this.services = new ServiceChain<ArpService<S, AcceptAllFrames>, IcmpEchoService<S, AcceptAllFrames, CAPACITY>>(this.arp, this.icmp)
+		this.classification = new FrameClassification<S>(source)
+	}
+
+	/**
+	 * Handles ARP before ICMP. Busy retains both response and diagnostics unchanged.
+	 */
+	override fn TryHandle() ServiceResult
+	{
+		if (this.services.IsReady()) {
+			return ServiceResult.Busy
+		}
+
+		this.classification.Inspect(this.localIp)
+		return this.services.TryHandle()
+	}
+
+	/**
+	 * Releases the selected graph only after all response borrows have ended.
+	 */
+	override fn TryReleaseResponse() PacketDataResult
+	{
+		return this.services.TryReleaseResponse()
+	}
+
+	/**
+	 * Clears diagnostics at the next request boundary; no active response may remain.
+	 */
+	public fn ClearDiagnostics()
+	{
+		if (!this.services.IsReady()) {
+			this.classification.Clear()
+		}
+	}
+
+	/**
+	 * Returns ARP/ICMP for a selected response, or Unknown if no response is published.
+	 */
+	public fn GetResponseProtocol() NetworkProtocol
+	{
+		var selected = this.services.GetSelection()
+
+		if (selected == ServiceSelection.First) {
+			return NetworkProtocol.Arp
+		}
+
+		if (selected == ServiceSelection.Second) {
+			return NetworkProtocol.Icmp
+		}
+
+		return NetworkProtocol.Unknown
+	}
+
+	/**
+	 * Returns decoded protocol metadata independently of response selection.
+	 */
+	public fn GetRequestProtocol() NetworkProtocol
+	{
+		return this.classification.GetProtocol()
+	}
+
+	/**
+	 * Reports supported IPv4 metadata addressed to this endpoint.
+	 */
+	public fn IsRequestForLocalIp() bool
+	{
+		return this.classification.IsForLocalIp()
+	}
+
+	/**
+	 * Reports the selected response publication.
+	 */
+	override fn IsReady() bool
+	{
+		return this.services.IsReady()
+	}
+
+	/**
+	 * Returns complete padded frame length, or zero when no response is ready.
+	 */
+	override fn GetAvailableLength() int
+	{
+		return this.services.GetAvailableLength()
+	}
+
+	/**
+	 * Reads the selected graph without an additional payload copy.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		return this.services.TryRead(index, value)
+	}
+}

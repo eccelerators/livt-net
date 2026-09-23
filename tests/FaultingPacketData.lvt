@@ -1,0 +1,61 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+/**
+ * Borrows a stable provider and injects one scheduled read failure.
+ * The harness changes the failure index only outside active source borrows.
+ */
+component FaultingPacketData<P: IPacketData> : IPacketData
+{
+	// Borrowed provider and test-controlled failure location.
+	source: P
+	failureIndex: int
+
+	/**
+	 * Binds the source; failure injection starts disabled.
+	 */
+	new(source: P)
+	{
+		this.source = source
+		this.failureIndex = -1
+	}
+
+	/**
+	 * Selects a failing byte index; -1 disables injection.
+	 */
+	public fn SetFailure(index: int)
+	{
+		this.failureIndex = index
+	}
+
+	/**
+	 * Reports the underlying publication state without acquiring it.
+	 */
+	override fn IsReady() bool
+	{
+		return this.source.IsReady()
+	}
+
+	/**
+	 * Preserves the provider's readable prefix length.
+	 */
+	override fn GetAvailableLength() int
+	{
+		return this.source.GetAvailableLength()
+	}
+
+	/**
+	 * Fails at the configured byte, otherwise delegates the checked read.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (index == this.failureIndex) {
+			return PacketDataResult.NotReady
+		}
+
+		return this.source.TryRead(index, value)
+	}
+}

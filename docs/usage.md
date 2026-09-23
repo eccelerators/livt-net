@@ -11,84 +11,28 @@ to the provider; protocol parsers do not take raw frame arrays or valid lengths.
 
 ## Queue a complete response
 
-```livt
-using Livt.Net
+Prepare an `IPacketData` source such as `RamPacketData`, `EthernetFrame` or a
+response component, then call the bound transmitter's `TrySubmit()`. Accepted
+borrows the publication until `TryGetCompletion()` reports a terminal result.
+Acknowledge completion before another submission. Preserve source and dependent
+RX views through that lifetime; rejected submissions never acquire a borrow.
 
-/**
- * Owns the existing EthernetLite adapter and serializes complete-frame submission.
- */
-component FrameIoExample
-{
-	// Owned device adapter; the caller supplies the live AXI endpoint.
-	io: EthernetFrameIo
-
-	/**
-	 * Creates the adapter on the supplied endpoint and local MAC binding.
-	 */
-	new(axi: IAxi4LiteEthernetLiteMaster, mac: in byte[6])
-	{
-		this.io = new EthernetFrameIo(axi, mac)
-	}
-
-	/**
-	 * Copies 1..128 initialized bytes and requests submission; true is acceptance,
-	 * not physical delivery. One owner must serialize calls and wait before reuse.
-	 */
-	public fn QueueFrame(frame: byte[128], length: int) bool
-	{
-		if (length <= 0 || length > 128) {
-			return false
-		}
-
-		if (!this.io.TryBeginTxFrame(length)) {
-			return false
-		}
-
-		for (var i = 0; i < length; i++) {
-			if (!this.io.TryWriteTxByte(i, frame[i])) {
-				return false
-			}
-		}
-
-		return this.io.TrySubmitTxFrame()
-	}
-}
-```
-
-Supply one AXI attachment and one application process that serializes lifecycle
-calls. Do not change a submitted
-frame; wait for `HasTxFrame()` to become false before starting the next one.
-Every byte, including application-supplied minimum-frame padding, must be
-written. The `Try...` methods report rejected operations; the old void methods
-remain source-compatible and ignore rejection.
+See [EthernetLite construction](ethernetlite.md) for the concrete board adapter.
+Application protocol code uses [frame capabilities](frame-link.md), without AXI
+or device-specific methods. `EthernetFrameIo` has been replaced without legacy
+wrappers. Prepared TX bytes must include minimum-frame Ethernet padding.
 
 ## Receive and release
 
-Poll `IsFrameAvailable()`. Once true, read indices `0..RX_CAPACITY-1` using
-`GetRxByte()` and call `ConsumeRxFrame()` after copying the required bytes.
-Default hardware capture is 128 bytes. The captured prefix length is not the
-actual wire length; validate protocol lengths before acting on a packet.
+Acquire through `IFrameReceiver.TryAcquire()`, inspect `GetAvailableLength()` and
+parse/read only that prefix. Invalidate child views before `TryRelease()`.
+EthernetLite reports unknown wire length and excludes retained FCS/tail bytes
+with a bounded CRC scan; capacity is not the received length.
 
-Tests can inject a capture by calling `LoadRxByte()` in ascending order for the
-entire configured prefix, followed by `SubmitRxFrame()`. Partial injection is
-not published. Injection and hardware capture must not overlap. Fixtures that
-edit selected fields between packets should keep an explicitly initialized local
-`byte[RX_CAPACITY]` array, update that array, then copy every byte in ascending
-order before each submission. Consuming a frame invalidates the injected prefix.
-Tests that leave TX queued against a stalled slave need separate frame-I/O
-instances, or must drive AXI completion before reusing the instance.
-
-## Select storage geometry
-
-```livt
-// 256-byte capture, 256-byte RX storage, 512-byte TX storage.
-io: EthernetFrameIo<256, 256, 512>
-```
-
-Construct it with `new EthernetFrameIo<256, 256, 512>(axi, mac)`. RX capture must
-be word aligned and fit its storage. TX lengths must fit both storage and the
-EthernetLite data region. Storage cells retain data across reset; only initialized
-bytes in the current frame are accessible through the application methods.
+Tests use `TestFrameReceiver`: inject initialized bytes then `Publish(known,
+length)`. `TestFrameTransmitter` binds a prepared provider; `Advance()` controls
+progress and lets a test hold the source borrow. Test injection is not exposed
+on the hardware driver.
 
 ## Checksum array APIs
 

@@ -1,0 +1,123 @@
+namespace Livt.Net
+
+/**
+ * Decoded protocol identity, distinct from endpoint acceptance or response selection.
+ */
+enum NetworkProtocol
+{
+	Unknown
+	Arp
+	Ipv4Other
+	Icmp
+	Tcp
+	Udp
+}
+
+/**
+ * Snapshots reusable Ethernet/IPv4 diagnostics and closes input views on return.
+ * This does not assert checksum validity or manufacture wire-length knowledge.
+ */
+component FrameClassification<S: IPacketData>
+{
+	// Wire protocol identifiers.
+	const ETHER_TYPE_ARP: int = 0x0806
+	const ETHER_TYPE_IPV4: int = 0x0800
+	const PROTOCOL_ICMP: byte = 0x01
+	const PROTOCOL_TCP: byte = 0x06
+	const PROTOCOL_UDP: byte = 0x11
+
+	// Owned parsers borrowing the same request source.
+	ethernet: EthernetFrameParser<S>
+	ipv4: Ipv4PacketParser<EthernetFrameParser<S>>
+
+	// Last supported protocol and local destination match.
+	protocol: NetworkProtocol
+	local: bool
+
+	/**
+	 * Creates parsers without reading the fixed request source.
+	 */
+	new(source: S)
+	{
+		this.ethernet = new EthernetFrameParser<S>(source)
+		this.ipv4 = new Ipv4PacketParser<EthernetFrameParser<S>>(this.ethernet)
+	}
+
+	/**
+	 * Clears prior diagnostics and all request views before source reuse.
+	 */
+	public fn Clear()
+	{
+		this.ipv4.Invalidate()
+		this.ethernet.Invalidate()
+		this.protocol = NetworkProtocol.Unknown
+		this.local = false
+	}
+
+	/**
+	 * Records supported metadata, including captured IPv4 prefixes, then closes views.
+	 */
+	public fn Inspect(localIp: byte[4])
+	{
+		this.Clear()
+		this.ethernet.TryParse()
+
+		if (!this.ethernet.IsReady()) {
+			this.ethernet.Invalidate()
+			return
+		}
+
+		var etherType = this.ethernet.GetEtherType()
+
+		if (etherType == ETHER_TYPE_ARP) {
+			this.protocol = NetworkProtocol.Arp
+		}
+
+		if (etherType == ETHER_TYPE_IPV4) {
+			this.ipv4.TryParse()
+
+			if (this.ipv4.IsReady()) {
+				this.protocol = NetworkProtocol.Ipv4Other
+				var number = this.ipv4.GetProtocol()
+
+				if (number == PROTOCOL_ICMP) {
+					this.protocol = NetworkProtocol.Icmp
+				}
+				elif (number == PROTOCOL_TCP) {
+					this.protocol = NetworkProtocol.Tcp
+				}
+				elif (number == PROTOCOL_UDP) {
+					this.protocol = NetworkProtocol.Udp
+				}
+
+				var destination = this.ipv4.GetDestinationIpv4()
+				this.local = true
+
+				for (var i = 0; i < 4; i++) {
+					if (destination[i] != localIp[i]) {
+						this.local = false
+					}
+				}
+			}
+		}
+
+		this.ipv4.Invalidate()
+		this.ethernet.Invalidate()
+	}
+
+	/**
+	 * Returns the last decoded protocol; Unknown includes unsupported/truncated headers.
+	 */
+	public fn GetProtocol() NetworkProtocol
+	{
+		return this.protocol
+	}
+
+	/**
+	 * Reports supported IPv4 metadata addressed to the configured local IP.
+	 */
+	public fn IsForLocalIp() bool
+	{
+		return this.local
+	}
+}

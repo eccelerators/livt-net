@@ -1,0 +1,37 @@
+namespace Livt.Net.Tests
+
+/**
+ * Resets the device, driver, storage and borrowers together during a stalled TX.
+ * The controller remains outside that reset domain to observe post-reset reuse.
+ */
+@Test
+component EthernetLiteResetTest
+{
+	// One coordinated reset domain for the complete device graph.
+	scenario: EthernetLiteResetScenario
+	resetLine: logic
+
+	/**
+	 * Binds the graph to the simulation clock and a controlled reset signal.
+	 */
+	new()
+	{
+		this.scenario = new EthernetLiteResetScenario(this.context.clk, this.resetLine)
+	}
+
+	/**
+	 * A reset after AW/W acceptance releases old ownership and discards stale data.
+	 */
+	@Test
+	fn ResetsOutstandingWriteAndAcquiredReceiveTogether()
+	{
+		this.resetLine = 0b1
+		Simulation.Wait(10)
+		this.resetLine = 0b0
+		this.scenario.StartStalledTransfer()
+		this.resetLine = 0b1
+		Simulation.Wait(10)
+		this.resetLine = 0b0
+		this.scenario.CheckResetAndReuse()
+	}
+}

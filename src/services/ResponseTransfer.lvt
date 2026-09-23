@@ -1,0 +1,135 @@
+namespace Livt.Net
+
+/**
+ * Response ownership progresses through admission, transfer and retained completion.
+ */
+enum ResponseTransferState
+{
+	Idle
+	Waiting
+	Pending
+	Completed
+}
+
+/**
+ * Serializes one prepared-source submission through a fixed transmitter.
+ * The caller owns source publication and keeps it stable from TryBegin through
+ * completion, including admission backpressure. Poll drives scheduled progress;
+ * there is no background process. Completion is retained until acknowledgment.
+ */
+component ResponseTransfer<T: IFrameTransmitter>
+{
+	// Borrowed transmitter and owned lifecycle/terminal metadata.
+	transmitter: T
+	phase: ResponseTransferState
+	outcome: FrameTransmitOutcome
+	admission: FrameLinkResult
+
+	/**
+	 * Binds an idle transmitter in the same coordinated clock/reset domain.
+	 */
+	new(transmitter: T)
+	{
+		this.transmitter = transmitter
+	}
+
+	/**
+	 * Claims the prepared response lifecycle. Busy preserves an earlier transfer/result.
+	 */
+	public fn TryBegin() FrameLinkResult
+	{
+		if (this.phase != ResponseTransferState.Idle) {
+			return FrameLinkResult.Busy
+		}
+
+		this.admission = FrameLinkResult.NotReady
+		this.phase = ResponseTransferState.Waiting
+		return FrameLinkResult.Success
+	}
+
+	/**
+	 * Advances admission/completion once. NotReady/Busy admission retains the source;
+	 * other rejection becomes terminal DeviceFailure without a transmitter borrow.
+	 */
+	public fn Poll() ResponseTransferState
+	{
+		if (this.phase == ResponseTransferState.Waiting) {
+			this.admission = this.transmitter.TrySubmit()
+
+			if (this.admission == FrameLinkResult.Accepted) {
+				this.phase = ResponseTransferState.Pending
+			}
+			elif (this.admission != FrameLinkResult.NotReady && this.admission != FrameLinkResult.Busy) {
+				this.outcome = FrameTransmitOutcome.DeviceFailure
+				this.phase = ResponseTransferState.Completed
+			}
+
+		} elif (this.phase == ResponseTransferState.Pending) {
+			var result = FrameTransmitOutcome.DeviceFailure
+
+			if (this.transmitter.TryGetCompletion(result) == FrameLinkResult.Success) {
+				this.outcome = result
+				this.transmitter.TryAcknowledgeCompletion()
+				this.phase = ResponseTransferState.Completed
+			}
+		}
+
+		return this.phase
+	}
+
+	/**
+	 * Returns the current local lifecycle state, not a reservation on other owners.
+	 */
+	public fn GetState() ResponseTransferState
+	{
+		return this.phase
+	}
+
+	/**
+	 * Returns the last admission result, distinguishing unsupported input from device failure.
+	 */
+	public fn GetAdmissionResult() FrameLinkResult
+	{
+		return this.admission
+	}
+
+	/**
+	 * Requests pending cancellation; acceptance alone does not allow source reuse.
+	 */
+	public fn TryCancel() FrameLinkResult
+	{
+		if (this.phase != ResponseTransferState.Pending) {
+			return FrameLinkResult.Invalid
+		}
+
+		return this.transmitter.TryCancel()
+	}
+
+	/**
+	 * Reads the retained terminal outcome; output is meaningful only on Success.
+	 */
+	public fn TryGetCompletion(outcome: out FrameTransmitOutcome) FrameLinkResult
+	{
+		outcome = FrameTransmitOutcome.DeviceFailure
+
+		if (this.phase != ResponseTransferState.Completed) {
+			return FrameLinkResult.NotReady
+		}
+
+		outcome = this.outcome
+		return FrameLinkResult.Success
+	}
+
+	/**
+	 * Returns to idle after the owner has released/reset its response publication.
+	 */
+	public fn TryAcknowledgeCompletion() FrameLinkResult
+	{
+		if (this.phase != ResponseTransferState.Completed) {
+			return FrameLinkResult.NotReady
+		}
+
+		this.phase = ResponseTransferState.Idle
+		return FrameLinkResult.Success
+	}
+}

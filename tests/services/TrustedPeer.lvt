@@ -1,0 +1,18 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+/**
+ * Custom strategy accepts one Ethernet source MAC for either built-in protocol.
+ */
+component TrustedPeer : IFrameAcceptance
+{
+	/**
+	 * Reads only supplied metadata; has no access to response storage or device pins.
+	 */
+	override fn Accept(sourceMac: byte[6], etherType: int) bool
+	{
+		return sourceMac[0] == 0x02 && sourceMac[1] == 0x10 && sourceMac[2] == 0x20
+			&& sourceMac[3] == 0x30 && sourceMac[4] == 0x40 && sourceMac[5] == 0x50
+	}
+}

@@ -1,0 +1,133 @@
+namespace Livt.Net
+
+/**
+ * Identifies the selected fixed handler without runtime component references.
+ */
+enum ServiceSelection
+{
+	None
+	First
+	Second
+}
+
+/**
+ * Deterministic priority chain. Only Ignored falls through to the second handler.
+ * Owns selection metadata; borrows two independent response services. Neither
+ * child may be driven separately while the chain owns its lifecycle.
+ */
+component ServiceChain<F: IResponseService, N: IResponseService> : IResponseService
+{
+	// Fixed handlers and current response selection.
+	first: F
+	second: N
+	selection: ServiceSelection
+
+	/**
+	 * Binds idle handlers; the caller constructs their request sources and policies.
+	 */
+	new(first: F, second: N)
+	{
+		this.first = first
+		this.second = second
+	}
+
+	/**
+	 * Visits handlers in priority order and retains the selected graph until release.
+	 */
+	override fn TryHandle() ServiceResult
+	{
+		if (this.selection != ServiceSelection.None) {
+			return ServiceResult.Busy
+		}
+
+		var result = this.first.TryHandle()
+
+		if (result == ServiceResult.Prepared) {
+			this.selection = ServiceSelection.First;
+			return result
+		}
+
+		if (result != ServiceResult.Ignored) {
+			return result
+		}
+
+		result = this.second.TryHandle()
+
+		if (result == ServiceResult.Prepared) {
+			this.selection = ServiceSelection.Second
+		}
+
+		return result
+	}
+
+	/**
+	 * Returns the selected handler for application-specific diagnostics.
+	 */
+	public fn GetSelection() ServiceSelection
+	{
+		return this.selection
+	}
+
+	/**
+	 * Releases only the selected child after the caller has ended response borrows.
+	 */
+	override fn TryReleaseResponse() PacketDataResult
+	{
+		var result = PacketDataResult.Invalid
+
+		if (this.selection == ServiceSelection.First) {
+			result = this.first.TryReleaseResponse()
+		}
+		elif (this.selection == ServiceSelection.Second) {
+			result = this.second.TryReleaseResponse()
+		}
+
+		if (result == PacketDataResult.Success) {
+			this.selection = ServiceSelection.None
+		}
+
+		return result
+	}
+
+	/**
+	 * Reports a selected, published response.
+	 */
+	override fn IsReady() bool
+	{
+		return this.selection != ServiceSelection.None
+	}
+
+	/**
+	 * Returns the selected complete frame length, or zero with no selection.
+	 */
+	override fn GetAvailableLength() int
+	{
+		if (this.selection == ServiceSelection.First) {
+			return this.first.GetAvailableLength()
+		}
+
+		if (this.selection == ServiceSelection.Second) {
+			return this.second.GetAvailableLength()
+		}
+
+		return 0
+	}
+
+	/**
+	 * Delegates bounded reads to the selected graph. No packet bytes are copied here.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (this.selection == ServiceSelection.First) {
+			return this.first.TryRead(index, value)
+		}
+
+		if (this.selection == ServiceSelection.Second) {
+			return this.second.TryRead(index, value)
+		}
+
+		return PacketDataResult.NotReady
+	}
+}

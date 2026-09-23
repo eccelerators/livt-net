@@ -7,6 +7,9 @@ outdir = "out"
 [tests]
 path = "tests"
 components = [
+	"NetworkServiceTest",
+	"NetworkPolicyTest",
+	"ServiceChainTest",
 	"FrameLinkTest",
 	"PacketParserFailureTest",
 	"GenericPacketTest",
@@ -17,8 +20,9 @@ components = [
 	"ChecksumApiTest",
 	"ArpResponderTest",
 	"EthernetFrameBuilderTest",
-	"EthernetFrameIoTest",
-	"EthernetFrameBufferTest",
+	"EthernetLiteDriverTest",
+	"EthernetLiteResetTest",
+	"EthernetLiteReceiveWindowTest",
 	"FrameCapacityTest",
 	"FrameCompositionTest",
 	"EthernetFrameParserTest",

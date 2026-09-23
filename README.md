@@ -20,9 +20,8 @@ The 1.1.0-dev package surface is intentionally narrow and hardware-oriented:
 - `Livt.Net.TcpSegmentBuilder`: TCP response-header byte builder.
 - `Livt.Net.TcpSynAckFrameComposer`: Ethernet/IPv4/TCP SYN-ACK frame composer.
 - `Livt.Net.TcpChecksum`: checksum helper for fixed TCP responses.
-- `Livt.Net.EthernetFrameIo`: frame buffer and AXI4-Lite EthernetLite boundary.
-- `Livt.Net.Axi4LiteEthernetLiteAdapter`: AXI4-Lite EthernetLite signal adapter.
-- `Livt.Net.IAxi4LiteEthernetLiteMaster`: AXI4-Lite EthernetLite interface.
+- `Livt.Net.IFrameReceiver` / `IFrameTransmitter`: device-independent frame capabilities.
+- `Livt.Net.Drivers.EthernetLite`: concrete driver, ownership components and AXI boundary.
 
 ## 📦 Package
 
@@ -37,22 +36,32 @@ Ethernet frame I/O path. Domain applications should depend on `Livt.Net`; add
 
 ## 📚 Namespaces
 
-Production components live in the shallow `Livt.Net` namespace. Tests use
-`Livt.Net.Tests`.
+Protocol and frame-capability components live in `Livt.Net`. The concrete
+EthernetLite implementation lives in `Livt.Net.Drivers.EthernetLite`; application
+protocol code need not import it. Tests use `Livt.Net.Tests`.
 
 | Area | Components |
 |---|---|
 | Packet data | `IPacketData`, `ArrayPacketData`, `RamPacketData`, `PacketRegion` |
-| Ethernet | `EthernetFrame`, `EthernetFrameParser`, `EthernetFrameBuilder`, `EthernetFrameIo` |
+| Ethernet | `EthernetFrame`, `EthernetFrameParser`, `EthernetFrameBuilder` |
 | ARP | `ArpPacketParser`, `ArpReply`, `ArpResponder` |
 | IPv4 | `Ipv4Packet`, `Ipv4PacketParser`, `Ipv4HeaderBuilder`, `Ipv4HeaderChecksum` |
 | ICMP | `IcmpEchoReply`, `IcmpEchoResponder` |
 | TCP | `TcpHeaderParser`, `TcpConnectionRecognizer`, `TcpSegmentBuilder`, `TcpSynAckFrameComposer`, `TcpChecksum` |
 | Checksums | `InternetChecksum`, `Ipv4HeaderChecksum`, `TcpChecksum` |
+| Services | `NetworkService`, `ArpService`, `IcmpEchoService`, `ServiceChain`, `FrameService`, `ResponseTransfer` |
 | Buffered links | `IFrameReceiver`, `IFrameTransmitter`, `TestFrameReceiver`, `TestFrameTransmitter` |
-| AXI boundary | `IAxi4LiteEthernetLiteMaster`, `Axi4LiteEthernetLiteAdapter` |
+| EthernetLite device | `EthernetLiteDriver`, `EthernetLiteReceiver`, `EthernetLiteTransmitter`, `EthernetLiteBus` |
 
 ## 🔌 API Overview
+
+### Network services
+
+`NetworkService` owns the common ARP/ICMP response graphs. Bind a transmitter to
+its response source and use `FrameService` to coordinate request handling,
+backpressure and terminal cleanup. Custom acceptance strategies and fixed
+`ServiceChain` compositions extend the same lifecycle. See
+[network services](docs/network-services.md) for construction and ownership.
 
 ### Prepared packets
 
@@ -73,7 +82,7 @@ for supported forms, checksum policy and lifetime rules.
 
 Responders bind a frame provider and use `TryPrepare(localMac, localIp)`, followed
 by `TryRead(index, value)` and `GetAvailableLength()`. Existing TCP builders and
-composers retain their emission API pending the service redesign.
+composers retain their emission API; the common service covers ARP/ICMP.
 
 `InternetChecksum` incrementally consumes network-order bytes with `AddByte()`.
 It returns either the unfolded word sum for use with `TcpChecksum` or the final
@@ -85,59 +94,35 @@ RFC 1071 checksum, including the required zero padding for odd-length input.
 a prepared source through terminal completion. `TestFrameReceiver` and
 `TestFrameTransmitter` provide deterministic Livt test implementations. See
 [buffered frame links](docs/frame-link.md) for ownership, results and test controls.
-The EthernetLite implementation below will be migrated separately.
+The concrete implementation is in `Livt.Net.Drivers.EthernetLite`; see the
+[driver contract and construction example](docs/ethernetlite.md).
 
-### Endpoint Flow
+### Endpoint flow
 
-`EthernetFrameIo` uses a complete-frame ownership contract:
+1. Acquire RX through `TryAcquire()`, then parse/read only its available prefix.
+2. Finish dependent reads and release RX through `TryRelease()`.
+3. Prepare/publish a complete response provider, including minimum-frame padding.
+4. Submit the transmitter's bound source with `TrySubmit()`.
+5. Keep source/dependencies stable until terminal completion, acknowledge the
+   result and then release/invalidate the prepared data for reuse.
 
-1. Poll `IsFrameAvailable()`, copy the captured RX bytes with `GetRxByte()`,
-   then call `ConsumeRxFrame()`.
-2. Call `TryBeginTxFrame(length)` and check its result.
-3. Write bytes in ascending order with `TryWriteTxByte(index, value)`.
-4. Call `TrySubmitTxFrame()` after every declared byte has been written.
-5. Wait until `HasTxFrame()` is false before beginning another transmission.
-
-`HasSentFrameToAxi()` means delivery to the device, not physical transmission.
-The legacy void TX methods remain available and ignore rejected operations.
-For simulation injection, use `LoadRxByte()` to initialize the entire RX capture
-in ascending order, then `SubmitRxFrame()`; do not inject during hardware RX.
+Responses that still borrow RX postpone step 2 until that dependency ends.
+Neither capture capacity nor a protocol-declared length establishes wire length.
+EthernetLite publishes a conservative FCS-free prefix and reports length unknown.
 
 ### Compile-time configuration
 
-Frame-consuming helpers accept `FRAME_CAPACITY`: Ethernet parsing and ARP default
-to 64 bytes; other helpers default to 128. For example,
-`TcpConnectionRecognizer<256>` and its child parsers all use `byte[256]`.
-Classifiers accept an optional final `validLength` argument; pass the received
-length to reject truncated headers. Omitting it declares the whole array valid.
-The default is `FRAME_CAPACITY` from that parser's concrete specialization.
-
-`EthernetFrameIo<RX_CAPACITY = 128, RX_STORAGE_CAPACITY = 2048,
-TX_STORAGE_CAPACITY = 2048>` separates captured bytes from RAM depth. RX capture
-must be a positive multiple of four, at most 2036, and fit its storage. Storage
-capacities are positive and at most 2048. TX length is limited by both its storage
-and the 2036-byte data area below the EthernetLite length register.
-
-RAM cells are unspecified until written and survive reset. Frame metadata makes
-old data unavailable; submission rejects incomplete frames and out-of-order
-writes that leave holes. Final AXI word padding is explicitly zero.
-
-### EthernetLite Boundary
-
-`EthernetFrameIo` owns RX/TX frame buffers and drives an AXI4-Lite
-EthernetLite-style interface through `IAxi4LiteEthernetLiteMaster`. It exposes
-frame-level helpers such as `LoadRxByte`, `SubmitRxFrame`, `BeginTxFrame`,
-`WriteTxByte`, and `SubmitTxFrame`.
+Parser type parameters select `IPacketData` providers; their payloads compose as
+bounded regions. Storage components select capacity, independently of protocol
+layout. The EthernetLite receiver defaults to 128 bytes (supported 60..1514), and
+its transmitter accepts prepared standard frames of 60..1514 bytes by default.
+The final partial AXI word is zero-filled without reading past the source.
 
 ## Development verification status
 
-The Livt behavioral suite passes, and native AXI verification passes across
-debug/release, optimization and reset variants with the #491 compiler fix.
-Invalid generic capacities are rejected by both validation and build with the
-#492 compiler fix. Development web-app integration is verified with #497; see
-[consumer evidence](../livt-web-app/verification/migration-evidence.md).
-Simulation does not establish FPGA timing or board readiness. See
-[verification evidence](docs/migration-evidence.md) before hardware integration.
+Use Livt tests for the driver and consumers. Prior native AXI/board evidence
+belongs to the former implementation and is not verification of the extracted
+driver. Simulation does not establish FPGA timing or board readiness.
 
 ## 🧪 Build and Test
 

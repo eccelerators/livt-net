@@ -1,0 +1,141 @@
+namespace Livt.Net
+
+/**
+ * Owns a checked ICMP echo response graph and keeps it immutable until explicit release.
+ * Borrows request storage and an admission strategy. The successful response is
+ * independent of RX; all request views close before TryHandle returns.
+ */
+component IcmpEchoService<S: IPacketData, A: IFrameAcceptance, CAPACITY: int = 128> : IResponseService
+{
+	// Wire protocol identifiers.
+	const ETHER_TYPE_IPV4: int = 0x0800
+	const PROTOCOL_ICMP: byte = 0x01
+
+	// Borrowed request/policy; owned recognition and response components.
+	source: S
+	acceptance: A
+	ethernet: EthernetFrameParser<S>
+	ipv4: Ipv4PacketParser<EthernetFrameParser<S>>
+	response: IcmpEchoResponder<S, CAPACITY>
+
+	// Endpoint configuration and publication state, owned by this service.
+	localMac: byte[6]
+	localIp: byte[4]
+	ready: bool
+
+	/**
+	 * Binds the fixed request and policy, and creates an initially unpublished graph.
+	 */
+	new(source: S, acceptance: A, localMac: byte[6], localIp: byte[4])
+	{
+		this.source = source
+		this.acceptance = acceptance
+		this.localMac = localMac
+		this.localIp = localIp
+		this.ethernet = new EthernetFrameParser<S>(source)
+		this.ipv4 = new Ipv4PacketParser<EthernetFrameParser<S>>(this.ethernet)
+		this.response = new IcmpEchoResponder<S, CAPACITY>(source)
+	}
+
+	/**
+	 * Prepares one supported local request; Busy preserves all previous bytes.
+	 * Rejected/failed requests close their views and leave no published response.
+	 */
+	override fn TryHandle() ServiceResult
+	{
+		if (this.ready) {
+			return ServiceResult.Busy
+		}
+
+		if (!this.source.IsReady()) {
+			return ServiceResult.NotReady
+		}
+
+		this.ethernet.TryParse()
+
+		if (!this.ethernet.IsReady()) {
+			this.ethernet.Invalidate()
+			return ServiceResult.Invalid
+		}
+
+		if (this.ethernet.GetEtherType() != ETHER_TYPE_IPV4) {
+			this.ethernet.Invalidate()
+			return ServiceResult.Ignored
+		}
+
+		this.ipv4.TryParse()
+		var protocol = this.ipv4.GetProtocol()
+		var supported = this.ipv4.IsReady()
+		this.ipv4.Invalidate()
+
+		if (!supported || protocol != PROTOCOL_ICMP) {
+			this.ethernet.Invalidate()
+			return ServiceResult.Ignored
+		}
+
+		var peer = this.ethernet.GetSourceMac()
+		this.ethernet.Invalidate()
+
+		if (!this.acceptance.Accept(peer, ETHER_TYPE_IPV4)) {
+			return ServiceResult.Ignored
+		}
+
+		var result = this.response.TryPrepare(this.localMac, this.localIp)
+
+		if (result != PacketDataResult.Success) {
+			this.response.Invalidate()
+			return ServiceResult.Ignored
+		}
+
+		this.ready = true
+		return ServiceResult.Prepared
+	}
+
+	/**
+	 * Drops the response only after the caller has ended all response borrows.
+	 */
+	override fn TryReleaseResponse() PacketDataResult
+	{
+		if (!this.ready) {
+			return PacketDataResult.Invalid
+		}
+
+		this.ready = false
+		this.response.Invalidate()
+		return PacketDataResult.Success
+	}
+
+	/**
+	 * Reports this service's publication, not mere internal preparation progress.
+	 */
+	override fn IsReady() bool
+	{
+		return this.ready
+	}
+
+	/**
+	 * Returns complete padded frame bytes, or zero before publication.
+	 */
+	override fn GetAvailableLength() int
+	{
+		if (!this.ready) {
+			return 0
+		}
+
+		return this.response.GetAvailableLength()
+	}
+
+	/**
+	 * Reads a published response byte; output is data only on Success.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (!this.ready) {
+			return PacketDataResult.NotReady
+		}
+
+		return this.response.TryRead(index, value)
+	}
+}

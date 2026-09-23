@@ -1,0 +1,65 @@
+namespace Livt.Net.Drivers.EthernetLite
+
+/**
+ * Adapts the board's AXI signal interface to the shared word transaction core.
+ * Signal publication is combinational; scheduled Read/Write calls delegate to
+ * the same core exercised by the pin-level Livt device fixture.
+ */
+component EthernetLiteBus : IEthernetLiteRegisterAccess
+{
+	// Private live signal bridge; no protocol or frame storage lives here.
+	axi: IAxi4LiteEthernetLiteMaster
+	transactions: EthernetLiteTransactions
+
+	/**
+	 * Binds the external bus and creates the single-owner transaction sequencer.
+	 */
+	new(axi: IAxi4LiteEthernetLiteMaster)
+	{
+		this.axi = axi
+		this.transactions = new EthernetLiteTransactions()
+	}
+
+	/**
+	 * Reads one device word, returning false for non-OKAY responses.
+	 */
+	override fn Read(address: logic[13], value: out logic[32]) bool
+	{
+		var word: logic[32] = 0x00000000
+		var success = this.transactions.Read(address, word)
+		value = word
+		return success
+	}
+
+	/**
+	 * Writes one device word, completing only after its B response.
+	 */
+	override fn Write(address: logic[13], value: logic[32]) bool
+	{
+		return this.transactions.Write(address, value)
+	}
+
+	/**
+	 * Bridges interface pins without scheduled accessors.
+	 */
+	process AxiPorts[]()
+	{
+		this.transactions.awready = this.axi.m_axi_awready
+		this.axi.m_axi_awaddr = this.transactions.awaddr
+		this.axi.m_axi_awvalid = this.transactions.awvalid
+		this.transactions.wready = this.axi.m_axi_wready
+		this.axi.m_axi_wdata = this.transactions.wdata
+		this.axi.m_axi_wstrb = this.transactions.wstrb
+		this.axi.m_axi_wvalid = this.transactions.wvalid
+		this.transactions.bresp = this.axi.m_axi_bresp
+		this.transactions.bvalid = this.axi.m_axi_bvalid
+		this.axi.m_axi_bready = this.transactions.bready
+		this.transactions.arready = this.axi.m_axi_arready
+		this.axi.m_axi_araddr = this.transactions.araddr
+		this.axi.m_axi_arvalid = this.transactions.arvalid
+		this.transactions.rdata = this.axi.m_axi_rdata
+		this.transactions.rresp = this.axi.m_axi_rresp
+		this.transactions.rvalid = this.axi.m_axi_rvalid
+		this.axi.m_axi_rready = this.transactions.rready
+	}
+}

@@ -1,8 +1,0 @@
-README.md
-board/webapp_wrapper.vhd
-livt.toml
-src/WebApp.lvt
-src/WebApplication.lvt
-tests/WebAppAxiIntegrationTest.lvt
-tests/WebAppTest.lvt
-tests/WebApplicationTest.lvt

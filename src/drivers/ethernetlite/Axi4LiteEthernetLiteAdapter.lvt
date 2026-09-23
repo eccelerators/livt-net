@@ -1,0 +1,11 @@
+namespace Livt.Net.Drivers.EthernetLite
+
+/**
+ * Concrete owner of the inherited AXI4-Lite signal endpoint.
+ * The composition root wires slave-driven inputs and lends the endpoint to
+ * the EthernetLite driver, which drives the master outputs. This component
+ * adds no register sequencing or constructor signal bindings.
+ */
+component Axi4LiteEthernetLiteAdapter : IAxi4LiteEthernetLiteMaster
+{
+}

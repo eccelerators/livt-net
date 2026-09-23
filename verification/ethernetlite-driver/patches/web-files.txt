@@ -1,2 +1,0 @@
-tests/http/HttpServerTest.lvt
-tests/http/WebServerTest.lvt

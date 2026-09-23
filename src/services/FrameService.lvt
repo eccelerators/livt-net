@@ -1,0 +1,124 @@
+namespace Livt.Net
+
+/**
+ * Progress from a serialized receive/handle/transmit poll.
+ */
+enum FrameServiceProgress
+{
+	Idle
+	Pending
+	Completed
+	Ignored
+	Rejected
+	ReceiveFailure
+}
+
+/**
+ * Common link/service coordinator. Bind TX to the handler's IPacketData response.
+ * Owns the lifecycle, borrows fixed RX/handler/TX instances and releases RX after
+ * snapshot handling. A prepared response remains stable through backpressure and
+ * is released only after terminal TX completion. All participants reset together.
+ */
+component FrameService<R: IFrameReceiver, H: IResponseService, T: IFrameTransmitter>
+{
+	// Fixed dependencies and owned transfer coordinator.
+	receiver: R
+	handler: H
+	transfer: ResponseTransfer<T>
+	released: bool
+
+	/**
+	 * Binds idle participants; the handler must snapshot requests before returning.
+	 */
+	new(receiver: R, handler: H, transmitter: T)
+	{
+		this.receiver = receiver
+		this.handler = handler
+		this.transfer = new ResponseTransfer<T>(transmitter)
+	}
+
+	/**
+	 * Polls one request/response lifecycle. Completed remains stable until acknowledged.
+	 * Rejected/ignored requests release RX and never submit an unprepared response.
+	 */
+	public fn Poll() FrameServiceProgress
+	{
+		if (this.transfer.GetState() != ResponseTransferState.Idle) {
+			if (this.transfer.Poll() != ResponseTransferState.Completed) {
+				return FrameServiceProgress.Pending
+			}
+
+			if (!this.released) {
+				this.handler.TryReleaseResponse()
+				this.released = true
+			}
+
+			return FrameServiceProgress.Completed
+		}
+
+		var acquired = this.receiver.TryAcquire()
+
+		if (acquired == FrameLinkResult.DeviceFailure) {
+			return FrameServiceProgress.ReceiveFailure
+		}
+
+		if (acquired != FrameLinkResult.Success) {
+			return FrameServiceProgress.Idle
+		}
+
+		var result = this.handler.TryHandle()
+		this.receiver.TryRelease()
+
+		if (result == ServiceResult.Prepared) {
+			this.released = false
+			this.transfer.TryBegin()
+			return FrameServiceProgress.Pending
+		}
+
+		if (result == ServiceResult.Ignored) {
+			return FrameServiceProgress.Ignored
+		}
+
+		return FrameServiceProgress.Rejected
+	}
+
+	/**
+	 * Reads completion only after response cleanup has finished.
+	 */
+	public fn TryGetCompletion(outcome: out FrameTransmitOutcome) FrameLinkResult
+	{
+		outcome = FrameTransmitOutcome.DeviceFailure
+
+		if (!this.released) {
+			return FrameLinkResult.NotReady
+		}
+
+		return this.transfer.TryGetCompletion(outcome)
+	}
+
+	/**
+	 * Allows the next request after the owner has observed the retained result.
+	 */
+	public fn TryAcknowledgeCompletion() FrameLinkResult
+	{
+		if (!this.released) {
+			return FrameLinkResult.NotReady
+		}
+
+		var result = this.transfer.TryAcknowledgeCompletion()
+
+		if (result == FrameLinkResult.Success) {
+			this.released = false
+		}
+
+		return result
+	}
+
+	/**
+	 * Requests cancellation without ending source lifetime prematurely.
+	 */
+	public fn TryCancel() FrameLinkResult
+	{
+		return this.transfer.TryCancel()
+	}
+}

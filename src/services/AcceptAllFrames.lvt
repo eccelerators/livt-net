@@ -1,0 +1,16 @@
+namespace Livt.Net
+
+/**
+ * Default admission strategy; protocol handlers still enforce their own bounds
+ * and endpoint checks. No state or request bytes are retained here.
+ */
+component AcceptAllFrames : IFrameAcceptance
+{
+	/**
+	 * Allows the service to validate every structurally readable Ethernet header.
+	 */
+	override fn Accept(sourceMac: byte[6], etherType: int) bool
+	{
+		return true
+	}
+}

@@ -1,0 +1,35 @@
+namespace Livt.Net
+
+/**
+ * Outcome of checked, serialized request handling. Busy preserves the old response.
+ */
+enum ServiceResult
+{
+	Prepared
+	Ignored
+	NotReady
+	Busy
+	Invalid
+}
+
+/**
+ * A fixed request handler and its independently owned prepared response.
+ * TryHandle snapshots everything needed before returning: the request may then be
+ * released. One owner serializes calls in one clock/reset domain. Keep the response
+ * unchanged through all reads and TX borrows; coordinated reset stops all users.
+ */
+interface IResponseService : IPacketData
+{
+	/**
+	 * Handles the constructor-bound published request. Prepared publishes a response;
+	 * Ignored/Invalid/NotReady publish none. Busy leaves an existing response intact.
+	 * No request view survives the call, including on rejection.
+	 */
+	fn TryHandle() ServiceResult
+
+	/**
+	 * Releases a prepared response after all readers and TX borrows have ended.
+	 * Invalid means no prepared response. Borrow lifetime is coordinated by the owner.
+	 */
+	fn TryReleaseResponse() PacketDataResult
+}

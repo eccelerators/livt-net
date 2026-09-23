@@ -1,0 +1,15 @@
+namespace Livt.Net
+
+/**
+ * Replaceable admission policy over validated Ethernet metadata, before service
+ * preparation. This is additional to protocol structure and local-IP matching.
+ * Implementations must not retain a request view or mutate an active response.
+ */
+interface IFrameAcceptance
+{
+	/**
+	 * Decides whether to handle a frame from the supplied source MAC and EtherType.
+	 * Returning true does not imply valid higher-layer headers or a supported request.
+	 */
+	fn Accept(sourceMac: byte[6], etherType: int) bool
+}
