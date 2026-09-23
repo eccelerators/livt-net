@@ -45,7 +45,7 @@ component ArpPacketParser<S: IPacketData> : IPacketData
 			return status
 		}
 
-		if (header.GetWord(0) != 1 || header.GetWord(2) != 2048 || header.GetByte(4) != 6 || header.GetByte(5) != 4) {
+		if (header.GetWord(0) != 1 || header.GetWord(2) != IEthernetPayload.ETHER_TYPE_IPV4 || header.GetByte(4) != 6 || header.GetByte(5) != 4) {
 			status = PacketParseResult.Unsupported
 			return status
 		}

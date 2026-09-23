@@ -5,13 +5,6 @@ using Livt.Net
 @Test
 component EthernetFrameBuilderTest
 {
-	builder: EthernetFrameBuilder
-
-	new()
-	{
-		this.builder = new EthernetFrameBuilder()
-	}
-
 	@Test
 	fn BuildsReplyEthernetHeader()
 	{
@@ -41,13 +34,14 @@ component EthernetFrameBuilderTest
 		request[10] = clientMac[4]
 		request[11] = clientMac[5]
 
-		assert this.builder.GetReplyHeaderByte(request, 0, localMac, etherTypeIpv4[0], etherTypeIpv4[1]) == 0x02
-		assert this.builder.GetReplyHeaderByte(request, 5, localMac, etherTypeIpv4[0], etherTypeIpv4[1]) == 0x50
-		assert this.builder.GetReplyHeaderByte(request, 6, localMac, etherTypeIpv4[0], etherTypeIpv4[1]) == 0x02
-		assert this.builder.GetReplyHeaderByte(request, 7, localMac, etherTypeIpv4[0], etherTypeIpv4[1]) == 0xAA
-		assert this.builder.GetReplyHeaderByte(request, 11, localMac, etherTypeIpv4[0], etherTypeIpv4[1]) == 0xEE
-		assert this.builder.GetReplyHeaderByte(request, 12, localMac, etherTypeIpv4[0], etherTypeIpv4[1]) == 0x08
-		assert this.builder.GetReplyHeaderByte(request, 13, localMac, etherTypeIpv4[0], etherTypeIpv4[1]) == 0x00
-		assert this.builder.GetReplyHeaderByte(request, 14, localMac, etherTypeIpv4[0], etherTypeIpv4[1]) == 0x00
+		var destinationMac: byte[6] = [request[6], request[7], request[8], request[9], request[10], request[11]]
+		assert EthernetFrameBuilder.GetByte(0, localMac, destinationMac, NetworkOrder.Word(etherTypeIpv4[0], etherTypeIpv4[1])) == 0x02
+		assert EthernetFrameBuilder.GetByte(5, localMac, destinationMac, NetworkOrder.Word(etherTypeIpv4[0], etherTypeIpv4[1])) == 0x50
+		assert EthernetFrameBuilder.GetByte(6, localMac, destinationMac, NetworkOrder.Word(etherTypeIpv4[0], etherTypeIpv4[1])) == 0x02
+		assert EthernetFrameBuilder.GetByte(7, localMac, destinationMac, NetworkOrder.Word(etherTypeIpv4[0], etherTypeIpv4[1])) == 0xAA
+		assert EthernetFrameBuilder.GetByte(11, localMac, destinationMac, NetworkOrder.Word(etherTypeIpv4[0], etherTypeIpv4[1])) == 0xEE
+		assert EthernetFrameBuilder.GetByte(12, localMac, destinationMac, NetworkOrder.Word(etherTypeIpv4[0], etherTypeIpv4[1])) == 0x08
+		assert EthernetFrameBuilder.GetByte(13, localMac, destinationMac, NetworkOrder.Word(etherTypeIpv4[0], etherTypeIpv4[1])) == 0x00
+		assert EthernetFrameBuilder.GetByte(14, localMac, destinationMac, NetworkOrder.Word(etherTypeIpv4[0], etherTypeIpv4[1])) == 0x00
 	}
 }

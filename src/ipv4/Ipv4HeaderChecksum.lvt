@@ -1,0 +1,27 @@
+namespace Livt.Net
+
+/**
+ * Pure checksum calculation for fixed IPv4 headers: version/IHL 0x45, DSCP=0,
+ * DF=1, fragment offset=0 and TTL=64. No state or component instance is needed.
+ */
+class Ipv4HeaderChecksum
+{
+	/**
+	 * Returns a 16-bit one's-complement checksum. totalLength is 20..65535 bytes;
+	 * identification and addresses are network-order octets. The caller validates
+	 * packet length before preparation. Protocol is the on-wire IPv4 octet.
+	 */
+	public static inline fn Calculate[](
+		totalLength: int, identification: byte[2],
+		sourceIp: byte[4], destinationIp: byte[4], protocol: byte) int
+	{
+		var sum = 0x4500 + totalLength
+		sum = sum + NetworkOrder.Word(identification[0], identification[1])
+		sum = sum + 0x4000 + 0x4000 + NetworkOrder.ByteValue(protocol)
+		sum = sum + NetworkOrder.Word(sourceIp[0], sourceIp[1])
+		sum = sum + NetworkOrder.Word(sourceIp[2], sourceIp[3])
+		sum = sum + NetworkOrder.Word(destinationIp[0], destinationIp[1])
+		sum = sum + NetworkOrder.Word(destinationIp[2], destinationIp[3])
+		return ChecksumArithmetic.Finish(sum)
+	}
+}

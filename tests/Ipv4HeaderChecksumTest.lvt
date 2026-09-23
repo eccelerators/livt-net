@@ -5,35 +5,29 @@ using Livt.Net
 @Test
 component Ipv4HeaderChecksumTest
 {
-	checksum: Ipv4HeaderChecksum
-
-	new()
-	{
-		this.checksum = new Ipv4HeaderChecksum()
-	}
 
 	@Test
 	fn CalculatesFixedShowcaseResponseHeaderChecksum()
 	{
-		assert this.checksum.CalculateFixedTcpHeaderChecksum(0, 187, 0, 1, 10, 0, 0, 1, 10, 0, 0, 2) == 9786
+		assert Ipv4HeaderChecksum.Calculate((0) * 256 + (187), [0 as byte, 1 as byte], [10 as byte, 0 as byte, 0 as byte, 1 as byte], [10 as byte, 0 as byte, 0 as byte, 2 as byte], 0x06) == 9786
 	}
 
 	@Test
 	fn CalculatesFixedIcmpEchoResponseHeaderChecksum()
 	{
-		assert this.checksum.CalculateFixedIcmpHeaderChecksum(0, 40, 18, 52, 10, 0, 0, 1, 10, 0, 0, 2) == 5279
+		assert Ipv4HeaderChecksum.Calculate((0) * 256 + (40), [18 as byte, 52 as byte], [10 as byte, 0 as byte, 0 as byte, 1 as byte], [10 as byte, 0 as byte, 0 as byte, 2 as byte], 0x01) == 5279
 	}
 
 	@Test
 	fn IncludesLengthAndIdentificationFields()
 	{
-		assert this.checksum.CalculateFixedTcpHeaderChecksum(0, 40, 18, 52, 10, 0, 0, 1, 10, 0, 0, 2) == 5274
+		assert Ipv4HeaderChecksum.Calculate((0) * 256 + (40), [18 as byte, 52 as byte], [10 as byte, 0 as byte, 0 as byte, 1 as byte], [10 as byte, 0 as byte, 0 as byte, 2 as byte], 0x06) == 5274
 	}
 
 	@Test
 	fn ExposesChecksumBytesAsIntegers()
 	{
-		assert this.checksum.GetHighByte(9786) == 38
-		assert this.checksum.GetLowByte(9786) == 58
+		assert NetworkOrder.HighByte(9786) == 38
+		assert NetworkOrder.LowByte(9786) == 58
 	}
 }

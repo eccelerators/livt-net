@@ -19,13 +19,6 @@ enum NetworkProtocol
  */
 component FrameClassification<S: IPacketData>
 {
-	// Wire protocol identifiers.
-	const ETHER_TYPE_ARP: int = 0x0806
-	const ETHER_TYPE_IPV4: int = 0x0800
-	const PROTOCOL_ICMP: byte = 0x01
-	const PROTOCOL_TCP: byte = 0x06
-	const PROTOCOL_UDP: byte = 0x11
-
 	// Owned parsers borrowing the same request source.
 	ethernet: EthernetFrameParser<S>
 	ipv4: Ipv4PacketParser<EthernetFrameParser<S>>
@@ -69,24 +62,24 @@ component FrameClassification<S: IPacketData>
 
 		var etherType = this.ethernet.GetEtherType()
 
-		if (etherType == ETHER_TYPE_ARP) {
+		if (etherType == IEthernetPayload.ETHER_TYPE_ARP) {
 			this.protocol = NetworkProtocol.Arp
 		}
 
-		if (etherType == ETHER_TYPE_IPV4) {
+		if (etherType == IEthernetPayload.ETHER_TYPE_IPV4) {
 			this.ipv4.TryParse()
 
 			if (this.ipv4.IsReady()) {
 				this.protocol = NetworkProtocol.Ipv4Other
 				var number = this.ipv4.GetProtocol()
 
-				if (number == PROTOCOL_ICMP) {
+				if (number == IIpv4Payload.PROTOCOL_ICMP) {
 					this.protocol = NetworkProtocol.Icmp
 				}
-				elif (number == PROTOCOL_TCP) {
+				elif (number == IIpv4Payload.PROTOCOL_TCP) {
 					this.protocol = NetworkProtocol.Tcp
 				}
-				elif (number == PROTOCOL_UDP) {
+				elif (number == IIpv4Payload.PROTOCOL_UDP) {
 					this.protocol = NetworkProtocol.Udp
 				}
 

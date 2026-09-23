@@ -73,7 +73,7 @@ component Ipv4Packet<P: IPacketData & IIpv4Payload> : IPacketData, IEthernetPayl
 		var sum = 0
 
 		for (var i = 0; i < 10; i++) {
-			sum = sum + ChecksumArithmetic.Word(header[i * 2] as int, header[i * 2 + 1] as int)
+			sum = sum + NetworkOrder.Word(header[i * 2], header[i * 2 + 1])
 		}
 
 		var checksum = ChecksumArithmetic.Finish(sum)
@@ -89,7 +89,7 @@ component Ipv4Packet<P: IPacketData & IIpv4Payload> : IPacketData, IEthernetPayl
 	 */
 	override fn GetEtherType() int
 	{
-		return 0x0800
+		return IEthernetPayload.ETHER_TYPE_IPV4
 	}
 
 	/**

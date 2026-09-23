@@ -96,7 +96,7 @@ component InternetChecksumTest
 		this.cs.AddByte(0x3C)
 		this.cs.AddByte(0x21)
 
-		assert this.cs.GetHighByte(15393) == 60
-		assert this.cs.GetLowByte(15393) == 33
+		assert NetworkOrder.HighByte(15393) == 60
+		assert NetworkOrder.LowByte(15393) == 33
 	}
 }

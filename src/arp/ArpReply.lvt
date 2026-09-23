@@ -45,7 +45,7 @@ component ArpReply : IPacketData, IEthernetPayload
 	 */
 	override fn GetEtherType() int
 	{
-		return 0x0806
+		return IEthernetPayload.ETHER_TYPE_ARP
 	}
 
 	/**

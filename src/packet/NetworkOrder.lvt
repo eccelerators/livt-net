@@ -1,0 +1,39 @@
+namespace Livt.Net
+
+/**
+ * Pure network-byte-order conversions. No storage, borrowing or scheduled calls.
+ */
+class NetworkOrder
+{
+	/**
+	 * Interprets one octet as an unsigned integer in 0..255.
+	 */
+	public static inline fn ByteValue[](value: byte) int
+	{
+		return (value as uint) as int
+	}
+
+	/**
+	 * Decodes a big-endian word in 0..65535 without sign extension.
+	 */
+	public static inline fn Word[](high: byte, low: byte) int
+	{
+		return NetworkOrder.ByteValue(high) * 256 + NetworkOrder.ByteValue(low)
+	}
+
+	/**
+	 * Returns the high octet of a word. Requires value in 0..65535.
+	 */
+	public static inline fn HighByte[](value: int) byte
+	{
+		return (value / 256) as byte
+	}
+
+	/**
+	 * Returns the low octet of a word. Requires value in 0..65535.
+	 */
+	public static inline fn LowByte[](value: int) byte
+	{
+		return (value % 256) as byte
+	}
+}

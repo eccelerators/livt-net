@@ -97,7 +97,7 @@ component PacketHeader<S: IPacketData, SIZE: int> : IPacketData
 	{
 		var high = this.GetByte(index)
 		var low = this.GetByte(index + 1)
-		return (high as int) * 256 + (low as int)
+		return NetworkOrder.Word(high, low)
 	}
 
 	/**

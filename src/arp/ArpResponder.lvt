@@ -43,7 +43,7 @@ component ArpResponder<S: IPacketData> : IPacketData
 		this.Invalidate()
 		ethernet.TryParse()
 
-		if (!ethernet.IsReady() || ethernet.GetEtherType() != 2054) {
+		if (!ethernet.IsReady() || ethernet.GetEtherType() != IEthernetPayload.ETHER_TYPE_ARP) {
 			return PacketDataResult.Invalid
 		}
 

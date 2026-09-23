@@ -7,10 +7,6 @@ namespace Livt.Net
  */
 component IcmpEchoService<S: IPacketData, A: IFrameAcceptance, CAPACITY: int = 128> : IResponseService
 {
-	// Wire protocol identifiers.
-	const ETHER_TYPE_IPV4: int = 0x0800
-	const PROTOCOL_ICMP: byte = 0x01
-
 	// Borrowed request/policy; owned recognition and response components.
 	source: S
 	acceptance: A
@@ -58,7 +54,7 @@ component IcmpEchoService<S: IPacketData, A: IFrameAcceptance, CAPACITY: int = 1
 			return ServiceResult.Invalid
 		}
 
-		if (this.ethernet.GetEtherType() != ETHER_TYPE_IPV4) {
+		if (this.ethernet.GetEtherType() != IEthernetPayload.ETHER_TYPE_IPV4) {
 			this.ethernet.Invalidate()
 			return ServiceResult.Ignored
 		}
@@ -68,7 +64,7 @@ component IcmpEchoService<S: IPacketData, A: IFrameAcceptance, CAPACITY: int = 1
 		var supported = this.ipv4.IsReady()
 		this.ipv4.Invalidate()
 
-		if (!supported || protocol != PROTOCOL_ICMP) {
+		if (!supported || protocol != IIpv4Payload.PROTOCOL_ICMP) {
 			this.ethernet.Invalidate()
 			return ServiceResult.Ignored
 		}
@@ -76,7 +72,7 @@ component IcmpEchoService<S: IPacketData, A: IFrameAcceptance, CAPACITY: int = 1
 		var peer = this.ethernet.GetSourceMac()
 		this.ethernet.Invalidate()
 
-		if (!this.acceptance.Accept(peer, ETHER_TYPE_IPV4)) {
+		if (!this.acceptance.Accept(peer, IEthernetPayload.ETHER_TYPE_IPV4)) {
 			return ServiceResult.Ignored
 		}
 

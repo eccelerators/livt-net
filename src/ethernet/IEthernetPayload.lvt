@@ -1,0 +1,17 @@
+namespace Livt.Net
+
+/**
+ * Capability identifying an Ethernet II payload's EtherType.
+ */
+interface IEthernetPayload
+{
+	// Standard EtherTypes shared by envelopes, services and protocol recognition.
+	public const ETHER_TYPE_IPV4: int = 0x0800
+	public const ETHER_TYPE_ARP: int = 0x0806
+
+	/**
+	 * Returns the Ethernet II EtherType identifying this payload, independent of readiness.
+	 */
+	fn GetEtherType() int
+}
+

@@ -1,0 +1,73 @@
+namespace Livt.Net
+
+/**
+ * Pure fixed-header IPv4 encoding from explicit endpoint metadata.
+ * Version/IHL=0x45, DSCP=0, DF=1, fragment offset=0 and TTL=64.
+ */
+class Ipv4HeaderBuilder
+{
+	/**
+	 * Emits bytes 0..19: version/DSCP, total length, identification, flags/offset,
+	 * TTL/protocol, checksum, source address and destination address.
+	 * Arrays use network order, totalLength is 20..65535 and checksum is 0..65535.
+	 * The caller validates bounds; out-of-header indices return zero.
+	 */
+	public static inline fn GetByte[](
+		index: int, totalLength: int, identification: byte[2],
+		sourceIp: byte[4], destinationIp: byte[4], protocol: byte, checksum: int) byte
+	{
+		if (index < 0) {
+			return 0x00
+		}
+
+		if (index == 0) {
+			return 0x45
+		}
+
+		if (index == 1) {
+			return 0x00
+		}
+
+		if (index == 2) {
+			return NetworkOrder.HighByte(totalLength)
+		}
+
+		if (index == 3) {
+			return NetworkOrder.LowByte(totalLength)
+		}
+
+		if (index < 6) {
+			return identification[index - 4]
+		}
+
+		if (index == 6 || index == 8) {
+			return 0x40
+		}
+
+		if (index == 7) {
+			return 0x00
+		}
+
+		if (index == 9) {
+			return protocol
+		}
+
+		if (index == 10) {
+			return NetworkOrder.HighByte(checksum)
+		}
+
+		if (index == 11) {
+			return NetworkOrder.LowByte(checksum)
+		}
+
+		if (index < 16) {
+			return sourceIp[index - 12]
+		}
+
+		if (index < 20) {
+			return destinationIp[index - 16]
+		}
+
+		return 0x00
+	}
+}

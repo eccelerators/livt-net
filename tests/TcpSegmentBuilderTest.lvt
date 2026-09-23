@@ -5,13 +5,6 @@ using Livt.Net
 @Test
 component TcpSegmentBuilderTest
 {
-	builder: TcpSegmentBuilder
-
-	new()
-	{
-		this.builder = new TcpSegmentBuilder()
-	}
-
 	@Test
 	fn SwapsPortsForResponse()
 	{
@@ -44,10 +37,12 @@ component TcpSegmentBuilderTest
 		request[36] = localPort[0]
 		request[37] = localPort[1]
 
-		assert this.builder.GetResponseHeaderByte(request, 0, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x00
-		assert this.builder.GetResponseHeaderByte(request, 1, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x50
-		assert this.builder.GetResponseHeaderByte(request, 2, tcpSequence, acknowledgment, 0x12, window, checksum) == 0xC0
-		assert this.builder.GetResponseHeaderByte(request, 3, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x01
+		var sourcePort: byte[2] = [request[36], request[37]]
+		var destinationPort: byte[2] = [request[34], request[35]]
+		assert TcpSegmentBuilder.GetByte(0, sourcePort, destinationPort, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x00
+		assert TcpSegmentBuilder.GetByte(1, sourcePort, destinationPort, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x50
+		assert TcpSegmentBuilder.GetByte(2, sourcePort, destinationPort, tcpSequence, acknowledgment, 0x12, window, checksum) == 0xC0
+		assert TcpSegmentBuilder.GetByte(3, sourcePort, destinationPort, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x01
 	}
 
 	@Test
@@ -71,12 +66,14 @@ component TcpSegmentBuilderTest
 		checksum[0] = 0xBE
 		checksum[1] = 0xEF
 
-		assert this.builder.GetResponseHeaderByte(request, 4, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x11
-		assert this.builder.GetResponseHeaderByte(request, 5, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x22
-		assert this.builder.GetResponseHeaderByte(request, 6, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x33
-		assert this.builder.GetResponseHeaderByte(request, 7, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x44
-		assert this.builder.GetResponseHeaderByte(request, 8, tcpSequence, acknowledgment, 0x12, window, checksum) == 0xAA
-		assert this.builder.GetResponseHeaderByte(request, 11, tcpSequence, acknowledgment, 0x12, window, checksum) == 0xDD
+		var sourcePort: byte[2] = [request[36], request[37]]
+		var destinationPort: byte[2] = [request[34], request[35]]
+		assert TcpSegmentBuilder.GetByte(4, sourcePort, destinationPort, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x11
+		assert TcpSegmentBuilder.GetByte(5, sourcePort, destinationPort, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x22
+		assert TcpSegmentBuilder.GetByte(6, sourcePort, destinationPort, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x33
+		assert TcpSegmentBuilder.GetByte(7, sourcePort, destinationPort, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x44
+		assert TcpSegmentBuilder.GetByte(8, sourcePort, destinationPort, tcpSequence, acknowledgment, 0x12, window, checksum) == 0xAA
+		assert TcpSegmentBuilder.GetByte(11, sourcePort, destinationPort, tcpSequence, acknowledgment, 0x12, window, checksum) == 0xDD
 	}
 
 	@Test
@@ -100,14 +97,16 @@ component TcpSegmentBuilderTest
 		checksum[0] = 0xBE
 		checksum[1] = 0xEF
 
-		assert this.builder.GetResponseHeaderByte(request, 12, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x50
-		assert this.builder.GetResponseHeaderByte(request, 13, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x12
-		assert this.builder.GetResponseHeaderByte(request, 14, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x04
-		assert this.builder.GetResponseHeaderByte(request, 15, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x00
-		assert this.builder.GetResponseHeaderByte(request, 16, tcpSequence, acknowledgment, 0x12, window, checksum) == 0xBE
-		assert this.builder.GetResponseHeaderByte(request, 17, tcpSequence, acknowledgment, 0x12, window, checksum) == 0xEF
-		assert this.builder.GetResponseHeaderByte(request, 18, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x00
-		assert this.builder.GetResponseHeaderByte(request, 19, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x00
-		assert this.builder.GetResponseHeaderByte(request, 20, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x00
+		var sourcePort: byte[2] = [request[36], request[37]]
+		var destinationPort: byte[2] = [request[34], request[35]]
+		assert TcpSegmentBuilder.GetByte(12, sourcePort, destinationPort, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x50
+		assert TcpSegmentBuilder.GetByte(13, sourcePort, destinationPort, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x12
+		assert TcpSegmentBuilder.GetByte(14, sourcePort, destinationPort, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x04
+		assert TcpSegmentBuilder.GetByte(15, sourcePort, destinationPort, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x00
+		assert TcpSegmentBuilder.GetByte(16, sourcePort, destinationPort, tcpSequence, acknowledgment, 0x12, window, checksum) == 0xBE
+		assert TcpSegmentBuilder.GetByte(17, sourcePort, destinationPort, tcpSequence, acknowledgment, 0x12, window, checksum) == 0xEF
+		assert TcpSegmentBuilder.GetByte(18, sourcePort, destinationPort, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x00
+		assert TcpSegmentBuilder.GetByte(19, sourcePort, destinationPort, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x00
+		assert TcpSegmentBuilder.GetByte(20, sourcePort, destinationPort, tcpSequence, acknowledgment, 0x12, window, checksum) == 0x00
 	}
 }

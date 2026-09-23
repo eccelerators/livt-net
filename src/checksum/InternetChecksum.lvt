@@ -12,13 +12,13 @@ namespace Livt.Net
  *
  * GetChecksum() returns the final RFC 1071 checksum value (folded and
  * one's-complemented) ready to be written into an IPv4, ICMP, TCP, or UDP
- * header field. Use GetHighByte() and GetLowByte() to extract the two bytes.
+ * header field. Use NetworkOrder.HighByte() and NetworkOrder.LowByte() to extract the two bytes.
  */
 component InternetChecksum
 {
 	// Unfolded word sum and the optional unmatched high octet.
 	sum: int
-	pendingByte: int
+	pendingByte: byte
 	hasPendingByte: bool
 
 	/**
@@ -34,7 +34,7 @@ component InternetChecksum
 	public fn Reset()
 	{
 		this.sum = 0
-		this.pendingByte = 0
+		this.pendingByte = 0x00
 		this.hasPendingByte = false
 	}
 
@@ -43,19 +43,16 @@ component InternetChecksum
 	 * Bytes are paired in network order: the first byte of each pair is the
 	 * high byte of the 16-bit word, the second is the low byte.
 	 */
-	public fn AddByte(b: logic[8])
+	public fn AddByte(b: byte)
 	{
-		// Network octets are unsigned even though the public input is a logic vector.
-		var bi: int = (b as byte) as int
-
 		if (this.hasPendingByte == false) {
-			this.pendingByte = bi
+			this.pendingByte = b
 			this.hasPendingByte = true
 			return
 		}
 
-		this.sum = this.sum + ChecksumArithmetic.Word(this.pendingByte, bi)
-		this.pendingByte = 0
+		this.sum = this.sum + NetworkOrder.Word(this.pendingByte, b)
+		this.pendingByte = 0x00
 		this.hasPendingByte = false
 	}
 
@@ -67,7 +64,7 @@ component InternetChecksum
 	public fn GetWordSum() int
 	{
 		if (this.hasPendingByte == true) {
-			return this.sum + this.pendingByte * 256
+			return this.sum + NetworkOrder.Word(this.pendingByte, 0x00)
 		}
 
 		return this.sum
@@ -75,7 +72,7 @@ component InternetChecksum
 
 	/**
 	 * Returns the final RFC 1071 checksum (folded and one's-complemented).
-	 * Use GetHighByte() and GetLowByte() to extract the two header bytes.
+	 * Use NetworkOrder.HighByte() and NetworkOrder.LowByte() to extract the two header bytes.
 	 */
 	public fn GetChecksum() int
 	{
@@ -83,19 +80,4 @@ component InternetChecksum
 		return ChecksumArithmetic.Finish(s)
 	}
 
-	/**
-	 * Returns the high byte of a 16-bit checksum or word-sum value.
-	 */
-	public fn GetHighByte(value: int) int
-	{
-		return value / 256
-	}
-
-	/**
-	 * Returns the low byte of a 16-bit checksum or word-sum value.
-	 */
-	public fn GetLowByte(value: int) int
-	{
-		return value % 256
-	}
 }

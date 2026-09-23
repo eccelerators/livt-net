@@ -6,14 +6,6 @@ namespace Livt.Net
 class ChecksumArithmetic
 {
 	/**
-	 * Combines high and low octets in 0..255 into a network-order 16-bit word.
-	 */
-	public static inline fn Word[](high: int, low: int) int
-	{
-		return high * 256 + low
-	}
-
-	/**
 	 * Adds the high and low 16-bit halves of a non-negative int; the result may still carry.
 	 */
 	public static inline fn Fold[](value: int) int

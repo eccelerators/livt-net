@@ -56,8 +56,8 @@ component IcmpEchoReply<P: IPacketData> : IPacketData, IIpv4Payload
 			return PacketDataResult.Invalid
 		}
 
-		this.identifier = ChecksumArithmetic.Word(identifier[0] as int, identifier[1] as int)
-		this.sequence = ChecksumArithmetic.Word(sequence[0] as int, sequence[1] as int)
+		this.identifier = NetworkOrder.Word(identifier[0], identifier[1])
+		this.sequence = NetworkOrder.Word(sequence[0], sequence[1])
 		calculator.Reset()
 
 		// Reply type, code and checksum are all zero during calculation.
@@ -96,7 +96,7 @@ component IcmpEchoReply<P: IPacketData> : IPacketData, IIpv4Payload
 	 */
 	override fn GetProtocol() int
 	{
-		return 1
+		return IIpv4Payload.PROTOCOL_ICMP as int
 	}
 
 	/**

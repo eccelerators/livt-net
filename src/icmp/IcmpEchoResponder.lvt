@@ -63,7 +63,7 @@ component IcmpEchoResponder<S: IPacketData, FRAME_CAPACITY: int = 128> : IPacket
 		this.Invalidate()
 		ethernet.TryParse()
 
-		if (!ethernet.IsReady() || ethernet.GetEtherType() != 2048) {
+		if (!ethernet.IsReady() || ethernet.GetEtherType() != IEthernetPayload.ETHER_TYPE_IPV4) {
 			return PacketDataResult.Invalid
 		}
 
@@ -71,7 +71,7 @@ component IcmpEchoResponder<S: IPacketData, FRAME_CAPACITY: int = 128> : IPacket
 			return PacketDataResult.Invalid
 		}
 
-		if (ipv4.GetProtocol() != 1 || ipv4.GetAvailableLength() < 8) {
+		if (ipv4.GetProtocol() != IIpv4Payload.PROTOCOL_ICMP || ipv4.GetAvailableLength() < 8) {
 			return PacketDataResult.Invalid
 		}
 

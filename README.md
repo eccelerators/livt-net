@@ -7,17 +7,17 @@ classify common IPv4 traffic, and emit deterministic response bytes.
 The 1.1.0-dev package surface is intentionally narrow and hardware-oriented:
 
 - `Livt.Net.EthernetFrameParser`: fixed Ethernet II header parser.
-- `Livt.Net.EthernetFrameBuilder`: Ethernet reply-header byte builder.
+- `Livt.Net.EthernetFrameBuilder`: static Ethernet header encoding from explicit addresses.
 - `Livt.Net.ArpPacketParser`: ARP packet parser for Ethernet/IPv4 frames.
 - `Livt.Net.ArpResponder`: ARP request recognition and prepared reply composition.
 - `Livt.Net.Ipv4PacketParser`: bounded fixed-header IPv4 parser.
-- `Livt.Net.Ipv4HeaderBuilder`: IPv4 response-header byte builder.
+- `Livt.Net.Ipv4HeaderBuilder`: static fixed IPv4 header encoding.
 - `Livt.Net.Ipv4HeaderChecksum`: checksum helper for fixed IPv4 responses.
 - `Livt.Net.InternetChecksum`: streaming RFC 1071 Internet checksum helper.
 - `Livt.Net.IcmpEchoResponder`: ICMP request recognition and prepared reply composition.
 - `Livt.Net.TcpHeaderParser`: bounded TCP header parser.
 - `Livt.Net.TcpConnectionRecognizer`: TCP packet recognizer for local endpoints.
-- `Livt.Net.TcpSegmentBuilder`: TCP response-header byte builder.
+- `Livt.Net.TcpSegmentBuilder`: static fixed TCP header encoding.
 - `Livt.Net.TcpSynAckFrameComposer`: Ethernet/IPv4/TCP SYN-ACK frame composer.
 - `Livt.Net.TcpChecksum`: checksum helper for fixed TCP responses.
 - `Livt.Net.IFrameReceiver` / `IFrameTransmitter`: device-independent frame capabilities.
@@ -38,7 +38,9 @@ Ethernet frame I/O path. Domain applications should depend on `Livt.Net`; add
 
 Protocol and frame-capability components live in `Livt.Net`. The concrete
 EthernetLite implementation lives in `Livt.Net.Drivers.EthernetLite`; application
-protocol code need not import it. Tests use `Livt.Net.Tests`.
+protocol code need not import it. Tests use `Livt.Net.Tests`. Source folders group
+protocol responsibilities without imposing extra imports; see
+[package structure and helper migration](docs/package-structure.md).
 
 | Area | Components |
 |---|---|
@@ -85,7 +87,8 @@ by `TryRead(index, value)` and `GetAvailableLength()`. Existing TCP builders and
 composers retain their emission API; the common service covers ARP/ICMP.
 
 `InternetChecksum` incrementally consumes network-order bytes with `AddByte()`.
-It returns either the unfolded word sum for use with `TcpChecksum` or the final
+It accepts `byte` octets and returns either the unfolded word sum for the static
+`TcpChecksum` helper or the final
 RFC 1071 checksum, including the required zero padding for odd-length input.
 
 ### Buffered link capabilities

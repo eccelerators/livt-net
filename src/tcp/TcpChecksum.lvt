@@ -1,0 +1,49 @@
+namespace Livt.Net
+
+/**
+ * Pure IPv4/TCP pseudo-header and fixed-header checksum calculation.
+ * All arrays contain network-order octets; no scheduled component is required.
+ */
+class TcpChecksum
+{
+	/**
+	 * Calculates a checksum for a fixed 20-byte TCP header without payload.
+	 * Sequence, acknowledgment, flags and window describe the emitted header.
+	 */
+	public static inline fn CalculateFixedHeaderChecksum[](
+		sourceIp: byte[4], destinationIp: byte[4],
+		sourcePort: byte[2], destinationPort: byte[2],
+		sequence: byte[4], acknowledgment: byte[4], flags: byte, window: byte[2]) int
+	{
+		return TcpChecksum.CalculatePayloadChecksum(sourceIp, destinationIp,
+			sourcePort, destinationPort, sequence, acknowledgment, flags, window, 20, 0)
+	}
+
+	/**
+	 * Calculates a checksum including the supplied unfolded payloadWordSum from
+	 * InternetChecksum.GetWordSum(). tcpLength is 20..65515 including the fixed
+	 * header. Odd payloads include a zero low octet in their last word. The complete
+	 * sum must fit a non-negative int (at most 2147483647); caller validates bounds.
+	 */
+	public static inline fn CalculatePayloadChecksum[](
+		sourceIp: byte[4], destinationIp: byte[4],
+		sourcePort: byte[2], destinationPort: byte[2],
+		sequence: byte[4], acknowledgment: byte[4], flags: byte, window: byte[2],
+		tcpLength: int, payloadWordSum: int) int
+	{
+		var sum = NetworkOrder.Word(sourceIp[0], sourceIp[1])
+		sum = sum + NetworkOrder.Word(sourceIp[2], sourceIp[3])
+		sum = sum + NetworkOrder.Word(destinationIp[0], destinationIp[1])
+		sum = sum + NetworkOrder.Word(destinationIp[2], destinationIp[3])
+		sum = sum + NetworkOrder.ByteValue(IIpv4Payload.PROTOCOL_TCP) + tcpLength
+		sum = sum + NetworkOrder.Word(sourcePort[0], sourcePort[1])
+		sum = sum + NetworkOrder.Word(destinationPort[0], destinationPort[1])
+		sum = sum + NetworkOrder.Word(sequence[0], sequence[1])
+		sum = sum + NetworkOrder.Word(sequence[2], sequence[3])
+		sum = sum + NetworkOrder.Word(acknowledgment[0], acknowledgment[1])
+		sum = sum + NetworkOrder.Word(acknowledgment[2], acknowledgment[3])
+		sum = sum + 0x5000 + NetworkOrder.ByteValue(flags)
+		sum = sum + NetworkOrder.Word(window[0], window[1]) + payloadWordSum
+		return ChecksumArithmetic.Finish(sum)
+	}
+}

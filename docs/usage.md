@@ -34,26 +34,29 @@ length)`. `TestFrameTransmitter` binds a prepared provider; `Advance()` controls
 progress and lets a test hold the source borrow. Test injection is not exposed
 on the hardware driver.
 
-## Checksum array APIs
+## Checksum helpers
 
-`Ipv4HeaderChecksum.CalculateFixedTcpHeaderChecksumFromBytes` and
-`CalculateFixedIcmpHeaderChecksumFromBytes` accept `(totalLength: byte[2],
-identification: byte[2], localIp: byte[4], remoteIp: byte[4])`.
-All arrays use network byte order (high byte first). The generated header uses
-version/IHL 0x45, DF, TTL 64 and the selected TCP or ICMP protocol.
+Checksum calculators are context-free static helpers; do not construct them.
+`Ipv4HeaderChecksum.Calculate(totalLength: int, identification: byte[2],
+sourceIp: byte[4], destinationIp: byte[4], protocol: byte)` calculates the
+fixed 20-byte IPv4 header checksum with version/IHL 0x45, DF and TTL 64.
+Use `IIpv4Payload.PROTOCOL_TCP` or `PROTOCOL_ICMP` for the common protocols.
 
-`TcpChecksum.CalculateFixedHeaderChecksumFromBytes` accepts `(localIp: byte[4],
-remoteIp: byte[4], localPort: byte[2], remotePort: byte[2], sequence: byte[4],
-acknowledgment: byte[4], flags: byte, window: byte[2])`.
-`CalculatePayloadChecksumFromBytes` accepts the same fields followed by `tcpLength: int`
-and `payloadWordSum: int`. Length includes the fixed 20-byte TCP header; the sum
-is from `InternetChecksum.GetWordSum()`, with an odd final byte treated as the
-high byte of a word whose low byte is zero. The complete unfolded sum must fit
-in a non-negative int (0..2147483647). Empty payloads use length 20 and sum zero.
+`TcpChecksum.CalculateFixedHeaderChecksum` accepts `(sourceIp: byte[4],
+destinationIp: byte[4], sourcePort: byte[2], destinationPort: byte[2],
+sequence: byte[4], acknowledgment: byte[4], flags: byte, window: byte[2])`.
+`CalculatePayloadChecksum` adds `tcpLength: int` and `payloadWordSum: int`.
+Arrays use network order. Length includes the fixed 20-byte TCP header; the
+payload sum comes from `InternetChecksum.GetWordSum()`, including a zero low
+octet for an odd final byte. The complete unfolded sum must fit a non-negative
+int (0..2147483647). Empty payloads use length 20 and sum zero.
 
-Existing scalar methods retain their original names and remain available; scalar byte fields must be 0..255.
-Both API shapes share the same checksum arithmetic. The array APIs do not
-add protocol validation or change supported packet formats.
+`InternetChecksum` retains stream state; reset it before each new stream and
+feed `byte` values through `AddByte()`. Use `NetworkOrder.HighByte`/`LowByte` to
+serialize a 16-bit checksum and `NetworkOrder.Word` to decode two octets.
+The helpers do not add input packet validation. See
+[package structure and migration](package-structure.md) for removed APIs and
+pure header encoders.
 
 ## Packet data providers
 

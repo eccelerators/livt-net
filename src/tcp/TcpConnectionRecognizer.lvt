@@ -46,7 +46,7 @@ component TcpConnectionRecognizer<S: IPacketData> : IPacketData
 			return status
 		}
 
-		if (ethernet.GetEtherType() != 2048) {
+		if (ethernet.GetEtherType() != IEthernetPayload.ETHER_TYPE_IPV4) {
 			status = PacketParseResult.Unsupported
 			return status
 		}
@@ -57,7 +57,7 @@ component TcpConnectionRecognizer<S: IPacketData> : IPacketData
 			return status
 		}
 
-		if (ipv4.GetProtocol() != 6) {
+		if (ipv4.GetProtocol() != IIpv4Payload.PROTOCOL_TCP) {
 			status = PacketParseResult.Unsupported
 			return status
 		}

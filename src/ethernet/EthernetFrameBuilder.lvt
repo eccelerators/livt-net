@@ -1,0 +1,38 @@
+namespace Livt.Net
+
+/**
+ * Pure Ethernet II header encoding from explicit endpoint addresses.
+ * It neither reads a request frame nor owns protocol state.
+ */
+class EthernetFrameBuilder
+{
+	/**
+	 * Returns bytes 0..13: destination MAC, source MAC, then EtherType.
+	 * etherType is 1536..65535. Out-of-header indices return zero.
+	 */
+	public static inline fn GetByte[](
+		index: int, sourceMac: byte[6], destinationMac: byte[6], etherType: int) byte
+	{
+		if (index < 0) {
+			return 0x00
+		}
+
+		if (index < 6) {
+			return destinationMac[index]
+		}
+
+		if (index < 12) {
+			return sourceMac[index - 6]
+		}
+
+		if (index == 12) {
+			return NetworkOrder.HighByte(etherType)
+		}
+
+		if (index == 13) {
+			return NetworkOrder.LowByte(etherType)
+		}
+
+		return 0x00
+	}
+}

@@ -5,13 +5,6 @@ using Livt.Net
 @Test
 component Ipv4HeaderBuilderTest
 {
-	builder: Ipv4HeaderBuilder
-
-	new()
-	{
-		this.builder = new Ipv4HeaderBuilder()
-	}
-
 	@Test
 	fn BuildsFixedIpv4TcpResponseHeader()
 	{
@@ -36,20 +29,21 @@ component Ipv4HeaderBuilderTest
 		request[28] = clientIp[2]
 		request[29] = clientIp[3]
 
-		assert this.builder.GetResponseHeaderByte(request, 0, totalLength, identification[0], identification[1], localIp) == 0x45
-		assert this.builder.GetResponseHeaderByte(request, 1, totalLength, identification[0], identification[1], localIp) == 0x00
-		assert this.builder.GetResponseHeaderByte(request, 2, totalLength, identification[0], identification[1], localIp) == 0x00
-		assert this.builder.GetResponseHeaderByte(request, 3, totalLength, identification[0], identification[1], localIp) == 0x28
-		assert this.builder.GetResponseHeaderByte(request, 4, totalLength, identification[0], identification[1], localIp) == 0x12
-		assert this.builder.GetResponseHeaderByte(request, 5, totalLength, identification[0], identification[1], localIp) == 0x34
-		assert this.builder.GetResponseHeaderByte(request, 6, totalLength, identification[0], identification[1], localIp) == 0x40
-		assert this.builder.GetResponseHeaderByte(request, 7, totalLength, identification[0], identification[1], localIp) == 0x00
-		assert this.builder.GetResponseHeaderByte(request, 8, totalLength, identification[0], identification[1], localIp) == 0x40
-		assert this.builder.GetResponseHeaderByte(request, 9, totalLength, identification[0], identification[1], localIp) == 0x06
+		var destinationIp: byte[4] = [request[26], request[27], request[28], request[29]]
+		assert Ipv4HeaderBuilder.GetByte(0, totalLength, identification, localIp, destinationIp, 0x06, 0) == 0x45
+		assert Ipv4HeaderBuilder.GetByte(1, totalLength, identification, localIp, destinationIp, 0x06, 0) == 0x00
+		assert Ipv4HeaderBuilder.GetByte(2, totalLength, identification, localIp, destinationIp, 0x06, 0) == 0x00
+		assert Ipv4HeaderBuilder.GetByte(3, totalLength, identification, localIp, destinationIp, 0x06, 0) == 0x28
+		assert Ipv4HeaderBuilder.GetByte(4, totalLength, identification, localIp, destinationIp, 0x06, 0) == 0x12
+		assert Ipv4HeaderBuilder.GetByte(5, totalLength, identification, localIp, destinationIp, 0x06, 0) == 0x34
+		assert Ipv4HeaderBuilder.GetByte(6, totalLength, identification, localIp, destinationIp, 0x06, 0) == 0x40
+		assert Ipv4HeaderBuilder.GetByte(7, totalLength, identification, localIp, destinationIp, 0x06, 0) == 0x00
+		assert Ipv4HeaderBuilder.GetByte(8, totalLength, identification, localIp, destinationIp, 0x06, 0) == 0x40
+		assert Ipv4HeaderBuilder.GetByte(9, totalLength, identification, localIp, destinationIp, 0x06, 0) == 0x06
 	}
 
 	@Test
-	fn LeavesChecksumForChecksumComponent()
+	fn EmitsSuppliedChecksum()
 	{
 		var request: byte[128]
 		var localIp: byte[4]
@@ -62,12 +56,13 @@ component Ipv4HeaderBuilderTest
 		identification[0] = 0x12
 		identification[1] = 0x34
 
-		assert this.builder.GetResponseHeaderByte(request, 10, totalLength, identification[0], identification[1], localIp) == 0x00
-		assert this.builder.GetResponseHeaderByte(request, 11, totalLength, identification[0], identification[1], localIp) == 0x00
+		var destinationIp: byte[4] = [request[26], request[27], request[28], request[29]]
+		assert Ipv4HeaderBuilder.GetByte(10, totalLength, identification, localIp, destinationIp, 0x06, 0xABCD) == 0xAB
+		assert Ipv4HeaderBuilder.GetByte(11, totalLength, identification, localIp, destinationIp, 0x06, 0xABCD) == 0xCD
 	}
 
 	@Test
-	fn SwapsIpv4Addresses()
+	fn WritesConfiguredIpv4Addresses()
 	{
 		var request: byte[128]
 		var clientIp: byte[4]
@@ -90,10 +85,11 @@ component Ipv4HeaderBuilderTest
 		request[28] = clientIp[2]
 		request[29] = clientIp[3]
 
-		assert this.builder.GetResponseHeaderByte(request, 12, totalLength, identification[0], identification[1], localIp) == 0x0A
-		assert this.builder.GetResponseHeaderByte(request, 15, totalLength, identification[0], identification[1], localIp) == 0x01
-		assert this.builder.GetResponseHeaderByte(request, 16, totalLength, identification[0], identification[1], localIp) == 0x0A
-		assert this.builder.GetResponseHeaderByte(request, 19, totalLength, identification[0], identification[1], localIp) == 0x02
-		assert this.builder.GetResponseHeaderByte(request, 20, totalLength, identification[0], identification[1], localIp) == 0x00
+		var destinationIp: byte[4] = [request[26], request[27], request[28], request[29]]
+		assert Ipv4HeaderBuilder.GetByte(12, totalLength, identification, localIp, destinationIp, 0x06, 0) == 0x0A
+		assert Ipv4HeaderBuilder.GetByte(15, totalLength, identification, localIp, destinationIp, 0x06, 0) == 0x01
+		assert Ipv4HeaderBuilder.GetByte(16, totalLength, identification, localIp, destinationIp, 0x06, 0) == 0x0A
+		assert Ipv4HeaderBuilder.GetByte(19, totalLength, identification, localIp, destinationIp, 0x06, 0) == 0x02
+		assert Ipv4HeaderBuilder.GetByte(20, totalLength, identification, localIp, destinationIp, 0x06, 0) == 0x00
 	}
 }

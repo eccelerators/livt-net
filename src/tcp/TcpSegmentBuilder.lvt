@@ -1,0 +1,56 @@
+namespace Livt.Net
+
+/**
+ * Pure fixed-header TCP encoding from explicit endpoint and response metadata.
+ */
+class TcpSegmentBuilder
+{
+	/**
+	 * Emits bytes 0..19: source/destination ports, sequence, acknowledgment,
+	 * data offset=0x50, flags, window, checksum and zero urgent pointer.
+	 * All arrays use network order; out-of-header indices return zero.
+	 */
+	public static inline fn GetByte[](
+		index: int, sourcePort: byte[2], destinationPort: byte[2],
+		sequence: byte[4], acknowledgment: byte[4], flags: byte,
+		window: byte[2], checksum: byte[2]) byte
+	{
+		if (index < 0) {
+			return 0x00
+		}
+
+		if (index < 2) {
+			return sourcePort[index]
+		}
+
+		if (index < 4) {
+			return destinationPort[index - 2]
+		}
+
+		if (index < 8) {
+			return sequence[index - 4]
+		}
+
+		if (index < 12) {
+			return acknowledgment[index - 8]
+		}
+
+		if (index == 12) {
+			return 0x50
+		}
+
+		if (index == 13) {
+			return flags
+		}
+
+		if (index < 16) {
+			return window[index - 14]
+		}
+
+		if (index < 18) {
+			return checksum[index - 16]
+		}
+
+		return 0x00
+	}
+}
