@@ -87,3 +87,7 @@ ownership are unchanged.
 No compatibility wrappers are retained. Static extraction preserves the tested
 packet bytes and checksum values; it does not promise identical cycle counts or
 hardware costs. Verification uses Livt tests, with no synthesis requirement.
+
+Common inherited specializations live beside their protocols. See
+[common packet compositions](common-packets.md) for exact expansions, supported
+defaults, construction and lifetime rules.

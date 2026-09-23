@@ -1,0 +1,14 @@
+namespace Livt.Net
+
+/**
+ * Complete Ethernet/IPv4/ICMP echo reply, excluding preamble and FCS.
+ * Inherits EthernetFrame<IcmpEchoReplyPacket<S>, MAX_PAYLOAD_LENGTH>. new(packet) borrows
+ * the named IcmpEchoReplyPacket<S>. The provider type S is explicit;
+ * the Ethernet payload limit defaults to 1500 bytes. No data is copied.
+ * Prepare reply, packet and frame in that order. Invalidate in reverse order after
+ * all reads/TX borrows finish; release the byte provider last. All calls use the
+ * inherited scheduled contracts in one serialized owner and clock context.
+ */
+component IcmpEchoReplyFrame<S: IPacketData, MAX_PAYLOAD_LENGTH: int = 1500> : EthernetFrame<IcmpEchoReplyPacket<S>, MAX_PAYLOAD_LENGTH>
+{
+}

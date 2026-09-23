@@ -18,8 +18,8 @@ component IcmpEchoResponder<S: IPacketData, FRAME_CAPACITY: int = 128> : IPacket
 
 	// Owned nested reply envelopes borrowing the snapshot and each other.
 	reply: IcmpEchoReply<ArrayPacketData<FRAME_CAPACITY>>
-	ip: Ipv4Packet<IcmpEchoReply<ArrayPacketData<FRAME_CAPACITY>>>
-	frame: EthernetFrame<Ipv4Packet<IcmpEchoReply<ArrayPacketData<FRAME_CAPACITY>>>, FRAME_CAPACITY>
+	ip: IcmpEchoReplyPacket<ArrayPacketData<FRAME_CAPACITY>>
+	frame: IcmpEchoReplyFrame<ArrayPacketData<FRAME_CAPACITY>, FRAME_CAPACITY>
 
 	/**
 	 * Borrows the request source and creates owned parsers, echo storage and reply
@@ -31,8 +31,8 @@ component IcmpEchoResponder<S: IPacketData, FRAME_CAPACITY: int = 128> : IPacket
 		ipv4 = new Ipv4PacketParser<EthernetFrameParser<S>>(ethernet)
 		data = new ArrayPacketData<FRAME_CAPACITY>()
 		reply = new IcmpEchoReply<ArrayPacketData<FRAME_CAPACITY>>(data)
-		ip = new Ipv4Packet<IcmpEchoReply<ArrayPacketData<FRAME_CAPACITY>>>(reply)
-		frame = new EthernetFrame<Ipv4Packet<IcmpEchoReply<ArrayPacketData<FRAME_CAPACITY>>>, FRAME_CAPACITY>(ip)
+		ip = new IcmpEchoReplyPacket<ArrayPacketData<FRAME_CAPACITY>>(reply)
+		frame = new IcmpEchoReplyFrame<ArrayPacketData<FRAME_CAPACITY>, FRAME_CAPACITY>(ip)
 	}
 
 	/**

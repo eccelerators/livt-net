@@ -157,3 +157,6 @@ broader IPv4/TCP option handling, UDP support, and streaming frame adapters.
 ## 📄 License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE).
+
+Common ARP and ICMP compositions have [short packet and frame names](docs/common-packets.md),
+with explicit custom providers and the same preparation/ownership contracts.

@@ -1,0 +1,11 @@
+namespace Livt.Net
+
+/**
+ * Ethernet envelope for a prepared IPv4 packet with a custom protocol payload.
+ * Inherits EthernetFrame<Ipv4Packet<P>, MAX_PAYLOAD_LENGTH>; new(packet) borrows
+ * the prepared IPv4 packet. Prepare children before the frame and keep the entire
+ * graph stable until emission finishes. Invalidation affects only this envelope.
+ */
+component Ipv4Frame<P: IPacketData & IIpv4Payload, MAX_PAYLOAD_LENGTH: int = 1500> : EthernetFrame<Ipv4Packet<P>, MAX_PAYLOAD_LENGTH>
+{
+}

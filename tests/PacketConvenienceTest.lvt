@@ -1,0 +1,189 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+/**
+ * Compares concise and explicit graphs with independent complete-frame vectors.
+ */
+@Test
+component PacketConvenienceTest
+{
+	// Both graphs borrow the same published provider; all reads are serialized.
+	data: RamPacketData<96>
+	echo: IcmpEchoReply<RamPacketData<96>>
+	packet: IcmpEchoReplyPacket<RamPacketData<96>>
+	frame: IcmpEchoReplyFrame<RamPacketData<96>>
+	explicitPacket: Ipv4Packet<IcmpEchoReply<RamPacketData<96>>>
+	explicitFrame: EthernetFrame<Ipv4Packet<IcmpEchoReply<RamPacketData<96>>>>
+	limited: IcmpEchoReplyFrame<RamPacketData<96>, 28>
+
+	// ARP has a standard reply payload and needs no generic arguments.
+	arp: ArpReply
+	arpFrame: ArpReplyFrame
+	explicitArp: EthernetFrame<ArpReply>
+
+	// A user-defined protocol remains usable without a service or platform adapter.
+	custom: PacketMetadataStub
+	customPacket: Ipv4Packet<PacketMetadataStub>
+	customFrame: Ipv4Frame<PacketMetadataStub>
+	explicitCustom: EthernetFrame<Ipv4Packet<PacketMetadataStub>>
+
+	/**
+	 * Inherited constructors bind existing instances; no convenience type copies data.
+	 */
+	new()
+	{
+		data = new RamPacketData<96>()
+		echo = new IcmpEchoReply<RamPacketData<96>>(data)
+		packet = new IcmpEchoReplyPacket<RamPacketData<96>>(echo)
+		frame = new IcmpEchoReplyFrame<RamPacketData<96>>(packet)
+		explicitPacket = new Ipv4Packet<IcmpEchoReply<RamPacketData<96>>>(echo)
+		explicitFrame = new EthernetFrame<Ipv4Packet<IcmpEchoReply<RamPacketData<96>>>>(explicitPacket)
+		limited = new IcmpEchoReplyFrame<RamPacketData<96>, 28>(packet)
+		arp = new ArpReply()
+		arpFrame = new ArpReplyFrame(arp)
+		explicitArp = new EthernetFrame<ArpReply>(arp)
+		custom = new PacketMetadataStub()
+		customPacket = new Ipv4Packet<PacketMetadataStub>(custom)
+		customFrame = new Ipv4Frame<PacketMetadataStub>(customPacket)
+		explicitCustom = new EthernetFrame<Ipv4Packet<PacketMetadataStub>>(customPacket)
+	}
+
+	/**
+	 * Checks odd data, both checksums, padding, borrowed storage and failed replacement.
+	 */
+	@Test
+	fn EchoFramesMatchAndPreserveLifetime()
+	{
+		var mac: byte[6] = [0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE]
+		var peer: byte[6] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE]
+		var address: byte[4] = [0xC0, 0xA8, 0x01, 0x80]
+		var remote: byte[4] = [0xC0, 0xA8, 0x01, 0xFF]
+		var id: byte[2] = [0x12, 0x34]
+		var value: byte = 0x00
+		var identifier: byte[2] = [0xAB, 0xCD]
+		var sequence: byte[2] = [0x80, 0xFE]
+		frame.Invalidate()
+		explicitFrame.Invalidate()
+		limited.Invalidate()
+		packet.Invalidate()
+		explicitPacket.Invalidate()
+		echo.Invalidate()
+		data.TryRelease()
+		data.TryClear()
+		assert frame.TryRead(0, value) == PacketDataResult.NotReady
+		assert frame.TryPrepare(mac, peer) == PacketDataResult.NotReady
+		assert data.TryWrite(0, 0x80) == PacketDataResult.Success
+		assert data.TryWrite(1, 0x81) == PacketDataResult.Success
+		assert data.TryWrite(2, 0x82) == PacketDataResult.Success
+		assert data.TryPublish() == PacketDataResult.Success
+		assert echo.TryPrepare(identifier, sequence) == PacketDataResult.Success
+		assert packet.TryPrepare(address, remote, id) == PacketDataResult.Success
+		assert explicitPacket.TryPrepare(address, remote, id) == PacketDataResult.Success
+		assert frame.TryPrepare(mac, peer) == PacketDataResult.Success
+		assert explicitFrame.TryPrepare(mac, peer) == PacketDataResult.Success
+		assert limited.TryPrepare(mac, peer) == PacketDataResult.Invalid
+		assert !limited.IsReady()
+		assert packet.GetAvailableLength() == 31
+		assert frame.GetAvailableLength() == 60
+		assert explicitFrame.GetAvailableLength() == 60
+		assert data.TryWrite(0, 0xFF) == PacketDataResult.Busy
+		var expected: byte[60] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x08, 0x00, 0x45, 0x00, 0x00, 0x1F, 0x12, 0x34, 0x40, 0x00, 0x40, 0x01, 0xA3, 0xDA, 0xC0, 0xA8, 0x01, 0x80, 0xC0, 0xA8, 0x01, 0xFF, 0x00, 0x00, 0xD0, 0xB1, 0xAB, 0xCD, 0x80, 0xFE, 0x80, 0x81, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+
+		for (var i = 0; i < 60; i++) {
+			assert frame.TryRead(i, value) == PacketDataResult.Success
+			assert value == expected[i]
+			assert explicitFrame.TryRead(i, value) == PacketDataResult.Success
+			assert value == expected[i]
+		}
+
+		assert frame.TryRead(-1, value) == PacketDataResult.Invalid
+		assert frame.TryRead(60, value) == PacketDataResult.Invalid
+		frame.Invalidate()
+		explicitFrame.Invalidate()
+		packet.Invalidate()
+		explicitPacket.Invalidate()
+		echo.Invalidate()
+		assert data.TryRelease() == PacketDataResult.Success
+		assert packet.TryPrepare(address, remote, id) == PacketDataResult.NotReady
+		assert frame.TryPrepare(mac, peer) == PacketDataResult.NotReady
+		assert frame.GetAvailableLength() == 0
+	}
+
+	/**
+	 * Checks the complete standard ARP reply and independently prepared envelopes.
+	 */
+	@Test
+	fn ArpFramesMatch()
+	{
+		var mac: byte[6] = [0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE]
+		var peer: byte[6] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE]
+		var address: byte[4] = [0xC0, 0xA8, 0x01, 0x80]
+		var remote: byte[4] = [0xC0, 0xA8, 0x01, 0xFF]
+		var id: byte[2] = [0x12, 0x34]
+		var value: byte = 0x00
+		arpFrame.Invalidate()
+		explicitArp.Invalidate()
+		arp.Invalidate()
+		assert arpFrame.TryPrepare(mac, peer) == PacketDataResult.NotReady
+		assert arp.TryPrepare(mac, address, peer, remote) == PacketDataResult.Success
+		assert arpFrame.TryPrepare(mac, peer) == PacketDataResult.Success
+		assert explicitArp.TryPrepare(mac, peer) == PacketDataResult.Success
+		var expected: byte[60] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x08, 0x06, 0x00, 0x01, 0x08, 0x00, 0x06, 0x04, 0x00, 0x02, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xC0, 0xA8, 0x01, 0x80, 0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0xC0, 0xA8, 0x01, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+
+		for (var i = 0; i < 60; i++) {
+			assert arpFrame.TryRead(i, value) == PacketDataResult.Success
+			assert value == expected[i]
+			assert explicitArp.TryRead(i, value) == PacketDataResult.Success
+			assert value == expected[i]
+		}
+
+		assert arpFrame.GetAvailableLength() == 60
+		assert arpFrame.TryRead(60, value) == PacketDataResult.Invalid
+		arpFrame.Invalidate()
+		explicitArp.Invalidate()
+		arp.Invalidate()
+	}
+
+	/**
+	 * Checks a custom protocol's bytes and propagation of provider read failures.
+	 */
+	@Test
+	fn CustomPayloadRemainsComposable()
+	{
+		var mac: byte[6] = [0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE]
+		var peer: byte[6] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE]
+		var address: byte[4] = [0xC0, 0xA8, 0x01, 0x80]
+		var remote: byte[4] = [0xC0, 0xA8, 0x01, 0xFF]
+		var id: byte[2] = [0x12, 0x34]
+		var value: byte = 0x00
+		customFrame.Invalidate()
+		explicitCustom.Invalidate()
+		customPacket.Invalidate()
+		custom.Configure(3, 0x88B5, 253, true, -1)
+		assert customPacket.TryPrepare(address, remote, id) == PacketDataResult.Success
+		assert customFrame.TryPrepare(mac, peer) == PacketDataResult.Success
+		assert explicitCustom.TryPrepare(mac, peer) == PacketDataResult.Success
+		var expected: byte[60] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x08, 0x00, 0x45, 0x00, 0x00, 0x17, 0x12, 0x34, 0x40, 0x00, 0x40, 0xFD, 0xA2, 0xE6, 0xC0, 0xA8, 0x01, 0x80, 0xC0, 0xA8, 0x01, 0xFF, 0xA5, 0xA5, 0xA5, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+
+		for (var i = 0; i < 60; i++) {
+			assert customFrame.TryRead(i, value) == PacketDataResult.Success
+			assert value == expected[i]
+			assert explicitCustom.TryRead(i, value) == PacketDataResult.Success
+			assert value == expected[i]
+		}
+
+		customFrame.Invalidate()
+		explicitCustom.Invalidate()
+		customPacket.Invalidate()
+		custom.Configure(3, 0x88B5, 253, true, 1)
+		assert customPacket.TryPrepare(address, remote, id) == PacketDataResult.Success
+		assert customFrame.TryPrepare(mac, peer) == PacketDataResult.Success
+		assert customFrame.TryRead(35, value) == PacketDataResult.Invalid
+		customFrame.Invalidate()
+		customPacket.Invalidate()
+		custom.Configure(3, 0x88B5, 256, true, -1)
+		assert customPacket.TryPrepare(address, remote, id) == PacketDataResult.Invalid
+		assert customFrame.TryPrepare(mac, peer) == PacketDataResult.NotReady
+	}
+}

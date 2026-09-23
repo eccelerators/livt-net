@@ -116,3 +116,9 @@ For valid ICMP requests the reply bytes are preserved. For inconsistent incoming
 ICMP checksum fields, the new response checksum follows the actual bytes instead
 of adjusting the supplied field. Incoming checksum validation remains a separate
 parser responsibility.
+
+## Convenient standard names
+
+See [common packet compositions](common-packets.md) for `ArpReplyFrame`,
+`IcmpEchoReplyPacket<S>`, `IcmpEchoReplyFrame<S>` and `Ipv4Frame<P>`. These inherit
+the implementations shown here; custom explicit compositions remain supported.

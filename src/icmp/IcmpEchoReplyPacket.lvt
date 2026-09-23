@@ -1,0 +1,12 @@
+namespace Livt.Net
+
+/**
+ * IPv4 packet carrying an ICMP echo reply.
+ * Inherits Ipv4Packet<IcmpEchoReply<S>>, including new(reply) and
+ * TryPrepare(sourceIp, destinationIp, identification). The explicit provider type S is
+ * borrowed through the reply, not allocated here.
+ * Prepare the reply first and retain its provider until all dependent reads finish.
+ */
+component IcmpEchoReplyPacket<S: IPacketData> : Ipv4Packet<IcmpEchoReply<S>>
+{
+}

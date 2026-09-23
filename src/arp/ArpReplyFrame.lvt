@@ -1,0 +1,11 @@
+namespace Livt.Net
+
+/**
+ * Ethernet envelope for a prepared ARP reply.
+ * Inherits EthernetFrame<ArpReply>, including new(reply) and TryPrepare(mac, peerMac).
+ * Prepare the borrowed reply first and keep it stable until all frame reads finish.
+ * Starts unprepared; invalidating the frame does not invalidate the borrowed reply.
+ */
+component ArpReplyFrame : EthernetFrame<ArpReply>
+{
+}

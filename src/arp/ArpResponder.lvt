@@ -11,7 +11,7 @@ component ArpResponder<S: IPacketData> : IPacketData
 
 	// Owned reply snapshot and its Ethernet envelope.
 	reply: ArpReply
-	frame: EthernetFrame<ArpReply>
+	frame: ArpReplyFrame
 
 	/**
 	 * Wires recognition and reply composition without reading the source.
@@ -21,7 +21,7 @@ component ArpResponder<S: IPacketData> : IPacketData
 		ethernet = new EthernetFrameParser<S>(source)
 		parser = new ArpPacketParser<EthernetFrameParser<S>>(ethernet)
 		reply = new ArpReply()
-		frame = new EthernetFrame<ArpReply>(reply)
+		frame = new ArpReplyFrame(reply)
 	}
 
 	/**
