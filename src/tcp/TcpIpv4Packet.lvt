@@ -1,0 +1,9 @@
+namespace Livt.Net
+
+/**
+ * Standard fixed-header TCP/IPv4 composition. Inherits constructor and lifecycle.
+ * Prepare the TcpSegment first, using the same IP addresses as this envelope.
+ */
+component TcpIpv4Packet<P: IPacketData> : Ipv4Packet<TcpSegment<P>>
+{
+}

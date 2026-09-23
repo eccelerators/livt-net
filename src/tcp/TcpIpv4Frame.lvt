@@ -1,0 +1,9 @@
+namespace Livt.Net
+
+/**
+ * Ethernet envelope borrowing an exact TcpIpv4Packet. Inherits construction,
+ * padding and lifecycle without copying payload or adding a forwarding layer.
+ */
+component TcpIpv4Frame<P: IPacketData, MAX_PAYLOAD_LENGTH: int = 1500> : EthernetFrame<TcpIpv4Packet<P>, MAX_PAYLOAD_LENGTH>
+{
+}

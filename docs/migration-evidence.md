@@ -1,5 +1,9 @@
 # Livt.Net 1.1.0-dev migration evidence
 
+Historical evidence for the earlier implementation. For the current API and
+verification boundary, see [consumer migration](consumer-migration.md). Native
+AXI and board results below do not validate the redesigned driver.
+
 Review date: 2026-09-21. Native AXI verification passes with the #491 compiler
 fix, and invalid-capacity rejection passes with #492. Development web-app integration
 is verified with #497. Package publication and physical hardware validation are

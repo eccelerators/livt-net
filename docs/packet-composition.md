@@ -107,7 +107,8 @@ This replaces `GetReplyByte(request, index, localMac, localIp)` and
 length. Recognition-only callers use the bounded parsers; `ShouldRespond` and
 array-based preparation signatures have been removed. See [packet parsing](packet-parsing.md)
 for failure-path invalidation and checksum policy. No old emission signatures or duplicate byte encoders
-are retained. The existing TCP builders and composers are unchanged.
+are retained. TCP now uses prepared `TcpSegment<P>` compositions as documented in
+[tcp-composition.md](tcp-composition.md).
 
 Livt.Web's NetworkEndpoint uses the new preparation API and invalidates responses
 when beginning another frame. The WebApp consumes that endpoint transitively.

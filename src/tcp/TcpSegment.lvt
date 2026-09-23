@@ -1,0 +1,125 @@
+namespace Livt.Net
+
+/**
+ * Prepared fixed-header TCP segment over a borrowed payload. No options or
+ * connection state. Preparation reads the complete payload once to calculate
+ * the IPv4 pseudo-header checksum. Only the 20-byte header is stored here.
+ */
+component TcpSegment<P: IPacketData> : IPacketData, IIpv4Payload
+{
+	// Borrowed publication and owned prepared header metadata.
+	payload: P
+	header: byte[20]
+	length: int
+	ready: bool
+	calculator: InternetChecksum
+
+	/** Binds stable payload storage; starts unprepared. */
+	new(payload: P)
+	{
+		this.payload = payload
+		this.calculator = new InternetChecksum()
+	}
+
+	/** Finish dependent reads/TX borrows and invalidate ancestors first. */
+	public fn Invalidate()
+	{
+		this.ready = false
+		this.length = 0
+	}
+
+	/**
+	 * Arrays are network order. Use these same IP addresses for the enclosing
+	 * IPv4 packet. Payload length may be 0..65495, so the complete IPv4 packet
+	 * fits 65535 bytes. Failure invalidates prior metadata; read errors propagate.
+	 * Keep the payload publication unchanged until all parent/TX borrows finish.
+	 */
+	public fn TryPrepare(sourceIp: byte[4], destinationIp: byte[4],
+		sourcePort: byte[2], destinationPort: byte[2], sequence: byte[4],
+		acknowledgment: byte[4], flags: byte, window: byte[2]) PacketDataResult
+	{
+		this.Invalidate()
+
+		if (!this.payload.IsReady()) {
+			return PacketDataResult.NotReady
+		}
+
+		var size = this.payload.GetAvailableLength()
+
+		if (size < 0 || size > 65495) {
+			return PacketDataResult.Invalid
+		}
+
+		this.calculator.Reset()
+
+		for (var i = 0; i < size; i++) {
+			var value: byte = 0x00
+			var result = this.payload.TryRead(i, value)
+
+			if (result != PacketDataResult.Success) {
+				return result
+			}
+
+			this.calculator.AddByte(value)
+		}
+
+		var payloadSum = this.calculator.GetWordSum()
+		var checksum = TcpChecksum.CalculatePayloadChecksum(sourceIp, destinationIp,
+			sourcePort, destinationPort, sequence, acknowledgment, flags, window,
+			20 + size, payloadSum)
+		var checksumBytes: byte[2] = [NetworkOrder.HighByte(checksum), NetworkOrder.LowByte(checksum)]
+
+		for (var i = 0; i < 20; i++) {
+			var octet = TcpSegmentBuilder.GetByte(i, sourcePort, destinationPort,
+				sequence, acknowledgment, flags, window, checksumBytes)
+			this.header[i] = octet
+		}
+
+		this.length = 20 + size
+		this.ready = true
+		return PacketDataResult.Success
+	}
+
+	/** Returns TCP's protocol identity, independent of readiness. */
+	override fn GetProtocol() int
+	{
+		return IIpv4Payload.PROTOCOL_TCP as int
+	}
+
+	/** Prepared metadata does not acquire or police external provider ownership. */
+	override fn IsReady() bool
+	{
+		return this.ready
+	}
+
+	/** Returns zero until successfully prepared. */
+	override fn GetAvailableLength() int
+	{
+		if (!this.ready) {
+			return 0
+		}
+
+		return this.length
+	}
+
+	/** Header reads are cached; payload read errors propagate. Output is valid only on Success. */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (!this.ready) {
+			return PacketDataResult.NotReady
+		}
+
+		if (index < 0 || index >= this.length) {
+			return PacketDataResult.Invalid
+		}
+
+		if (index < 20) {
+			value = this.header[index]
+			return PacketDataResult.Success
+		}
+
+		return this.payload.TryRead(index - 20, value)
+	}
+}

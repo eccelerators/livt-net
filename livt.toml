@@ -37,7 +37,8 @@ components = [
 	"TcpConnectionRecognizerTest",
 	"TcpHeaderParserTest",
 	"TcpSegmentBuilderTest",
-	"TcpSynAckFrameComposerTest",
+	"TcpSegmentTest",
+	"TcpRamPacketTest",
 	"ScheduledWordSumTest"
 ]
 

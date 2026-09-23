@@ -18,7 +18,8 @@ The 1.1.0-dev package surface is intentionally narrow and hardware-oriented:
 - `Livt.Net.TcpHeaderParser`: bounded TCP header parser.
 - `Livt.Net.TcpConnectionRecognizer`: TCP packet recognizer for local endpoints.
 - `Livt.Net.TcpSegmentBuilder`: static fixed TCP header encoding.
-- `Livt.Net.TcpSynAckFrameComposer`: Ethernet/IPv4/TCP SYN-ACK frame composer.
+- `Livt.Net.TcpSegment<P>`: prepared TCP segment over a bounded payload provider.
+- `Livt.Net.TcpIpv4Packet<P>` / `TcpIpv4Frame<P>`: common TCP packet/frame compositions.
 - `Livt.Net.TcpChecksum`: checksum helper for fixed TCP responses.
 - `Livt.Net.IFrameReceiver` / `IFrameTransmitter`: device-independent frame capabilities.
 - `Livt.Net.Drivers.EthernetLite`: concrete driver, ownership components and AXI boundary.
@@ -49,7 +50,7 @@ protocol responsibilities without imposing extra imports; see
 | ARP | `ArpPacketParser`, `ArpReply`, `ArpResponder` |
 | IPv4 | `Ipv4Packet`, `Ipv4PacketParser`, `Ipv4HeaderBuilder`, `Ipv4HeaderChecksum` |
 | ICMP | `IcmpEchoReply`, `IcmpEchoResponder` |
-| TCP | `TcpHeaderParser`, `TcpConnectionRecognizer`, `TcpSegmentBuilder`, `TcpSynAckFrameComposer`, `TcpChecksum` |
+| TCP | `TcpHeaderParser`, `TcpConnectionRecognizer`, `TcpSegmentBuilder`, `TcpSegment`, `TcpIpv4Packet`, `TcpIpv4Frame`, `TcpChecksum` |
 | Checksums | `InternetChecksum`, `Ipv4HeaderChecksum`, `TcpChecksum` |
 | Services | `NetworkService`, `ArpService`, `IcmpEchoService`, `ServiceChain`, `FrameService`, `ResponseTransfer` |
 | Buffered links | `IFrameReceiver`, `IFrameTransmitter`, `TestFrameReceiver`, `TestFrameTransmitter` |
@@ -83,8 +84,9 @@ individual high/low field bytes. See [bounded packet parsing](docs/packet-parsin
 for supported forms, checksum policy and lifetime rules.
 
 Responders bind a frame provider and use `TryPrepare(localMac, localIp)`, followed
-by `TryRead(index, value)` and `GetAvailableLength()`. Existing TCP builders and
-composers retain their emission API; the common service covers ARP/ICMP.
+by `TryRead(index, value)` and `GetAvailableLength()`. The common service covers ARP/ICMP. TCP packet generators and Web use
+[prepared TCP composition](docs/tcp-composition.md), with checksums calculated
+from actual payload bytes before emission.
 
 `InternetChecksum` incrementally consumes network-order bytes with `AddByte()`.
 It accepts `byte` octets and returns either the unfolded word sum for the static
@@ -121,6 +123,13 @@ layout. The EthernetLite receiver defaults to 128 bytes (supported 60..1514), an
 its transmitter accepts prepared standard frames of 60..1514 bytes by default.
 The final partial AXI word is zero-filled without reading past the source.
 
+## Development API migration
+
+This development line intentionally breaks the earlier raw-array parser, responder
+and EthernetFrameIo APIs. Migrate consumers together; no compatibility wrappers
+are provided. See [consumer migration](docs/consumer-migration.md) for the API map,
+lifecycle rules, dependency setup and verification boundaries.
+
 ## Development verification status
 
 Use Livt tests for the driver and consumers. Prior native AXI/board evidence
@@ -151,8 +160,9 @@ notes live in [`docs/design-notes.md`](docs/design-notes.md).
 
 ## 🚧 Outlook
 
-Likely future package work includes domain folders with mirrored test folders,
-broader IPv4/TCP option handling, UDP support, and streaming frame adapters.
+Possible future work includes broader IPv4/TCP option handling, UDP support and
+streaming frame adapters. These are separate features, not part of the current
+fixed-header request/response contract.
 
 ## 📄 License
 

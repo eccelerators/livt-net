@@ -95,6 +95,7 @@ component TcpConnectionRecognizer<S: IPacketData> : IPacketData
 		var destination = ipv4.GetDestinationIpv4()
 
 		for (var i = 0; i < 4; i++) {
+
 			if (destination[i] != localIp[i]) {
 				return false
 			}
@@ -125,6 +126,18 @@ component TcpConnectionRecognizer<S: IPacketData> : IPacketData
 	public fn IsPshAckPacket(localIp: byte[4], localPort: int) bool
 	{
 		return this.IsForEndpoint(localIp, localPort) && tcp.GetFlags() == 24 && tcp.GetHeaderLength() == 20
+	}
+
+	/** Returns the peer MAC only while the complete protocol graph is usable. */
+	public fn GetSourceMac() byte[6]
+	{
+		var empty: byte[6] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+
+		if (!this.IsReady()) {
+			return empty
+		}
+
+		return this.ethernet.GetSourceMac()
 	}
 
 	/**

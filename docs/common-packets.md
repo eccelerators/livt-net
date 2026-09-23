@@ -6,6 +6,8 @@ header and minimum-frame padding, excluding preamble and FCS.
 
 | Name | Inherited implementation | Constructor |
 |---|---|---|
+| `TcpIpv4Packet<P>` | `Ipv4Packet<TcpSegment<P>>` | `new(segment)` |
+| `TcpIpv4Frame<P, MAX_PAYLOAD_LENGTH = 1500>` | `EthernetFrame<TcpIpv4Packet<P>, MAX_PAYLOAD_LENGTH>` | `new(packet)` |
 | `ArpReplyFrame` | `EthernetFrame<ArpReply>` | `new(reply)` |
 | `Ipv4Frame<P, MAX_PAYLOAD_LENGTH = 1500>` | `EthernetFrame<Ipv4Packet<P>, MAX_PAYLOAD_LENGTH>` | `new(packet)` |
 | `IcmpEchoReplyPacket<S>` | `Ipv4Packet<IcmpEchoReply<S>>` | `new(reply)` |
@@ -20,14 +22,16 @@ constructors, storage and scheduled methods from their parent components. They
 add no payload copies or forwarding calls. This is a source-level statement;
 no hardware-cost or cycle-count equivalence is claimed without measurement.
 
-`S` must implement `IPacketData`. `P` must also implement `IIpv4Payload` so IPv4
-can obtain the protocol number. Required addresses, identification, echo fields
+`S` and TCP payload provider `P` must implement `IPacketData`. For the general
+`Ipv4Frame<P>`, `P` must additionally implement `IIpv4Payload` so IPv4 can obtain
+the protocol number. Required addresses, identification, echo fields
 and published data remain explicit. Livt currently supports value-parameter
 defaults, but neither type-parameter defaults nor type aliases. Provider types
 therefore remain explicit; the standard Ethernet payload limit defaults to 1500.
 The name `ArpReplyFrame` selects the existing standard ARP reply implementation.
-There is no general prepared TCP segment yet, so no `TcpIpv4Frame` is advertised.
-The existing TCP/HTTP builders retain their narrower contracts.
+TCP now has a prepared segment and concise frame composition; see
+[TCP construction](tcp-composition.md) for metadata, checksum and lifetime rules.
+This adds packet generation, not a general connection-management implementation.
 
 ## Common ICMP reply
 

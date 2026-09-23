@@ -28,8 +28,8 @@ packet providers nor start scheduled component transactions.
 `InternetChecksum` remains a component because it owns an accumulated sum and a
 pending octet. Providers, parsers, prepared packets, response services and link
 owners also remain components: their state and lifetimes are part of their role.
-The bounded SYN-ACK composer remains a scheduled composition entry point with a
-compile-time request capacity; its byte encoders no longer need child instances.
+`TcpSegment<P>` owns a prepared header and borrows bounded payload data. SYN-ACK
+is an empty-payload use of this same component, not a separate frame encoder.
 
 Packet data and emitted octets use `byte`. The driver boundary uses `logic` vectors
 for hardware signals. Lengths and decoded 16-bit words use `int` with documented
@@ -63,10 +63,9 @@ Their documented input bounds are preconditions, not packet-validation results.
 Use the checked packet components when preparing a complete published response.
 
 The encoders no longer parse fixed offsets out of request arrays or implicitly
-swap endpoints. Reply direction is explicit at the composition root. Existing
-TCP/HTTP composers retain their bounded request input, extract the relevant
-metadata, and call these encoders. Prepared ARP/ICMP packet graphs and response
-ownership are unchanged.
+swap endpoints. Reply direction is explicit at the composition root. TCP/HTTP emission now prepares the shared TCP/IPv4/Ethernet graph from explicit
+metadata and published content. Prepared ARP/ICMP graphs are unchanged. See
+[TCP composition](tcp-composition.md).
 
 ## Migration
 
