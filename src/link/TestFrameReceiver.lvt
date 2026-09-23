@@ -1,6 +1,12 @@
 namespace Livt.Net
 
-enum TestReceiveState { Empty Available Acquired Resetting }
+enum TestReceiveState
+{
+	Empty
+	Available
+	Acquired
+	Resetting
+}
 
 /**
  * Deterministic buffered receiver for Livt tests. Inject/Publish/Fail/Reset
@@ -8,11 +14,18 @@ enum TestReceiveState { Empty Available Acquired Resetting }
  */
 component TestFrameReceiver<CAPACITY: int = 128> : IFrameReceiver
 {
+	// Owned capture storage; acquisition freezes its publication lifetime.
 	storage: ArrayPacketData<CAPACITY>
+
+	// Receive ownership, optional wire length and independently latched error.
 	phase: TestReceiveState
 	wireKnown: bool
 	wireLength: int
 	failed: bool
+
+	/**
+	 * Creates owned packet storage and starts empty, with no wire-length knowledge or error.
+	 */
 	new()
 	{
 		storage = new ArrayPacketData<CAPACITY>()
@@ -21,92 +34,247 @@ component TestFrameReceiver<CAPACITY: int = 128> : IFrameReceiver
 		wireLength = 0
 		failed = false
 	}
-	override fn GetReceiveCapacity() int { return CAPACITY }
-	override fn HasReceiveFrame() bool { return phase == TestReceiveState.Available || phase == TestReceiveState.Acquired }
-	override fn IsReady() bool { return phase == TestReceiveState.Acquired }
+
+	/**
+	 * Returns the maximum captured prefix length in bytes, not the wire length.
+	 */
+	override fn GetReceiveCapacity() int
+	{
+		return CAPACITY
+	}
+
+	/**
+	 * Reports an available or already acquired frame; this snapshot does not acquire it.
+	 */
+	override fn HasReceiveFrame() bool
+	{
+		return phase == TestReceiveState.Available || phase == TestReceiveState.Acquired
+	}
+
+	/**
+	 * Reports whether a frame is acquired and readable by its owner.
+	 */
+	override fn IsReady() bool
+	{
+		return phase == TestReceiveState.Acquired
+	}
+
+	/**
+	 * Returns the acquired captured prefix length, or zero without acquisition.
+	 */
 	override fn GetAvailableLength() int
 	{
-		if (phase != TestReceiveState.Acquired) { return 0 }
+		if (phase != TestReceiveState.Acquired) {
+			return 0
+		}
+
 		return storage.GetAvailableLength()
 	}
+
+	/**
+	 * Reads a captured byte only while acquired. Returns NotReady without ownership
+	 * and Invalid outside the captured prefix; output is data only on Success.
+	 */
 	override fn TryRead(index: int, value: out byte) PacketDataResult
 	{
 		value = 0x00
-		if (phase != TestReceiveState.Acquired) { return PacketDataResult.NotReady }
+
+		if (phase != TestReceiveState.Acquired) {
+			return PacketDataResult.NotReady
+		}
+
 		return storage.TryRead(index, value)
 	}
+
+	/**
+	 * Acquires the available frame on Success; packet reads then become valid.
+	 * Busy means already acquired, NotReady means unavailable/resetting, and
+	 * DeviceFailure reports a receive error. Failed acquisition grants no ownership.
+	 */
 	override fn TryAcquire() FrameLinkResult
 	{
-		if (phase == TestReceiveState.Acquired) { return FrameLinkResult.Busy }
-		if (phase == TestReceiveState.Resetting) { return FrameLinkResult.NotReady }
-		if (failed) { return FrameLinkResult.DeviceFailure }
-		if (phase != TestReceiveState.Available) { return FrameLinkResult.NotReady }
+		if (phase == TestReceiveState.Acquired) {
+			return FrameLinkResult.Busy
+		}
+
+		if (phase == TestReceiveState.Resetting) {
+			return FrameLinkResult.NotReady
+		}
+
+		if (failed) {
+			return FrameLinkResult.DeviceFailure
+		}
+
+		if (phase != TestReceiveState.Available) {
+			return FrameLinkResult.NotReady
+		}
+
 		phase = TestReceiveState.Acquired
 		return FrameLinkResult.Success
 	}
+
+	/**
+	 * Releases an acquired frame and clears prefix/wire metadata without erasing RAM.
+	 * Close all dependent views first. Returns Invalid without acquisition or
+	 * NotReady while resetting.
+	 */
 	override fn TryRelease() FrameLinkResult
 	{
-		if (phase == TestReceiveState.Resetting) { return FrameLinkResult.NotReady }
-		if (phase != TestReceiveState.Acquired) { return FrameLinkResult.Invalid }
+		if (phase == TestReceiveState.Resetting) {
+			return FrameLinkResult.NotReady
+		}
+
+		if (phase != TestReceiveState.Acquired) {
+			return FrameLinkResult.Invalid
+		}
+
 		storage.TryRelease()
 		wireKnown = false
 		wireLength = 0
 		phase = TestReceiveState.Empty
 		return FrameLinkResult.Success
 	}
-	override fn HasKnownWireLength() bool { return phase == TestReceiveState.Acquired && wireKnown }
-	/** Zero is not an unknown-length sentinel; first check HasKnownWireLength. */
+
+	/**
+	 * Reports whether the acquired frame has an exact wire length.
+	 */
+	override fn HasKnownWireLength() bool
+	{
+		return phase == TestReceiveState.Acquired && wireKnown
+	}
+
+	/**
+	 * Zero is not an unknown-length sentinel; first check HasKnownWireLength.
+	 */
 	override fn GetWireLength() int
 	{
-		if (phase != TestReceiveState.Acquired || !wireKnown) { return 0 }
+		if (phase != TestReceiveState.Acquired || !wireKnown) {
+			return 0
+		}
+
 		return wireLength
 	}
-	override fn HasReceiveError() bool { return failed }
+
+	/**
+	 * Reports a latched receive failure independently of frame ownership.
+	 */
+	override fn HasReceiveError() bool
+	{
+		return failed
+	}
+
+	/**
+	 * Clears a pending receive error. Returns NotReady if no error can be acknowledged.
+	 */
 	override fn TryAcknowledgeReceiveError() FrameLinkResult
 	{
-		if (phase == TestReceiveState.Resetting || !failed) { return FrameLinkResult.NotReady }
+		if (phase == TestReceiveState.Resetting || !failed) {
+			return FrameLinkResult.NotReady
+		}
+
 		failed = false
 		return FrameLinkResult.Success
 	}
 
+	/**
+	 * Appends or overwrites an initialized byte while empty. Holes/out-of-range
+	 * indices are Invalid; owned frames are Busy and a latched error is DeviceFailure.
+	 */
 	public fn InjectByte(index: int, value: byte) FrameLinkResult
 	{
-		if (phase == TestReceiveState.Resetting) { return FrameLinkResult.NotReady }
-		if (phase != TestReceiveState.Empty) { return FrameLinkResult.Busy }
-		if (failed) { return FrameLinkResult.DeviceFailure }
-		if (storage.TryWrite(index, value) != PacketDataResult.Success) { return FrameLinkResult.Invalid }
+		if (phase == TestReceiveState.Resetting) {
+			return FrameLinkResult.NotReady
+		}
+
+		if (phase != TestReceiveState.Empty) {
+			return FrameLinkResult.Busy
+		}
+
+		if (failed) {
+			return FrameLinkResult.DeviceFailure
+		}
+
+		if (storage.TryWrite(index, value) != PacketDataResult.Success) {
+			return FrameLinkResult.Invalid
+		}
+
 		return FrameLinkResult.Success
 	}
-	/** Publish the initialized prefix; unknown wire length must be supplied as zero. */
+
+	/**
+	 * Publish the initialized prefix; unknown wire length must be supplied as zero.
+	 */
 	public fn Publish(known: bool, length: int) FrameLinkResult
 	{
-		if (phase == TestReceiveState.Resetting) { return FrameLinkResult.NotReady }
-		if (phase != TestReceiveState.Empty) { return FrameLinkResult.Busy }
-		if (failed) { return FrameLinkResult.DeviceFailure }
-		if (length < 0 || (!known && length != 0)) { return FrameLinkResult.Invalid }
-		if (known && length < storage.GetWrittenLength()) { return FrameLinkResult.Invalid }
+		if (phase == TestReceiveState.Resetting) {
+			return FrameLinkResult.NotReady
+		}
+
+		if (phase != TestReceiveState.Empty) {
+			return FrameLinkResult.Busy
+		}
+
+		if (failed) {
+			return FrameLinkResult.DeviceFailure
+		}
+
+		if (length < 0 || (!known && length != 0)) {
+			return FrameLinkResult.Invalid
+		}
+
+		if (known && length < storage.GetWrittenLength()) {
+			return FrameLinkResult.Invalid
+		}
+
 		storage.TryPublish()
 		wireKnown = known
 		wireLength = length
 		phase = TestReceiveState.Available
 		return FrameLinkResult.Success
 	}
-	/** Discard an incomplete capture and latch an error; never revoke an owned frame. */
+
+	/**
+	 * Discard an incomplete capture and latch an error; never revoke an owned frame.
+	 */
 	public fn FailReceive() FrameLinkResult
 	{
-		if (phase == TestReceiveState.Resetting) { return FrameLinkResult.NotReady }
-		if (phase != TestReceiveState.Empty) { return FrameLinkResult.Busy }
+		if (phase == TestReceiveState.Resetting) {
+			return FrameLinkResult.NotReady
+		}
+
+		if (phase != TestReceiveState.Empty) {
+			return FrameLinkResult.Busy
+		}
+
 		storage.TryClear()
 		failed = true
 		return FrameLinkResult.Success
 	}
-	public fn BeginReset() { phase = TestReceiveState.Resetting }
-	/** Harness barrier: all dependent readers must already be stopped/reset. */
+
+	/**
+	 * Enters the reset barrier and disables access. Stop dependent readers before CompleteReset.
+	 */
+	public fn BeginReset()
+	{
+		phase = TestReceiveState.Resetting
+	}
+
+	/**
+	 * Harness barrier: all dependent readers must already be stopped/reset.
+	 */
 	public fn CompleteReset()
 	{
-		if (phase != TestReceiveState.Resetting) { return }
-		if (storage.IsReady()) { storage.TryRelease() }
-		else { storage.TryClear() }
+		if (phase != TestReceiveState.Resetting) {
+			return
+		}
+
+		if (storage.IsReady()) {
+			storage.TryRelease()
+		}
+		else {
+			storage.TryClear()
+		}
+
 		wireKnown = false
 		wireLength = 0
 		failed = false

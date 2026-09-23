@@ -1,0 +1,13 @@
+namespace Livt.Net
+
+/**
+ * Concrete implementation of IAxi4LiteEthernetLiteMaster that bridges
+ * individual constructor-parameter signals into the interface contract.
+ *
+ * Only the slave-driven (in) signals are constructor parameters.
+ * The master-driven (out) signals are provided through the interface
+ * contract fields directly — no out constructor parameters needed.
+ */
+component Axi4LiteEthernetLiteAdapter : IAxi4LiteEthernetLiteMaster
+{
+}

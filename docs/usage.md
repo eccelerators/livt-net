@@ -14,25 +14,44 @@ to the provider; protocol parsers do not take raw frame arrays or valid lengths.
 ```livt
 using Livt.Net
 
+/**
+ * Owns the existing EthernetLite adapter and serializes complete-frame submission.
+ */
 component FrameIoExample
 {
-    io: EthernetFrameIo
+	// Owned device adapter; the caller supplies the live AXI endpoint.
+	io: EthernetFrameIo
 
-    new(axi: IAxi4LiteEthernetLiteMaster, mac: in byte[6])
-    {
-        this.io = new EthernetFrameIo(axi, mac)
-    }
+	/**
+	 * Creates the adapter on the supplied endpoint and local MAC binding.
+	 */
+	new(axi: IAxi4LiteEthernetLiteMaster, mac: in byte[6])
+	{
+		this.io = new EthernetFrameIo(axi, mac)
+	}
 
-    public fn QueueFrame(frame: byte[128], length: int) bool
-    {
-        if (length <= 0 || length > 128) { return false }
-        if (!this.io.TryBeginTxFrame(length)) { return false }
-        for (var i = 0; i < length; i++)
-        {
-            if (!this.io.TryWriteTxByte(i, frame[i])) { return false }
-        }
-        return this.io.TrySubmitTxFrame()
-    }
+	/**
+	 * Copies 1..128 initialized bytes and requests submission; true is acceptance,
+	 * not physical delivery. One owner must serialize calls and wait before reuse.
+	 */
+	public fn QueueFrame(frame: byte[128], length: int) bool
+	{
+		if (length <= 0 || length > 128) {
+			return false
+		}
+
+		if (!this.io.TryBeginTxFrame(length)) {
+			return false
+		}
+
+		for (var i = 0; i < length; i++) {
+			if (!this.io.TryWriteTxByte(i, frame[i])) {
+				return false
+			}
+		}
+
+		return this.io.TrySubmitTxFrame()
+	}
 }
 ```
 

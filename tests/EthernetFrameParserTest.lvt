@@ -30,8 +30,12 @@ component EthernetFrameParserTest
 		parser.Invalidate()
 		region.TryClose()
 
-		if (data.IsReady()) { data.TryRelease() }
-		else { data.TryClear() }
+		if (data.IsReady()) {
+			data.TryRelease()
+		}
+		else {
+			data.TryClear()
+		}
 
 		for (var i = 0; i < 3; i++) {
 			assert data.TryWrite(i, 0xA5) == PacketDataResult.Success

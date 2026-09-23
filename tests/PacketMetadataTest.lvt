@@ -1,7 +1,9 @@
 namespace Livt.Net.Tests
 using Livt.Net
 
-/** User-defined protocol data; injected read failures test preparation cleanup. */
+/**
+ * User-defined protocol data; injected read failures test preparation cleanup.
+ */
 component PacketMetadataStub : IPacketData, IEthernetPayload, IIpv4Payload
 {
 	length: int
@@ -17,15 +19,34 @@ component PacketMetadataStub : IPacketData, IEthernetPayload, IIpv4Payload
 		this.available = available
 		this.failAt = failAt
 	}
-	override fn IsReady() bool { return available }
-	override fn GetAvailableLength() int { return length }
-	override fn GetEtherType() int { return etherType }
-	override fn GetProtocol() int { return protocol }
+	override fn IsReady() bool
+	{
+		return available
+	}
+	override fn GetAvailableLength() int
+	{
+		return length
+	}
+	override fn GetEtherType() int
+	{
+		return etherType
+	}
+	override fn GetProtocol() int
+	{
+		return protocol
+	}
 	override fn TryRead(index: int, value: out byte) PacketDataResult
 	{
 		value = 0x00
-		if (!available) { return PacketDataResult.NotReady }
-		if (index < 0 || index >= length || index == failAt) { return PacketDataResult.Invalid }
+
+		if (!available) {
+			return PacketDataResult.NotReady
+		}
+
+		if (index < 0 || index >= length || index == failAt) {
+			return PacketDataResult.Invalid
+		}
+
 		value = 0xA5
 		return PacketDataResult.Success
 	}
@@ -96,6 +117,7 @@ component PacketMetadataTest
 		assert value == 0xFF
 		assert ip.TryRead(3, value) == PacketDataResult.Success
 		assert value == 0xFF
+
 		// Replacement failure clears previously prepared metadata.
 		payload.Configure(1, 0x0800, 256, true, -1)
 		assert ip.TryPrepare(address, address, id) == PacketDataResult.Invalid

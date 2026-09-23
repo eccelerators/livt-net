@@ -9,7 +9,11 @@ namespace Livt.Net
 component ArpPacketParser<S: IPacketData> : IPacketData
 {
 	public const HEADER_LENGTH: int = 28
+
+	// Owned header snapshot and payload view borrowing the constructor source.
 	header: PacketHeader<S, HEADER_LENGTH>
+
+	// Validation state for the current parse lifetime.
 	status: PacketParseResult
 
 	/**
@@ -37,7 +41,9 @@ component ArpPacketParser<S: IPacketData> : IPacketData
 	{
 		status = header.TryLoad()
 
-		if (status != PacketParseResult.Success) { return status }
+		if (status != PacketParseResult.Success) {
+			return status
+		}
 
 		if (header.GetWord(0) != 1 || header.GetWord(2) != 2048 || header.GetByte(4) != 6 || header.GetByte(5) != 4) {
 			status = PacketParseResult.Unsupported
@@ -53,7 +59,9 @@ component ArpPacketParser<S: IPacketData> : IPacketData
 	 */
 	public fn GetStatus() PacketParseResult
 	{
-		if ((status == PacketParseResult.Success || status == PacketParseResult.HeaderOnly) && !header.IsReady()) { return PacketParseResult.NotReady }
+		if ((status == PacketParseResult.Success || status == PacketParseResult.HeaderOnly) && !header.IsReady()) {
+			return PacketParseResult.NotReady
+		}
 
 		return status
 	}
@@ -71,7 +79,9 @@ component ArpPacketParser<S: IPacketData> : IPacketData
 	 */
 	override fn GetAvailableLength() int
 	{
-		if (!this.IsReady()) { return 0 }
+		if (!this.IsReady()) {
+			return 0
+		}
 
 		return header.GetAvailableLength()
 	}
@@ -83,7 +93,9 @@ component ArpPacketParser<S: IPacketData> : IPacketData
 	{
 		value = 0x00
 
-		if (!this.IsReady()) { return PacketDataResult.NotReady }
+		if (!this.IsReady()) {
+			return PacketDataResult.NotReady
+		}
 
 		var readValue: byte = 0x00
 		var result = header.TryRead(index, readValue)
@@ -96,7 +108,9 @@ component ArpPacketParser<S: IPacketData> : IPacketData
 	 */
 	public fn GetOperation() int
 	{
-		if (!this.IsReady()) { return 0 }
+		if (!this.IsReady()) {
+			return 0
+		}
 
 		return header.GetWord(6)
 	}
@@ -111,7 +125,9 @@ component ArpPacketParser<S: IPacketData> : IPacketData
 		for (var i = 0; i < 6; i++) {
 			value[i] = 0x00
 
-			if (this.IsReady()) { value[i] = header.GetByte(8 + i) }
+			if (this.IsReady()) {
+				value[i] = header.GetByte(8 + i)
+			}
 		}
 
 		return value
@@ -127,7 +143,9 @@ component ArpPacketParser<S: IPacketData> : IPacketData
 		for (var i = 0; i < 4; i++) {
 			value[i] = 0x00
 
-			if (this.IsReady()) { value[i] = header.GetByte(14 + i) }
+			if (this.IsReady()) {
+				value[i] = header.GetByte(14 + i)
+			}
 		}
 
 		return value
@@ -143,7 +161,9 @@ component ArpPacketParser<S: IPacketData> : IPacketData
 		for (var i = 0; i < 6; i++) {
 			value[i] = 0x00
 
-			if (this.IsReady()) { value[i] = header.GetByte(18 + i) }
+			if (this.IsReady()) {
+				value[i] = header.GetByte(18 + i)
+			}
 		}
 
 		return value
@@ -159,7 +179,9 @@ component ArpPacketParser<S: IPacketData> : IPacketData
 		for (var i = 0; i < 4; i++) {
 			value[i] = 0x00
 
-			if (this.IsReady()) { value[i] = header.GetByte(24 + i) }
+			if (this.IsReady()) {
+				value[i] = header.GetByte(24 + i)
+			}
 		}
 
 		return value

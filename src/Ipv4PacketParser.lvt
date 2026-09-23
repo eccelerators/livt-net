@@ -10,7 +10,11 @@ namespace Livt.Net
 component Ipv4PacketParser<S: IPacketData> : IPacketData
 {
 	public const HEADER_LENGTH: int = 20
+
+	// Owned header snapshot and payload view borrowing the constructor source.
 	header: PacketHeader<S, HEADER_LENGTH>
+
+	// Validation state for the current parse lifetime.
 	status: PacketParseResult
 
 	/**
@@ -38,7 +42,9 @@ component Ipv4PacketParser<S: IPacketData> : IPacketData
 	{
 		status = header.TryLoad()
 
-		if (status != PacketParseResult.Success) { return status }
+		if (status != PacketParseResult.Success) {
+			return status
+		}
 
 		var versionAndLength = header.GetByte(0)
 		var version = (versionAndLength as int) / 16
@@ -65,11 +71,16 @@ component Ipv4PacketParser<S: IPacketData> : IPacketData
 		var captured = header.GetCapturedLength()
 		var bounded = total
 
-		if (bounded > captured) { bounded = captured }
+		if (bounded > captured) {
+			bounded = captured
+		}
 
 		status = header.TryOpenPayload(HEADER_LENGTH, bounded - HEADER_LENGTH)
 
-		if (status == PacketParseResult.Success && captured < total) { status = PacketParseResult.HeaderOnly }
+		if (status == PacketParseResult.Success && captured < total) {
+			status = PacketParseResult.HeaderOnly
+		}
+
 		return status
 	}
 
@@ -78,7 +89,9 @@ component Ipv4PacketParser<S: IPacketData> : IPacketData
 	 */
 	public fn GetStatus() PacketParseResult
 	{
-		if ((status == PacketParseResult.Success || status == PacketParseResult.HeaderOnly) && !header.IsReady()) { return PacketParseResult.NotReady }
+		if ((status == PacketParseResult.Success || status == PacketParseResult.HeaderOnly) && !header.IsReady()) {
+			return PacketParseResult.NotReady
+		}
 
 		return status
 	}
@@ -96,7 +109,9 @@ component Ipv4PacketParser<S: IPacketData> : IPacketData
 	 */
 	override fn GetAvailableLength() int
 	{
-		if (!this.IsReady()) { return 0 }
+		if (!this.IsReady()) {
+			return 0
+		}
 
 		return header.GetAvailableLength()
 	}
@@ -108,7 +123,9 @@ component Ipv4PacketParser<S: IPacketData> : IPacketData
 	{
 		value = 0x00
 
-		if (!this.IsReady()) { return PacketDataResult.NotReady }
+		if (!this.IsReady()) {
+			return PacketDataResult.NotReady
+		}
 
 		var readValue: byte = 0x00
 		var result = header.TryRead(index, readValue)
@@ -121,7 +138,9 @@ component Ipv4PacketParser<S: IPacketData> : IPacketData
 	 */
 	public fn GetTotalLength() int
 	{
-		if (!this.IsReady()) { return 0 }
+		if (!this.IsReady()) {
+			return 0
+		}
 
 		return header.GetWord(2)
 	}
@@ -131,7 +150,9 @@ component Ipv4PacketParser<S: IPacketData> : IPacketData
 	 */
 	public fn GetIdentification() int
 	{
-		if (!this.IsReady()) { return 0 }
+		if (!this.IsReady()) {
+			return 0
+		}
 
 		return header.GetWord(4)
 	}
@@ -141,7 +162,9 @@ component Ipv4PacketParser<S: IPacketData> : IPacketData
 	 */
 	public fn GetProtocol() byte
 	{
-		if (!this.IsReady()) { return 0 }
+		if (!this.IsReady()) {
+			return 0
+		}
 
 		return header.GetByte(9)
 	}
@@ -151,7 +174,9 @@ component Ipv4PacketParser<S: IPacketData> : IPacketData
 	 */
 	public fn GetDeclaredPayloadLength() int
 	{
-		if (!this.IsReady()) { return 0 }
+		if (!this.IsReady()) {
+			return 0
+		}
 
 		return header.GetWord(2) - HEADER_LENGTH
 	}
@@ -166,7 +191,9 @@ component Ipv4PacketParser<S: IPacketData> : IPacketData
 		for (var i = 0; i < 4; i++) {
 			value[i] = 0x00
 
-			if (this.IsReady()) { value[i] = header.GetByte(12 + i) }
+			if (this.IsReady()) {
+				value[i] = header.GetByte(12 + i)
+			}
 		}
 
 		return value
@@ -182,7 +209,9 @@ component Ipv4PacketParser<S: IPacketData> : IPacketData
 		for (var i = 0; i < 4; i++) {
 			value[i] = 0x00
 
-			if (this.IsReady()) { value[i] = header.GetByte(16 + i) }
+			if (this.IsReady()) {
+				value[i] = header.GetByte(16 + i)
+			}
 		}
 
 		return value
@@ -194,7 +223,9 @@ component Ipv4PacketParser<S: IPacketData> : IPacketData
 	 */
 	public fn IsHeaderChecksumValid() bool
 	{
-		if (!this.IsReady()) { return false }
+		if (!this.IsReady()) {
+			return false
+		}
 
 		var sum: int = 0
 

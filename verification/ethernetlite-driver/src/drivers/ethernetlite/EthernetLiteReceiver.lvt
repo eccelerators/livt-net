@@ -1,0 +1,175 @@
+namespace Livt.Net.Drivers.EthernetLite
+
+using Livt.Net
+using Livt.IO
+
+enum EthernetLiteReceiveState { Empty Capturing Available Acquired }
+
+/**
+ * Owns one RAM capture independently of the AXI transaction engine.
+ * Only the bound driver calls capture methods; one service owns acquisition.
+ * All borrowers and the driver must share coordinated reset.
+ */
+component EthernetLiteReceiver<CAPACITY: int = 128> : IFrameReceiver
+{
+	static assert CAPACITY >= 60 && CAPACITY <= 1514, "RX capacity must be 60..1514"
+
+	// Storage is mutable only before publication or after release.
+	storage: Ram<byte, CAPACITY>
+	phase: EthernetLiteReceiveState
+	written: int
+	length: int
+	failed: bool
+
+	/**
+	 * Creates empty receive storage. Capture is supplied by the device driver.
+	 */
+	new() { this.storage = new Ram<byte, CAPACITY>() }
+
+	/**
+	 * Reports the allocated prefix capacity, not a wire-length claim.
+	 */
+	override fn GetReceiveCapacity() int { return CAPACITY }
+
+	/**
+	 * Reports a frame available to acquire or currently acquired.
+	 */
+	override fn HasReceiveFrame() bool
+	{
+		return this.phase == EthernetLiteReceiveState.Available || this.phase == EthernetLiteReceiveState.Acquired
+	}
+
+	/**
+	 * Packet data is readable only by the current acquisition owner.
+	 */
+	override fn IsReady() bool { return this.phase == EthernetLiteReceiveState.Acquired }
+
+	/**
+	 * Returns the safe captured prefix only while acquired.
+	 */
+	override fn GetAvailableLength() int
+	{
+		if (!this.IsReady()) { return 0 }
+		return this.length
+	}
+
+	/**
+	 * Reads an acquired byte; failure initializes the output to zero.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+		if (!this.IsReady()) { return PacketDataResult.NotReady }
+		if (index < 0 || index >= this.length) { return PacketDataResult.Invalid }
+		var captured = this.storage.Read(index)
+		value = captured
+		return PacketDataResult.Success
+	}
+
+	/**
+	 * Acquires one published prefix; repeated acquisition is Busy.
+	 */
+	override fn TryAcquire() FrameLinkResult
+	{
+		if (this.phase == EthernetLiteReceiveState.Acquired) { return FrameLinkResult.Busy }
+		if (this.failed) { return FrameLinkResult.DeviceFailure }
+		if (this.phase != EthernetLiteReceiveState.Available) { return FrameLinkResult.NotReady }
+		this.phase = EthernetLiteReceiveState.Acquired
+		return FrameLinkResult.Success
+	}
+
+	/**
+	 * Releases storage after every dependent reader has finished.
+	 */
+	override fn TryRelease() FrameLinkResult
+	{
+		if (this.phase != EthernetLiteReceiveState.Acquired) { return FrameLinkResult.Invalid }
+		this.length = 0
+		this.written = 0
+		this.phase = EthernetLiteReceiveState.Empty
+		return FrameLinkResult.Success
+	}
+
+	/**
+	 * EthernetLite does not supply exact wire length; CRC prefix scanning cannot prove it.
+	 */
+	override fn HasKnownWireLength() bool { return false }
+
+	/**
+	 * Unknown wire length has no usable numeric value.
+	 */
+	override fn GetWireLength() int { return 0 }
+
+	/**
+	 * Reports a latched capture or device error.
+	 */
+	override fn HasReceiveError() bool { return this.failed }
+
+	/**
+	 * Acknowledges the error; device recovery is a separate driver operation.
+	 */
+	override fn TryAcknowledgeReceiveError() FrameLinkResult
+	{
+		if (!this.failed) { return FrameLinkResult.NotReady }
+		this.failed = false
+		return FrameLinkResult.Success
+	}
+
+	/**
+	 * Driver-only admission: never overwrite published or acquired storage.
+	 */
+	public fn TryBeginCapture() bool
+	{
+		if (this.failed || this.phase != EthernetLiteReceiveState.Empty) { return false }
+		this.written = 0
+		this.length = 0
+		this.phase = EthernetLiteReceiveState.Capturing
+		return true
+	}
+
+	/**
+	 * Driver-only append; rejects holes and overflow.
+	 */
+	public fn TryAppend(value: byte) bool
+	{
+		if (this.phase != EthernetLiteReceiveState.Capturing || this.written >= CAPACITY) { return false }
+		this.storage.Write(this.written, value)
+		this.written = this.written + 1
+		return true
+	}
+
+	/**
+	 * Publishes only a certified initialized prefix after device release succeeds.
+	 */
+	public fn TryPublish(length: int) bool
+	{
+		if (this.phase != EthernetLiteReceiveState.Capturing || length < 60 || length > this.written) { return false }
+		this.length = length
+		this.phase = EthernetLiteReceiveState.Available
+		return true
+	}
+
+	/**
+	 * Abandons incomplete capture and latches failure without revoking an acquired frame.
+	 */
+	public fn Fail()
+	{
+		if (this.phase == EthernetLiteReceiveState.Capturing) {
+			this.length = 0
+			this.written = 0
+			this.phase = EthernetLiteReceiveState.Empty
+		}
+		this.failed = true
+	}
+
+	/**
+	 * Ends an empty poll without publishing or reporting failure.
+	 */
+	public fn AbandonCapture()
+	{
+		if (this.phase == EthernetLiteReceiveState.Capturing) {
+			this.written = 0
+			this.phase = EthernetLiteReceiveState.Empty
+		}
+	}
+}

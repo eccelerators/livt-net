@@ -69,7 +69,9 @@ component Ipv4HeaderChecksum
 		return checksum % 256
 	}
 
-	/** Network-order byte arrays; fixed version/IHL, DF flag and TTL=64. */
+	/**
+	 * Network-order byte arrays; fixed version/IHL, DF flag and TTL=64.
+	 */
 	public fn CalculateFixedTcpHeaderChecksumFromBytes(
 		totalLength: byte[2], identification: byte[2],
 		localIp: byte[4], remoteIp: byte[4]) int
@@ -81,7 +83,9 @@ component Ipv4HeaderChecksum
 			remoteIp[0] as int, remoteIp[1] as int, remoteIp[2] as int, remoteIp[3] as int)
 	}
 
-	/** Network-order byte arrays; fixed version/IHL, DF flag and TTL=64. */
+	/**
+	 * Network-order byte arrays; fixed version/IHL, DF flag and TTL=64.
+	 */
 	public fn CalculateFixedIcmpHeaderChecksumFromBytes(
 		totalLength: byte[2], identification: byte[2],
 		localIp: byte[4], remoteIp: byte[4]) int
@@ -93,6 +97,10 @@ component Ipv4HeaderChecksum
 			remoteIp[0] as int, remoteIp[1] as int, remoteIp[2] as int, remoteIp[3] as int)
 	}
 
+	/**
+	 * Combines fixed IPv4 fields and caller-supplied octets for a 20-byte header.
+	 * The protocol is a compile-time octet; all scalar byte inputs must be in 0..255.
+	 */
 	inline fn CalculateHeaderChecksum(
 		protocol: const int,
 		totalLengthHigh: int,

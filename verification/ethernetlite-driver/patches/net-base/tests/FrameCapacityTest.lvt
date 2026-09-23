@@ -1,0 +1,54 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+@Test
+component FrameCapacityTest
+{
+	icmpSmall: IcmpCapacityChecks<96>
+	icmpLarge: IcmpCapacityChecks<256>
+	small: ArpCompositionChecks<96>
+	large: ArpCompositionChecks<256>
+	axiSmall: Axi4LiteEthernetLiteAdapter
+	axiLarge: Axi4LiteEthernetLiteAdapter
+	ioSmall: EthernetFrameIo<64, 64, 5>
+	ioLarge: EthernetFrameIo<256, 256, 512>
+
+	new()
+	{
+		var mac: byte[6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01]
+		this.icmpSmall = new IcmpCapacityChecks<96>()
+		this.icmpLarge = new IcmpCapacityChecks<256>()
+		this.small = new ArpCompositionChecks<96>()
+		this.large = new ArpCompositionChecks<256>()
+		this.axiSmall = new Axi4LiteEthernetLiteAdapter()
+		this.axiLarge = new Axi4LiteEthernetLiteAdapter()
+		this.ioSmall = new EthernetFrameIo<64, 64, 5>(this.axiSmall, mac)
+		var largeMac: byte[6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01]
+		this.ioLarge = new EthernetFrameIo<256, 256, 512>(this.axiLarge, largeMac)
+	}
+
+	@Test
+	fn SpecializesProtocolGraphsIndependently()
+	{
+		this.icmpSmall.Check()
+		this.icmpLarge.Check()
+		this.small.Check()
+		this.large.Check()
+	}
+
+	@Test
+	fn EnforcesConfiguredStorageAndCaptureLimits()
+	{
+		assert this.ioSmall.TryBeginTxFrame(6) == false
+		assert this.ioSmall.TryBeginTxFrame(5) == true
+		assert this.ioLarge.TryBeginTxFrame(512) == true
+		assert this.ioLarge.TryBeginTxFrame(513) == false
+		for (var i = 0; i < 64; i++) { this.ioSmall.LoadRxByte(i, i as byte) }
+		this.ioSmall.SubmitRxFrame()
+		assert this.ioSmall.IsFrameAvailable() == true
+		assert this.ioSmall.GetRxByte(63) == 0x3F
+		assert this.ioSmall.GetRxByte(64) == 0x00
+		assert this.ioLarge.IsFrameAvailable() == false
+	}
+}

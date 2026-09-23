@@ -1,0 +1,40 @@
+[project]
+name = "Livt.Net"
+version = "1.1.0-dev"
+path = "src"
+outdir = "out"
+
+[tests]
+path = "tests"
+components = [
+	"FrameLinkTest",
+	"PacketParserFailureTest",
+	"GenericPacketTest",
+	"PacketMetadataTest",
+	"PacketDataTest",
+	"ArpPacketParserTest",
+	"ChecksumWordSumTest",
+	"ChecksumApiTest",
+	"ArpResponderTest",
+	"EthernetFrameBuilderTest",
+	"EthernetFrameIoTest",
+	"EthernetFrameBufferTest",
+	"FrameCapacityTest",
+	"FrameCompositionTest",
+	"EthernetFrameParserTest",
+	"IcmpEchoResponderTest",
+	"InternetChecksumTest",
+	"Ipv4HeaderBuilderTest",
+	"Ipv4HeaderChecksumTest",
+	"Ipv4PacketParserTest",
+	"RamIpv4PacketParserTest",
+	"TcpChecksumTest",
+	"TcpConnectionRecognizerTest",
+	"TcpHeaderParserTest",
+	"TcpSegmentBuilderTest",
+	"TcpSynAckFrameComposerTest",
+	"CombinatorialForLoopTest"
+]
+
+[dependencies]
+Livt.IO = "1.2.0-dev"

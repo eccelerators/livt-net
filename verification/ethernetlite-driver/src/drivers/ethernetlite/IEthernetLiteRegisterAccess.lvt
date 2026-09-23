@@ -1,0 +1,19 @@
+namespace Livt.Net.Drivers.EthernetLite
+
+/**
+ * Device-internal word transactions, owned by one sequencer in one reset domain.
+ * These are not frame-link operations. Calls wait for the device response;
+ * a nonresponsive device requires coordinated reset, not source reuse.
+ */
+interface IEthernetLiteRegisterAccess
+{
+	/**
+	 * Reads an aligned device address; only OKAY succeeds, otherwise value is zero.
+	 */
+	fn Read(address: logic[13], value: out logic[32]) bool
+
+	/**
+	 * Writes all four byte lanes and waits for both channel acceptances and B response.
+	 */
+	fn Write(address: logic[13], value: logic[32]) bool
+}

@@ -108,7 +108,11 @@ component ArpResponderTest
 		request[19] = 0x04
 		request[20] = 0x00
 		request[21] = 0x01
-		for (var j = 0; j < 4; j++) { request[38 + j] = localIp[j] }
+
+		for (var j = 0; j < 4; j++) {
+			request[38 + j] = localIp[j]
+		}
+
 		assert this.PrepareRequest(request, localMac, localIp, 64) == PacketDataResult.Success
 		var responderByte: byte = 0x00
 		assert this.responder.TryRead(0, responderByte) == PacketDataResult.Success
@@ -163,9 +167,14 @@ component ArpResponderTest
 		request[20] = 0x00
 		request[21] = 0x01
 		request[22] = 0x82
-		for (var i = 0; i < 4; i++) { request[38 + i] = ip[i] }
+
+		for (var i = 0; i < 4; i++) {
+			request[38 + i] = ip[i]
+		}
+
 		assert this.PrepareRequest(request, mac, ip, 42) == PacketDataResult.Success
 		request[22] = 0x01
+
 		// Success closed all input views; reuse the actual provider independently.
 		assert data.TryRelease() == PacketDataResult.Success
 		assert data.TryWrite(0, 0xEE) == PacketDataResult.Success
@@ -191,8 +200,12 @@ component ArpResponderTest
 	{
 		responder.Invalidate()
 
-		if (data.IsReady()) { data.TryRelease() }
-		else { data.TryClear() }
+		if (data.IsReady()) {
+			data.TryRelease()
+		}
+		else {
+			data.TryClear()
+		}
 
 		for (var i = 0; i < length; i++) {
 			assert data.TryWrite(i, bytes[i]) == PacketDataResult.Success

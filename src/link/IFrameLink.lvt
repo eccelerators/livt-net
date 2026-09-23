@@ -1,6 +1,8 @@
 namespace Livt.Net
 
-/** Immediate link operation result; Accepted is not a delivery completion. */
+/**
+ * Immediate link operation result; Accepted is not a delivery completion.
+ */
 enum FrameLinkResult
 {
 	Success
@@ -12,11 +14,18 @@ enum FrameLinkResult
 	DeviceFailure
 }
 
-/** Meaningful only after a successful TryGetCompletion. */
+/**
+ * Meaningful only after a successful TryGetCompletion.
+ */
 enum FrameTransmitOutcome
 {
+	// Accepted by the device transmit mechanism; not proof of remote receipt.
 	Delivered
+
+	// Local source reads have stopped after an accepted cancellation request.
 	Cancelled
+
+	// Local source reads have stopped after failure; a committed send may remain.
 	DeviceFailure
 }
 
@@ -27,13 +36,49 @@ enum FrameTransmitOutcome
  */
 interface IFrameReceiver : IPacketData
 {
+	/**
+	 * Returns the maximum captured prefix length in bytes, not the wire length.
+	 */
 	fn GetReceiveCapacity() int
+
+	/**
+	 * Reports an available or already acquired frame; this snapshot does not acquire it.
+	 */
 	fn HasReceiveFrame() bool
+
+	/**
+	 * Acquires the available frame on Success; packet reads then become valid.
+	 * Busy means already acquired, NotReady means unavailable/resetting, and
+	 * DeviceFailure reports a receive error. Failed acquisition grants no ownership.
+	 */
 	fn TryAcquire() FrameLinkResult
+
+	/**
+	 * Releases the acquired frame on Success. Close dependent views and finish reads
+	 * first; after release the bytes may be reused. Invalid means no acquisition,
+	 * and NotReady means reset prevents release.
+	 */
 	fn TryRelease() FrameLinkResult
+
+	/**
+	 * Reports whether the acquired frame has an exact wire length.
+	 */
 	fn HasKnownWireLength() bool
+
+	/**
+	 * Returns the acquired frame length excluding preamble/FCS. Use only when
+	 * HasKnownWireLength is true; zero does not identify an unknown length.
+	 */
 	fn GetWireLength() int
+
+	/**
+	 * Reports a latched receive failure independently of frame ownership.
+	 */
 	fn HasReceiveError() bool
+
+	/**
+	 * Clears a pending receive error. Returns NotReady if no error can be acknowledged.
+	 */
 	fn TryAcknowledgeReceiveError() FrameLinkResult
 }
 
@@ -45,12 +90,52 @@ interface IFrameReceiver : IPacketData
  */
 interface IFrameTransmitter
 {
+	/**
+	 * Returns the minimum supported submission length in bytes, including padding and excluding FCS.
+	 */
 	fn GetMinimumFrameLength() int
+
+	/**
+	 * Returns the maximum supported submission length in bytes, excluding FCS.
+	 */
 	fn GetMaximumFrameLength() int
+
+	/**
+	 * Reports whether cancellation can be requested; it does not guarantee immediate quiescence.
+	 */
 	fn SupportsCancellation() bool
+
+	/**
+	 * Requests transmission of the fixed, prepared source. Accepted starts the borrow,
+	 * not delivery. Rejection leaves the source unborrowed and preserves old results.
+	 * Busy means an active transfer or unacknowledged completion; NotReady means
+	 * admission is paused. Invalid means unprepared/empty data; Unsupported means
+	 * length outside the advertised bounds; DeviceFailure means admission failed.
+	 */
 	fn TrySubmit() FrameLinkResult
+
+	/**
+	 * Reports whether the source and its dependencies must remain published and unchanged.
+	 */
 	fn IsSourceBorrowed() bool
+
+	/**
+	 * Requests cancellation of an active borrow. Accepted is not terminal completion;
+	 * keep the source unchanged until completion or coordinated reset finishes.
+	 * Unsupported preserves ownership; Busy means already requested, Invalid means
+	 * no pending transfer, and NotReady means reset prevents cancellation.
+	 */
 	fn TryCancel() FrameLinkResult
+
+	/**
+	 * Returns Success and a retained terminal outcome when available, otherwise
+	 * NotReady. The output is meaningful only on Success. This does not acknowledge it.
+	 */
 	fn TryGetCompletion(outcome: out FrameTransmitOutcome) FrameLinkResult
+
+	/**
+	 * Acknowledges a retained terminal result, allowing another submission.
+	 * Returns NotReady when no terminal result is available.
+	 */
 	fn TryAcknowledgeCompletion() FrameLinkResult
 }

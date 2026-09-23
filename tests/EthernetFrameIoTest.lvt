@@ -40,12 +40,9 @@ component EthernetFrameIoTest
 	{
 		var hasReadAddress = false
 
-		for (var cycle = 0; cycle < 100; cycle++)
-		{
-			if (hasReadAddress == false)
-			{
-				if (this.io.GetAxiArvalid() == 0b1)
-				{
+		for (var cycle = 0; cycle < 100; cycle++) {
+			if (hasReadAddress == false) {
+				if (this.io.GetAxiArvalid() == 0b1) {
 					assert this.io.GetAxiAraddr() == TX_PING_CONTROL
 					assert this.io.GetAxiRready() == 0b0
 					hasReadAddress = true
@@ -66,12 +63,9 @@ component EthernetFrameIoTest
 		var hasAcceptedMacDoneReadResponse = false
 		hasAcceptedMacDoneReadResponse = false
 
-		for (var cycle = 0; cycle < 100; cycle++)
-		{
-			if (hasAcceptedMacDoneReadResponse == false)
-			{
-				if (this.io.GetAxiRready() == 0b0)
-				{
+		for (var cycle = 0; cycle < 100; cycle++) {
+			if (hasAcceptedMacDoneReadResponse == false) {
+				if (this.io.GetAxiRready() == 0b0) {
 					hasAcceptedMacDoneReadResponse = true
 				}
 			}
@@ -82,19 +76,16 @@ component EthernetFrameIoTest
 		assert hasAcceptedMacDoneReadResponse == true
 		this.axi.m_axi_rvalid = 0b0
 
-		for (var writeIndex = 0; writeIndex < 3; writeIndex++)
-		{
+		for (var writeIndex = 0; writeIndex < 3; writeIndex++) {
 			var expectedAddress: logic[13] = TX_PING_CONTROL
 			var expectedData: logic[32] = TX_PROGRAM_MAC
 
-			if (writeIndex == 0)
-			{
+			if (writeIndex == 0) {
 				expectedAddress = TX_PING_BASE
 				expectedData = TX_PROGRAM_MAC_WORD0
 			}
 
-			if (writeIndex == 1)
-			{
+			if (writeIndex == 1) {
 				expectedAddress = TX_PING_BASE_PLUS_4
 				expectedData = TX_PROGRAM_MAC_WORD1
 			}
@@ -104,22 +95,17 @@ component EthernetFrameIoTest
 			hasAcceptedAddress = false
 			hasAcceptedData = false
 
-			for (var cycle = 0; cycle < 100; cycle++)
-			{
-				if (hasAcceptedAddress == false)
-				{
-					if (this.io.GetAxiAwvalid() == 0b1)
-					{
+			for (var cycle = 0; cycle < 100; cycle++) {
+				if (hasAcceptedAddress == false) {
+					if (this.io.GetAxiAwvalid() == 0b1) {
 						assert this.io.GetAxiAwaddr() == expectedAddress
 						hasAcceptedAddress = true
 						this.axi.m_axi_awready = 0b1
 					}
 				}
 
-				if (hasAcceptedData == false)
-				{
-					if (this.io.GetAxiWvalid() == 0b1)
-					{
+				if (hasAcceptedData == false) {
+					if (this.io.GetAxiWvalid() == 0b1) {
 						assert this.io.GetAxiWdata() == expectedData
 						hasAcceptedData = true
 						this.axi.m_axi_wready = 0b1
@@ -136,19 +122,15 @@ component EthernetFrameIoTest
 			var hasAcceptedWriteResponse = false
 			hasAcceptedWriteResponse = false
 
-			for (var cycle = 0; cycle < 100; cycle++)
-			{
-				if (hasAcceptedWriteResponse == false)
-				{
-					if (this.io.GetAxiBready() == 0b1)
-					{
+			for (var cycle = 0; cycle < 100; cycle++) {
+				if (hasAcceptedWriteResponse == false) {
+					if (this.io.GetAxiBready() == 0b1) {
 						hasAcceptedWriteResponse = true
 						this.axi.m_axi_bvalid = 0b1
 					}
 				}
 
-				if (hasAcceptedWriteResponse == true)
-				{
+				if (hasAcceptedWriteResponse == true) {
 					this.axi.m_axi_bvalid = 0b0
 				}
 			}
@@ -160,14 +142,10 @@ component EthernetFrameIoTest
 		var hasDrainedTxControlRead = false
 		hasDrainedTxControlRead = false
 
-		for (var cycle = 0; cycle < 50; cycle++)
-		{
-			if (hasDrainedTxControlRead == false)
-			{
-				if (this.io.GetAxiArvalid() == 0b1)
-				{
-					if (this.io.GetAxiAraddr() == TX_PING_CONTROL)
-					{
+		for (var cycle = 0; cycle < 50; cycle++) {
+			if (hasDrainedTxControlRead == false) {
+				if (this.io.GetAxiArvalid() == 0b1) {
+					if (this.io.GetAxiAraddr() == TX_PING_CONTROL) {
 						hasDrainedTxControlRead = true
 						this.axi.m_axi_arready = 0b1
 					}
@@ -177,8 +155,7 @@ component EthernetFrameIoTest
 			this.axi.m_axi_arready = 0b0
 		}
 
-		if (hasDrainedTxControlRead == true)
-		{
+		if (hasDrainedTxControlRead == true) {
 			this.axi.m_axi_rdata = TX_PING_IDLE
 			this.axi.m_axi_rresp = AXI_RESP_OKAY
 			this.axi.m_axi_rvalid = 0b1
@@ -206,12 +183,9 @@ component EthernetFrameIoTest
 
 		var sawRxReleaseWrite = false
 
-		for (var cycle = 0; cycle < 400; cycle++)
-		{
-			if (this.io.GetAxiAwvalid() == 0b1)
-			{
-				if (this.io.GetAxiAwaddr() == RX_PING_CONTROL || this.io.GetAxiAwaddr() == RX_PONG_CONTROL)
-				{
+		for (var cycle = 0; cycle < 400; cycle++) {
+			if (this.io.GetAxiAwvalid() == 0b1) {
+				if (this.io.GetAxiAwaddr() == RX_PING_CONTROL || this.io.GetAxiAwaddr() == RX_PONG_CONTROL) {
 					sawRxReleaseWrite = true
 				}
 			}

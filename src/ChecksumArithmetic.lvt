@@ -1,18 +1,29 @@
 namespace Livt.Net
 
-/** Shared network-order arithmetic for non-negative sums that fit int. */
+/**
+ * Shared network-order arithmetic for non-negative sums that fit int.
+ */
 class ChecksumArithmetic
 {
+	/**
+	 * Combines high and low octets in 0..255 into a network-order 16-bit word.
+	 */
 	public static inline fn Word[](high: int, low: int) int
 	{
 		return high * 256 + low
 	}
 
+	/**
+	 * Adds the high and low 16-bit halves of a non-negative int; the result may still carry.
+	 */
 	public static inline fn Fold[](value: int) int
 	{
 		return (value % 65536) + (value / 65536)
 	}
 
+	/**
+	 * Folds a non-negative int twice and returns its 16-bit one's complement.
+	 */
 	public static inline fn Finish[](value: int) int
 	{
 		var folded = ChecksumArithmetic.Fold(value)

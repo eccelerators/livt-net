@@ -26,8 +26,8 @@ transmitter: TestFrameTransmitter<TestFrameReceiver<128>>
 
 new()
 {
-    receiver = new TestFrameReceiver<128>()
-    transmitter = new TestFrameTransmitter<TestFrameReceiver<128>>(receiver)
+	receiver = new TestFrameReceiver<128>()
+	transmitter = new TestFrameTransmitter<TestFrameReceiver<128>>(receiver)
 }
 ```
 

@@ -24,24 +24,35 @@ component CountingPacketData : IPacketData
 	/**
 	 * Simulates source unavailability.
 	 */
-	public fn Release() { ready = false }
+	public fn Release()
+	{
+		ready = false
+	}
 
 	/**
 	 * Returns the number of scheduled byte reads.
 	 */
-	public fn GetReadCount() int { return reads }
+	public fn GetReadCount() int
+	{
+		return reads
+	}
 
 	/**
 	 * Reports publication state.
 	 */
-	override fn IsReady() bool { return ready }
+	override fn IsReady() bool
+	{
+		return ready
+	}
 
 	/**
 	 * Publishes a header and one payload byte.
 	 */
 	override fn GetAvailableLength() int
 	{
-		if (!ready) { return 0 }
+		if (!ready) {
+			return 0
+		}
 
 		return 15
 	}
@@ -53,13 +64,23 @@ component CountingPacketData : IPacketData
 	{
 		value = 0x00
 
-		if (!ready) { return PacketDataResult.NotReady }
-		if (index < 0 || index >= 15 || index == failureIndex) { return PacketDataResult.Invalid }
+		if (!ready) {
+			return PacketDataResult.NotReady
+		}
+
+		if (index < 0 || index >= 15 || index == failureIndex) {
+			return PacketDataResult.Invalid
+		}
 
 		reads = reads + 1
 
-		if (index == 12) { value = 0x08 }
-		if (index == 14) { value = 0xAB }
+		if (index == 12) {
+			value = 0x08
+		}
+
+		if (index == 14) {
+			value = 0xAB
+		}
 
 		return PacketDataResult.Success
 	}

@@ -1,43 +1,94 @@
 namespace Livt.Net
 
-/** Prepared Ethernet/IPv4 ARP reply payload, excluding the Ethernet header. */
+/**
+ * Prepared Ethernet/IPv4 ARP reply payload, excluding the Ethernet header.
+ */
 component ArpReply : IPacketData, IEthernetPayload
 {
 	const PREFIX: byte[8] = [0x00, 0x01, 0x08, 0x00, 0x06, 0x04, 0x00, 0x02]
+
+	// Owned sender/target address snapshot, readable only while prepared.
 	addresses: byte[20]
 	ready: bool
 
-	public fn Invalidate() { ready = false }
+	/**
+	 * Discards the prepared address snapshot after all dependent reads have finished.
+	 */
+	public fn Invalidate()
+	{
+		ready = false
+	}
 
-	/** Snapshot the local and peer addresses from a validated ARP request. */
+	/**
+	 * Snapshot the local and peer addresses from a validated ARP request.
+	 */
 	public fn TryPrepare(sourceMac: byte[6], sourceIp: byte[4], targetMac: byte[6], targetIp: byte[4]) PacketDataResult
 	{
 		ready = false
+
 		for (var i = 0; i < 6; i++) {
 			addresses[i] = sourceMac[i]
 			addresses[10 + i] = targetMac[i]
 		}
+
 		for (var i = 0; i < 4; i++) {
 			addresses[6 + i] = sourceIp[i]
 			addresses[16 + i] = targetIp[i]
 		}
+
 		ready = true
 		return PacketDataResult.Success
 	}
 
-	override fn GetEtherType() int { return 0x0806 }
-	override fn IsReady() bool { return ready }
+	/**
+	 * Returns the Ethernet II EtherType identifying this payload, independent of readiness.
+	 */
+	override fn GetEtherType() int
+	{
+		return 0x0806
+	}
+
+	/**
+	 * Reports prepared metadata; the owner must still keep all borrowed payloads stable.
+	 */
+	override fn IsReady() bool
+	{
+		return ready
+	}
+
+	/**
+	 * Returns the prepared packet length in bytes, or zero while unprepared.
+	 */
 	override fn GetAvailableLength() int
 	{
-		if (!ready) { return 0 }
+		if (!ready) {
+			return 0
+		}
+
 		return 28
 	}
+
+	/**
+	 * Reads bytes 0..7 from the fixed ARP prefix and 8..27 from the address snapshot.
+	 * Returns NotReady before preparation and Invalid outside 0..27; failures leave zero.
+	 */
 	override fn TryRead(index: int, value: out byte) PacketDataResult
 	{
 		value = 0x00
-		if (!ready) { return PacketDataResult.NotReady }
-		if (index < 0 || index >= 28) { return PacketDataResult.Invalid }
-		if (index < 8) { value = PREFIX[index]; return PacketDataResult.Success }
+
+		if (!ready) {
+			return PacketDataResult.NotReady
+		}
+
+		if (index < 0 || index >= 28) {
+			return PacketDataResult.Invalid
+		}
+
+		if (index < 8) {
+			value = PREFIX[index];
+			return PacketDataResult.Success
+		}
+
 		value = addresses[index - 8]
 		return PacketDataResult.Success
 	}

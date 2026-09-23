@@ -9,10 +9,13 @@ namespace Livt.Net
 component TcpSegmentBuilder<FRAME_CAPACITY: int = 128>
 {
 	static assert FRAME_CAPACITY >= 54, "Frame capacity must hold the required protocol header"
+
 	// Number of bytes emitted for a fixed TCP header.
 	public const HEADER_LENGTH: int = 20
+
 	// Offset of the request source port in the Ethernet/IPv4 frame.
 	public const REQUEST_SOURCE_PORT_OFFSET: int = 34
+
 	// Offset of the request destination port in the Ethernet/IPv4 frame.
 	public const REQUEST_DESTINATION_PORT_OFFSET: int = 36
 
@@ -37,7 +40,10 @@ component TcpSegmentBuilder<FRAME_CAPACITY: int = 128>
 		window: byte[2],
 		checksum: byte[2]) byte
 	{
-		if (index < 0) { return 0x00 }
+		if (index < 0) {
+			return 0x00
+		}
+
 		if (index < 2) {
 			var dstPortIndex = REQUEST_DESTINATION_PORT_OFFSET + index
 			return request[dstPortIndex]

@@ -16,10 +16,14 @@ namespace Livt.Net
  */
 component InternetChecksum
 {
+	// Unfolded word sum and the optional unmatched high octet.
 	sum: int
 	pendingByte: int
 	hasPendingByte: bool
 
+	/**
+	 * Starts with an empty, zero-valued sum and no pending high byte.
+	 */
 	new()
 	{
 	}
@@ -44,8 +48,7 @@ component InternetChecksum
 		// Network octets are unsigned even though the public input is a logic vector.
 		var bi: int = (b as byte) as int
 
-		if (this.hasPendingByte == false)
-		{
+		if (this.hasPendingByte == false) {
 			this.pendingByte = bi
 			this.hasPendingByte = true
 			return
@@ -63,8 +66,7 @@ component InternetChecksum
 	 */
 	public fn GetWordSum() int
 	{
-		if (this.hasPendingByte == true)
-		{
+		if (this.hasPendingByte == true) {
 			return this.sum + this.pendingByte * 256
 		}
 

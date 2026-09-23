@@ -95,7 +95,9 @@ component TcpChecksum
 		return checksum % 256
 	}
 
-	/** Network-order arrays; payload sums come from InternetChecksum.GetWordSum(). */
+	/**
+	 * Network-order arrays; payload sums come from InternetChecksum.GetWordSum().
+	 */
 	public fn CalculateFixedHeaderChecksumFromBytes(
 		localIp: byte[4], remoteIp: byte[4],
 		localPort: byte[2], remotePort: byte[2],
@@ -110,7 +112,9 @@ component TcpChecksum
 			flags as int, window[0] as int, window[1] as int)
 	}
 
-	/** Network-order arrays; payload sums come from InternetChecksum.GetWordSum(). */
+	/**
+	 * Network-order arrays; payload sums come from InternetChecksum.GetWordSum().
+	 */
 	public fn CalculatePayloadChecksumFromBytes(
 		localIp: byte[4], remoteIp: byte[4],
 		localPort: byte[2], remotePort: byte[2],
@@ -127,6 +131,10 @@ component TcpChecksum
 			payloadWordSum)
 	}
 
+	/**
+	 * Combines the IPv4 pseudo-header, fixed TCP header and unfolded payload sum.
+	 * Caller-supplied octets and total sum must satisfy the component bounds.
+	 */
 	fn CalculateChecksum(
 		localIp0: int,
 		localIp1: int,

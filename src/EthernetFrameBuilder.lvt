@@ -9,6 +9,7 @@ namespace Livt.Net
 component EthernetFrameBuilder<FRAME_CAPACITY: int = 128>
 {
 	static assert FRAME_CAPACITY >= 14, "Frame capacity must hold the required protocol header"
+
 	// Number of bytes emitted for an Ethernet II header.
 	public const HEADER_LENGTH: int = 14
 
@@ -25,7 +26,10 @@ component EthernetFrameBuilder<FRAME_CAPACITY: int = 128>
 		etherTypeHigh: byte,
 		etherTypeLow: byte) byte
 	{
-		if (index < 0) { return 0x00 }
+		if (index < 0) {
+			return 0x00
+		}
+
 		if (index < 6) {
 			var dstMacIndex = 6 + index
 			return request[dstMacIndex]

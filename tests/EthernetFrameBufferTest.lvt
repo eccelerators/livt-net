@@ -2,7 +2,9 @@ namespace Livt.Net.Tests
 
 using Livt.Net
 
-/** Buffer ownership and write-before-read contracts without an active AXI slave. */
+/**
+ * Buffer ownership and write-before-read contracts without an active AXI slave.
+ */
 @Test
 component EthernetFrameBufferTest
 {
@@ -70,7 +72,11 @@ component EthernetFrameBufferTest
 		this.io.LoadRxByte(1, 0xFF)
 		this.io.SubmitRxFrame()
 		assert this.io.IsFrameAvailable() == false
-		for (var i = 0; i < 128; i++) { this.io.LoadRxByte(i, (i + 128) as byte) }
+
+		for (var i = 0; i < 128; i++) {
+			this.io.LoadRxByte(i, (i + 128) as byte)
+		}
+
 		this.io.SubmitRxFrame()
 		assert this.io.IsFrameAvailable() == true
 		assert this.io.GetRxByte(0) == 0x80

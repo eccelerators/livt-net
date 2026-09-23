@@ -9,64 +9,139 @@ namespace Livt.Net
 component ArrayPacketData<CAPACITY: int = 128> : IPacketData
 {
 	static assert CAPACITY > 0, "Packet capacity must be positive"
+
+	// Owned bytes; only the contiguous initialized prefix may be published.
 	data: byte[CAPACITY]
+
+	// Prefix length and publication state; releasing does not erase storage.
 	written: int
 	published: bool
 
+	/**
+	 * Creates owned storage with an empty, unpublished prefix; bytes need not be erased.
+	 */
 	new()
 	{
 		written = 0
 		published = false
 	}
 
-	public fn GetCapacity() int { return CAPACITY }
-	public fn GetWrittenLength() int { return written }
-	override fn IsReady() bool { return published }
-	override fn GetAvailableLength() int
+	/**
+	 * Returns the fixed storage capacity in bytes; this does not reserve space.
+	 */
+	public fn GetCapacity() int
 	{
-		if (!published) { return 0 }
+		return CAPACITY
+	}
+
+	/**
+	 * Returns the contiguous initialized prefix length, including unpublished bytes.
+	 */
+	public fn GetWrittenLength() int
+	{
 		return written
 	}
 
-	/** Append the next byte or overwrite an initialized byte; holes are invalid. */
+	/**
+	 * Reports whether the initialized prefix is published for readers.
+	 */
+	override fn IsReady() bool
+	{
+		return published
+	}
+
+	/**
+	 * Returns the published prefix length in bytes, or zero while unpublished.
+	 */
+	override fn GetAvailableLength() int
+	{
+		if (!published) {
+			return 0
+		}
+
+		return written
+	}
+
+	/**
+	 * Append the next byte or overwrite an initialized byte; holes are invalid.
+	 */
 	public fn TryWrite(index: int, value: byte) PacketDataResult
 	{
-		if (published) { return PacketDataResult.Busy }
-		if (index < 0 || index >= CAPACITY || index > written) { return PacketDataResult.Invalid }
+		if (published) {
+			return PacketDataResult.Busy
+		}
+
+		if (index < 0 || index >= CAPACITY || index > written) {
+			return PacketDataResult.Invalid
+		}
+
 		data[index] = value
-		if (index == written) { written = written + 1 }
+
+		if (index == written) {
+			written = written + 1
+		}
+
 		return PacketDataResult.Success
 	}
 
-	/** An empty prefix is valid packet data, though not a valid Ethernet TX. */
+	/**
+	 * An empty prefix is valid packet data, though not a valid Ethernet TX.
+	 */
 	public fn TryPublish() PacketDataResult
 	{
-		if (published) { return PacketDataResult.Busy }
+		if (published) {
+			return PacketDataResult.Busy
+		}
+
 		published = true
 		return PacketDataResult.Success
 	}
 
+	/**
+	 * Reads index in 0..written-1 from the published prefix. Returns NotReady
+	 * while unpublished and Invalid outside the prefix; failure leaves output zero.
+	 * The scheduled read must finish before the owner releases storage.
+	 */
 	override fn TryRead(index: int, value: out byte) PacketDataResult
 	{
 		value = 0x00
-		if (!published) { return PacketDataResult.NotReady }
-		if (index < 0 || index >= written) { return PacketDataResult.Invalid }
+
+		if (!published) {
+			return PacketDataResult.NotReady
+		}
+
+		if (index < 0 || index >= written) {
+			return PacketDataResult.Invalid
+		}
+
 		value = data[index]
 		return PacketDataResult.Success
 	}
 
+	/**
+	 * Releases a published prefix and resets its initialized length without erasing
+	 * storage. Returns Invalid if unpublished. Finish all dependent reads first.
+	 */
 	public fn TryRelease() PacketDataResult
 	{
-		if (!published) { return PacketDataResult.Invalid }
+		if (!published) {
+			return PacketDataResult.Invalid
+		}
+
 		published = false
 		written = 0
 		return PacketDataResult.Success
 	}
 
-	/** Abandon unpublished preparation; cannot discard a published source. */
+	/**
+	 * Abandon unpublished preparation; cannot discard a published source.
+	 */
 	public fn TryClear() PacketDataResult
 	{
-		if (published) { return PacketDataResult.Busy }
+		if (published) {
+			return PacketDataResult.Busy
+		}
+
 		written = 0
 		return PacketDataResult.Success
 	}

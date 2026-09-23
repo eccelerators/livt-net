@@ -61,10 +61,10 @@ ramPayload: PacketRegion<RamPacketData<128>>
 
 new()
 {
-    array = new ArrayPacketData<128>()
-    ram = new RamPacketData<128>()
-    arrayPayload = new PacketRegion<ArrayPacketData<128>>(array)
-    ramPayload = new PacketRegion<RamPacketData<128>>(ram)
+	array = new ArrayPacketData<128>()
+	ram = new RamPacketData<128>()
+	arrayPayload = new PacketRegion<ArrayPacketData<128>>(array)
+	ramPayload = new PacketRegion<RamPacketData<128>>(ram)
 }
 ```
 

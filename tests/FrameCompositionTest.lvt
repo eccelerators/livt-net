@@ -7,18 +7,33 @@ component ArpCompositionChecks<CAPACITY: int>
 {
 	data: ArrayPacketData<CAPACITY>
 	responder: ArpResponder<ArrayPacketData<CAPACITY>>
-	new() { data = new ArrayPacketData<CAPACITY>(); responder = new ArpResponder<ArrayPacketData<CAPACITY>>(data) }
+	new()
+	{
+		data = new ArrayPacketData<CAPACITY>();
+		responder = new ArpResponder<ArrayPacketData<CAPACITY>>(data)
+	}
 
 	public fn Check()
 	{
 		var request: byte[CAPACITY]
-		for (var i = 0; i < CAPACITY; i++) { request[i] = 0xFF }
+
+		for (var i = 0; i < CAPACITY; i++) {
+			request[i] = 0xFF
+		}
+
 		var localMac: byte[6] = [0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE]
 		var localIp: byte[4] = [0xC0, 0xA8, 0x01, 0x80]
 		var remoteMac: byte[6] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE]
 		var remoteIp: byte[4] = [0xC0, 0xA8, 0x01, 0xFF]
-		for (var i = 0; i < 6; i++) { request[22 + i] = remoteMac[i] }
-		for (var i = 0; i < 4; i++) { request[28 + i] = remoteIp[i] }
+
+		for (var i = 0; i < 6; i++) {
+			request[22 + i] = remoteMac[i]
+		}
+
+		for (var i = 0; i < 4; i++) {
+			request[28 + i] = remoteIp[i]
+		}
+
 		// Complete reply including zero padding through byte 59.
 		var expected: byte[60] = [
 			0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0x02, 0xAA, 0xBB, 0xCC,
@@ -37,13 +52,19 @@ component ArpCompositionChecks<CAPACITY: int>
 		request[19] = 0x04
 		request[20] = 0x00
 		request[21] = 0x01
-		for (var j = 0; j < 4; j++) { request[38 + j] = localIp[j] }
+
+		for (var j = 0; j < 4; j++) {
+			request[38 + j] = localIp[j]
+		}
+
 		assert this.PrepareRequest(request, localMac, localIp, CAPACITY) == PacketDataResult.Success
 		var responderByte: byte = 0x00
+
 		for (var i = 0; i < 60; i++) {
 			assert responder.TryRead(i, responderByte) == PacketDataResult.Success
 			assert responderByte == expected[i]
 		}
+
 		assert responder.TryRead(-1, responderByte) == PacketDataResult.Invalid
 		assert responder.TryRead(60, responderByte) == PacketDataResult.Invalid
 		assert responder.TryRead(CAPACITY + 60, responderByte) == PacketDataResult.Invalid
@@ -56,8 +77,12 @@ component ArpCompositionChecks<CAPACITY: int>
 	{
 		responder.Invalidate()
 
-		if (data.IsReady()) { data.TryRelease() }
-		else { data.TryClear() }
+		if (data.IsReady()) {
+			data.TryRelease()
+		}
+		else {
+			data.TryClear()
+		}
 
 		for (var i = 0; i < length; i++) {
 			assert data.TryWrite(i, bytes[i]) == PacketDataResult.Success
@@ -72,28 +97,44 @@ component ArpCompositionChecks<CAPACITY: int>
 component SynAckCompositionChecks<CAPACITY: int>
 {
 	responder: TcpSynAckFrameComposer<CAPACITY>
-	new() { responder = new TcpSynAckFrameComposer<CAPACITY>() }
+	new()
+	{
+		responder = new TcpSynAckFrameComposer<CAPACITY>()
+	}
 
 	public fn Check()
 	{
 		var request: byte[CAPACITY]
-		for (var i = 0; i < CAPACITY; i++) { request[i] = 0xFF }
+
+		for (var i = 0; i < CAPACITY; i++) {
+			request[i] = 0xFF
+		}
+
 		var localMac: byte[6] = [0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE]
 		var localIp: byte[4] = [0xC0, 0xA8, 0x01, 0x80]
 		var remoteMac: byte[6] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE]
 		var remoteIp: byte[4] = [0xC0, 0xA8, 0x01, 0xFF]
-		for (var i = 0; i < 6; i++) { request[6 + i] = remoteMac[i] }
-		for (var i = 0; i < 4; i++) { request[26 + i] = remoteIp[i] }
+
+		for (var i = 0; i < 6; i++) {
+			request[6 + i] = remoteMac[i]
+		}
+
+		for (var i = 0; i < 4; i++) {
+			request[26 + i] = remoteIp[i]
+		}
+
 		request[34] = 0xC0
 		request[35] = 0x81
 		request[36] = 0x00
 		request[37] = 0x50
+
 		// Distinct supplied checksum bytes verify placement, not calculation.
 		var ipChecksum: byte[2] = [0xAB, 0xCD]
 		var sequence: byte[4] = [0x80, 0x12, 0x34, 0xFF]
 		var acknowledgment: byte[4] = [0xFE, 0xDC, 0xBA, 0x98]
 		var window: byte[2] = [0x81, 0x23]
 		var tcpChecksum: byte[2] = [0xEF, 0x90]
+
 		// Complete reply including zero padding through byte 59.
 		var expected: byte[60] = [
 			0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0x02, 0xAA, 0xBB, 0xCC,
@@ -102,9 +143,11 @@ component SynAckCompositionChecks<CAPACITY: int>
 			0xC0, 0xA8, 0x01, 0xFF, 0x00, 0x50, 0xC0, 0x81, 0x80, 0x12,
 			0x34, 0xFF, 0xFE, 0xDC, 0xBA, 0x98, 0x50, 0x12, 0x81, 0x23,
 			0xEF, 0x90, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+
 		for (var i = 0; i < 60; i++) {
 			assert responder.GetFrameByte(request, i, localMac, localIp, ipChecksum, sequence, acknowledgment, window, tcpChecksum) == expected[i]
 		}
+
 		assert responder.GetFrameByte(request, -1, localMac, localIp, ipChecksum, sequence, acknowledgment, window, tcpChecksum) == 0x00
 		assert responder.GetFrameByte(request, 60, localMac, localIp, ipChecksum, sequence, acknowledgment, window, tcpChecksum) == 0x00
 		assert responder.GetFrameByte(request, CAPACITY + 60, localMac, localIp, ipChecksum, sequence, acknowledgment, window, tcpChecksum) == 0x00
@@ -130,15 +173,33 @@ component FrameCompositionTest
 		synLarge = new SynAckCompositionChecks<256>()
 	}
 	@Test
-	fn ArpMinimumCapacity() { arpMinimum.Check() }
+	fn ArpMinimumCapacity()
+	{
+		arpMinimum.Check()
+	}
 	@Test
-	fn ArpDefaultCapacity() { arpDefault.Check() }
+	fn ArpDefaultCapacity()
+	{
+		arpDefault.Check()
+	}
 	@Test
-	fn ArpLargeCapacity() { arpLarge.Check() }
+	fn ArpLargeCapacity()
+	{
+		arpLarge.Check()
+	}
 	@Test
-	fn SynMinimumCapacity() { synMinimum.Check() }
+	fn SynMinimumCapacity()
+	{
+		synMinimum.Check()
+	}
 	@Test
-	fn SynDefaultCapacity() { synDefault.Check() }
+	fn SynDefaultCapacity()
+	{
+		synDefault.Check()
+	}
 	@Test
-	fn SynLargeCapacity() { synLarge.Check() }
+	fn SynLargeCapacity()
+	{
+		synLarge.Check()
+	}
 }

@@ -5,9 +5,12 @@ namespace Livt.Net
  */
 component TcpConnectionRecognizer<S: IPacketData> : IPacketData
 {
+	// Owned nested parsers borrowing the request source.
 	ethernet: EthernetFrameParser<S>
 	ipv4: Ipv4PacketParser<EthernetFrameParser<S>>
 	tcp: TcpHeaderParser<Ipv4PacketParser<EthernetFrameParser<S>>>
+
+	// Validation state for the current recognition lifetime.
 	status: PacketParseResult
 
 	/**
@@ -39,7 +42,10 @@ component TcpConnectionRecognizer<S: IPacketData> : IPacketData
 		this.Invalidate()
 		status = ethernet.TryParse()
 
-		if (!ethernet.IsReady()) { return status }
+		if (!ethernet.IsReady()) {
+			return status
+		}
+
 		if (ethernet.GetEtherType() != 2048) {
 			status = PacketParseResult.Unsupported
 			return status
@@ -47,7 +53,10 @@ component TcpConnectionRecognizer<S: IPacketData> : IPacketData
 
 		status = ipv4.TryParse()
 
-		if (!ipv4.IsReady()) { return status }
+		if (!ipv4.IsReady()) {
+			return status
+		}
+
 		if (ipv4.GetProtocol() != 6) {
 			status = PacketParseResult.Unsupported
 			return status
@@ -55,7 +64,9 @@ component TcpConnectionRecognizer<S: IPacketData> : IPacketData
 
 		var tcpStatus = tcp.TryParse()
 
-		if (tcpStatus != PacketParseResult.Success) { status = tcpStatus }
+		if (tcpStatus != PacketParseResult.Success) {
+			status = tcpStatus
+		}
 
 		return status
 	}
@@ -65,7 +76,9 @@ component TcpConnectionRecognizer<S: IPacketData> : IPacketData
 	 */
 	public fn GetStatus() PacketParseResult
 	{
-		if ((status == PacketParseResult.Success || status == PacketParseResult.HeaderOnly) && !tcp.IsReady()) { return PacketParseResult.NotReady }
+		if ((status == PacketParseResult.Success || status == PacketParseResult.HeaderOnly) && !tcp.IsReady()) {
+			return PacketParseResult.NotReady
+		}
 
 		return status
 	}
@@ -75,12 +88,16 @@ component TcpConnectionRecognizer<S: IPacketData> : IPacketData
 	 */
 	public fn IsForEndpoint(localIp: byte[4], localPort: int) bool
 	{
-		if (!this.IsReady()) { return false }
+		if (!this.IsReady()) {
+			return false
+		}
 
 		var destination = ipv4.GetDestinationIpv4()
 
 		for (var i = 0; i < 4; i++) {
-			if (destination[i] != localIp[i]) { return false }
+			if (destination[i] != localIp[i]) {
+				return false
+			}
 		}
 
 		return tcp.GetDestinationPort() == localPort
@@ -116,8 +133,14 @@ component TcpConnectionRecognizer<S: IPacketData> : IPacketData
 	public fn GetSourceIpv4() byte[4]
 	{
 		var empty: byte[4]
-		for (var i = 0; i < 4; i++) { empty[i] = 0x00 }
-		if (!this.IsReady()) { return empty }
+
+		for (var i = 0; i < 4; i++) {
+			empty[i] = 0x00
+		}
+
+		if (!this.IsReady()) {
+			return empty
+		}
 
 		return ipv4.GetSourceIpv4()
 	}
@@ -127,7 +150,9 @@ component TcpConnectionRecognizer<S: IPacketData> : IPacketData
 	 */
 	public fn GetSourcePort() int
 	{
-		if (!this.IsReady()) { return 0 }
+		if (!this.IsReady()) {
+			return 0
+		}
 
 		return tcp.GetSourcePort()
 	}
@@ -137,7 +162,9 @@ component TcpConnectionRecognizer<S: IPacketData> : IPacketData
 	 */
 	public fn GetSequenceNumber() uint
 	{
-		if (!this.IsReady()) { return 0 }
+		if (!this.IsReady()) {
+			return 0
+		}
 
 		return tcp.GetSequenceNumber()
 	}
@@ -147,7 +174,9 @@ component TcpConnectionRecognizer<S: IPacketData> : IPacketData
 	 */
 	public fn GetDeclaredPayloadLength() int
 	{
-		if (!this.IsReady()) { return 0 }
+		if (!this.IsReady()) {
+			return 0
+		}
 
 		return ipv4.GetDeclaredPayloadLength() - tcp.GetHeaderLength()
 	}
@@ -165,7 +194,9 @@ component TcpConnectionRecognizer<S: IPacketData> : IPacketData
 	 */
 	override fn GetAvailableLength() int
 	{
-		if (!this.IsReady()) { return 0 }
+		if (!this.IsReady()) {
+			return 0
+		}
 
 		return tcp.GetAvailableLength()
 	}
@@ -177,7 +208,9 @@ component TcpConnectionRecognizer<S: IPacketData> : IPacketData
 	{
 		value = 0x00
 
-		if (!this.IsReady()) { return PacketDataResult.NotReady }
+		if (!this.IsReady()) {
+			return PacketDataResult.NotReady
+		}
 
 		var readValue: byte = 0x00
 		var result = tcp.TryRead(index, readValue)

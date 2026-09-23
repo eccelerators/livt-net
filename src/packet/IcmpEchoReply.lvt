@@ -7,63 +7,163 @@ namespace Livt.Net
  */
 component IcmpEchoReply<P: IPacketData> : IPacketData, IIpv4Payload
 {
+	// Borrowed echo data; must remain stable until emission finishes.
 	payload: P
+
+	// Prepared echo header metadata and bounded data length.
 	identifier: int
 	sequence: int
 	checksum: int
 	dataLength: int
 	ready: bool
+
+	// Owned accumulator used only while preparing the checksum.
 	calculator: InternetChecksum
 
-	new(payload: P) { this.payload = payload; calculator = new InternetChecksum() }
-	public fn Invalidate() { ready = false; dataLength = 0 }
+	/**
+	 * Borrows the fixed payload and owns a checksum calculator; starts unprepared.
+	 */
+	new(payload: P)
+	{
+		this.payload = payload;
+		calculator = new InternetChecksum()
+	}
 
-	/** Failure invalidates the previous reply. Compute checksum once, before reads. */
+	/**
+	 * Discards prepared metadata without changing the payload. Finish all dependent
+	 * reads and transmit borrows before invalidating.
+	 */
+	public fn Invalidate()
+	{
+		ready = false;
+		dataLength = 0
+	}
+
+	/**
+	 * Failure invalidates the previous reply. Compute checksum once, before reads.
+	 */
 	public fn TryPrepare(identifier: byte[2], sequence: byte[2]) PacketDataResult
 	{
 		this.Invalidate()
-		if (!payload.IsReady()) { return PacketDataResult.NotReady }
+
+		if (!payload.IsReady()) {
+			return PacketDataResult.NotReady
+		}
+
 		var size = payload.GetAvailableLength()
-		if (size < 0 || size > 65507) { return PacketDataResult.Invalid }
+
+		if (size < 0 || size > 65507) {
+			return PacketDataResult.Invalid
+		}
+
 		this.identifier = ChecksumArithmetic.Word(identifier[0] as int, identifier[1] as int)
 		this.sequence = ChecksumArithmetic.Word(sequence[0] as int, sequence[1] as int)
 		calculator.Reset()
+
 		// Reply type, code and checksum are all zero during calculation.
 		calculator.AddByte(identifier[0])
 		calculator.AddByte(identifier[1])
 		calculator.AddByte(sequence[0])
 		calculator.AddByte(sequence[1])
+
 		for (var i = 0; i < size; i++) {
 			var value: byte = 0x00
 			var result = payload.TryRead(i, value)
-			if (result != PacketDataResult.Success) { return result }
+
+			if (result != PacketDataResult.Success) {
+				return result
+			}
+
 			calculator.AddByte(value)
 		}
+
 		checksum = calculator.GetChecksum()
 		dataLength = size
 		ready = true
 		return PacketDataResult.Success
 	}
 
-	override fn IsReady() bool { return ready }
-	override fn GetProtocol() int { return 1 }
+	/**
+	 * Reports prepared metadata; the owner must still keep all borrowed payloads stable.
+	 */
+	override fn IsReady() bool
+	{
+		return ready
+	}
+
+	/**
+	 * Returns the IPv4 protocol number identifying this payload, independent of readiness.
+	 */
+	override fn GetProtocol() int
+	{
+		return 1
+	}
+
+	/**
+	 * Returns the prepared packet length in bytes, or zero while unprepared.
+	 */
 	override fn GetAvailableLength() int
 	{
-		if (!ready) { return 0 }
+		if (!ready) {
+			return 0
+		}
+
 		return 8 + dataLength
 	}
+
+	/**
+	 * Reads a packet-relative byte; returns NotReady while unprepared and Invalid
+	 * outside the prepared length. Delegated payload errors propagate; the output
+	 * is data only on Success. Keep the prepared graph stable throughout the call.
+	 * Bytes 0..1: reply type/code; 2..3: checksum; 4..5: identifier;
+	 * 6..7: sequence; bytes 8 onward delegate to the echo payload.
+	 */
 	override fn TryRead(index: int, value: out byte) PacketDataResult
 	{
 		value = 0x00
-		if (!ready) { return PacketDataResult.NotReady }
-		if (index < 0 || index >= 8 + dataLength) { return PacketDataResult.Invalid }
-		if (index < 2) { return PacketDataResult.Success }
-		if (index == 2) { value = (checksum / 256) as byte; return PacketDataResult.Success }
-		if (index == 3) { value = (checksum % 256) as byte; return PacketDataResult.Success }
-		if (index == 4) { value = (identifier / 256) as byte; return PacketDataResult.Success }
-		if (index == 5) { value = (identifier % 256) as byte; return PacketDataResult.Success }
-		if (index == 6) { value = (sequence / 256) as byte; return PacketDataResult.Success }
-		if (index == 7) { value = (sequence % 256) as byte; return PacketDataResult.Success }
+
+		if (!ready) {
+			return PacketDataResult.NotReady
+		}
+
+		if (index < 0 || index >= 8 + dataLength) {
+			return PacketDataResult.Invalid
+		}
+
+		if (index < 2) {
+			return PacketDataResult.Success
+		}
+
+		if (index == 2) {
+			value = (checksum / 256) as byte;
+			return PacketDataResult.Success
+		}
+
+		if (index == 3) {
+			value = (checksum % 256) as byte;
+			return PacketDataResult.Success
+		}
+
+		if (index == 4) {
+			value = (identifier / 256) as byte;
+			return PacketDataResult.Success
+		}
+
+		if (index == 5) {
+			value = (identifier % 256) as byte;
+			return PacketDataResult.Success
+		}
+
+		if (index == 6) {
+			value = (sequence / 256) as byte;
+			return PacketDataResult.Success
+		}
+
+		if (index == 7) {
+			value = (sequence % 256) as byte;
+			return PacketDataResult.Success
+		}
+
 		return payload.TryRead(index - 8, value)
 	}
 }

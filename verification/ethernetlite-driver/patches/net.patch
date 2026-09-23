@@ -1,0 +1,3388 @@
+--- a/README.md
++++ b/README.md
+@@ -20,9 +20,8 @@
+ - `Livt.Net.TcpSegmentBuilder`: TCP response-header byte builder.
+ - `Livt.Net.TcpSynAckFrameComposer`: Ethernet/IPv4/TCP SYN-ACK frame composer.
+ - `Livt.Net.TcpChecksum`: checksum helper for fixed TCP responses.
+-- `Livt.Net.EthernetFrameIo`: frame buffer and AXI4-Lite EthernetLite boundary.
+-- `Livt.Net.Axi4LiteEthernetLiteAdapter`: AXI4-Lite EthernetLite signal adapter.
+-- `Livt.Net.IAxi4LiteEthernetLiteMaster`: AXI4-Lite EthernetLite interface.
++- `Livt.Net.IFrameReceiver` / `IFrameTransmitter`: device-independent frame capabilities.
++- `Livt.Net.Drivers.EthernetLite`: concrete driver, ownership components and AXI boundary.
+ 
+ ## 📦 Package
+ 
+@@ -43,14 +42,14 @@
+ | Area | Components |
+ |---|---|
+ | Packet data | `IPacketData`, `ArrayPacketData`, `RamPacketData`, `PacketRegion` |
+-| Ethernet | `EthernetFrame`, `EthernetFrameParser`, `EthernetFrameBuilder`, `EthernetFrameIo` |
++| Ethernet | `EthernetFrame`, `EthernetFrameParser`, `EthernetFrameBuilder` |
+ | ARP | `ArpPacketParser`, `ArpReply`, `ArpResponder` |
+ | IPv4 | `Ipv4Packet`, `Ipv4PacketParser`, `Ipv4HeaderBuilder`, `Ipv4HeaderChecksum` |
+ | ICMP | `IcmpEchoReply`, `IcmpEchoResponder` |
+ | TCP | `TcpHeaderParser`, `TcpConnectionRecognizer`, `TcpSegmentBuilder`, `TcpSynAckFrameComposer`, `TcpChecksum` |
+ | Checksums | `InternetChecksum`, `Ipv4HeaderChecksum`, `TcpChecksum` |
+ | Buffered links | `IFrameReceiver`, `IFrameTransmitter`, `TestFrameReceiver`, `TestFrameTransmitter` |
+-| AXI boundary | `IAxi4LiteEthernetLiteMaster`, `Axi4LiteEthernetLiteAdapter` |
++| EthernetLite device | `EthernetLiteDriver`, `EthernetLiteReceiver`, `EthernetLiteTransmitter`, `EthernetLiteBus` |
+ 
+ ## 🔌 API Overview
+ 
+@@ -85,59 +84,35 @@
+ a prepared source through terminal completion. `TestFrameReceiver` and
+ `TestFrameTransmitter` provide deterministic Livt test implementations. See
+ [buffered frame links](docs/frame-link.md) for ownership, results and test controls.
+-The EthernetLite implementation below will be migrated separately.
++The concrete implementation is in `Livt.Net.Drivers.EthernetLite`; see the
++[driver contract and construction example](docs/ethernetlite.md).
+ 
+-### Endpoint Flow
++### Endpoint flow
+ 
+-`EthernetFrameIo` uses a complete-frame ownership contract:
++1. Acquire RX through `TryAcquire()`, then parse/read only its available prefix.
++2. Finish dependent reads and release RX through `TryRelease()`.
++3. Prepare/publish a complete response provider, including minimum-frame padding.
++4. Submit the transmitter's bound source with `TrySubmit()`.
++5. Keep source/dependencies stable until terminal completion, acknowledge the
++   result and then release/invalidate the prepared data for reuse.
+ 
+-1. Poll `IsFrameAvailable()`, copy the captured RX bytes with `GetRxByte()`,
+-   then call `ConsumeRxFrame()`.
+-2. Call `TryBeginTxFrame(length)` and check its result.
+-3. Write bytes in ascending order with `TryWriteTxByte(index, value)`.
+-4. Call `TrySubmitTxFrame()` after every declared byte has been written.
+-5. Wait until `HasTxFrame()` is false before beginning another transmission.
+-
+-`HasSentFrameToAxi()` means delivery to the device, not physical transmission.
+-The legacy void TX methods remain available and ignore rejected operations.
+-For simulation injection, use `LoadRxByte()` to initialize the entire RX capture
+-in ascending order, then `SubmitRxFrame()`; do not inject during hardware RX.
++Responses that still borrow RX postpone step 2 until that dependency ends.
++Neither capture capacity nor a protocol-declared length establishes wire length.
++EthernetLite publishes a conservative FCS-free prefix and reports length unknown.
+ 
+ ### Compile-time configuration
+ 
+-Frame-consuming helpers accept `FRAME_CAPACITY`: Ethernet parsing and ARP default
+-to 64 bytes; other helpers default to 128. For example,
+-`TcpConnectionRecognizer<256>` and its child parsers all use `byte[256]`.
+-Classifiers accept an optional final `validLength` argument; pass the received
+-length to reject truncated headers. Omitting it declares the whole array valid.
+-The default is `FRAME_CAPACITY` from that parser's concrete specialization.
+-
+-`EthernetFrameIo<RX_CAPACITY = 128, RX_STORAGE_CAPACITY = 2048,
+-TX_STORAGE_CAPACITY = 2048>` separates captured bytes from RAM depth. RX capture
+-must be a positive multiple of four, at most 2036, and fit its storage. Storage
+-capacities are positive and at most 2048. TX length is limited by both its storage
+-and the 2036-byte data area below the EthernetLite length register.
+-
+-RAM cells are unspecified until written and survive reset. Frame metadata makes
+-old data unavailable; submission rejects incomplete frames and out-of-order
+-writes that leave holes. Final AXI word padding is explicitly zero.
+-
+-### EthernetLite Boundary
+-
+-`EthernetFrameIo` owns RX/TX frame buffers and drives an AXI4-Lite
+-EthernetLite-style interface through `IAxi4LiteEthernetLiteMaster`. It exposes
+-frame-level helpers such as `LoadRxByte`, `SubmitRxFrame`, `BeginTxFrame`,
+-`WriteTxByte`, and `SubmitTxFrame`.
++Parser type parameters select `IPacketData` providers; their payloads compose as
++bounded regions. Storage components select capacity, independently of protocol
++layout. The EthernetLite receiver defaults to 128 bytes (supported 60..1514), and
++its transmitter accepts prepared standard frames of 60..1514 bytes by default.
++The final partial AXI word is zero-filled without reading past the source.
+ 
+ ## Development verification status
+ 
+-The Livt behavioral suite passes, and native AXI verification passes across
+-debug/release, optimization and reset variants with the #491 compiler fix.
+-Invalid generic capacities are rejected by both validation and build with the
+-#492 compiler fix. Development web-app integration is verified with #497; see
+-[consumer evidence](../livt-web-app/verification/migration-evidence.md).
+-Simulation does not establish FPGA timing or board readiness. See
+-[verification evidence](docs/migration-evidence.md) before hardware integration.
++Use Livt tests for the driver and consumers. Prior native AXI/board evidence
++belongs to the former implementation and is not verification of the extracted
++driver. Simulation does not establish FPGA timing or board readiness.
+ 
+ ## 🧪 Build and Test
+ 
+--- /dev/null
++++ b/docs/ethernetlite.md
+@@ -0,0 +1,112 @@
++# EthernetLite frame-link implementation
++
++The concrete device types live in `Livt.Net.Drivers.EthernetLite`. Protocol code
++uses `IFrameReceiver`, `IFrameTransmitter` and `IPacketData` from `Livt.Net`.
++`EthernetFrameIo` and its raw byte injection/TX staging API have been removed.
++
++## Construction and ownership
++
++Construct RX first, then any response graph, then TX and the driver. For example:
++
++```livt
++using Livt.Net
++using Livt.Net.Drivers.EthernetLite
++
++component EthernetPort
++{
++    receiver: EthernetLiteReceiver<128>
++    response: RamPacketData<1514>
++    transmitter: EthernetLiteTransmitter<RamPacketData<1514>>
++    bus: EthernetLiteBus
++    driver: EthernetLiteDriver<EthernetLiteBus, RamPacketData<1514>>
++
++    new(axi: IAxi4LiteEthernetLiteMaster, mac: byte[6])
++    {
++        receiver = new EthernetLiteReceiver<128>()
++        response = new RamPacketData<1514>()
++        transmitter = new EthernetLiteTransmitter<RamPacketData<1514>>(response)
++        bus = new EthernetLiteBus(axi)
++        driver = new EthernetLiteDriver<EthernetLiteBus, RamPacketData<1514>>(
++            bus, receiver, transmitter, mac)
++    }
++}
++```
++
++`EthernetLiteReceiver<CAPACITY = 128>` owns RAM and acquisition metadata.
++`EthernetLiteTransmitter<S, MAX_LENGTH = 1514>` owns admission/borrow/completion
++metadata and borrows the prepared source. It does not allocate another TX copy.
++`EthernetLiteDriver<B: IEthernetLiteRegisterAccess, S, RX_CAPACITY = 128,
++MAX_TX_LENGTH = 1514>` owns register sequencing and borrows word access plus both
++frame capabilities. `EthernetLiteBus` adapts the board signal interface to the
++shared `EthernetLiteTransactions` core. Its live pins are wired in context-free
++processes; the Livt fixture drives those same pins with independent channel stalls.
++Storage sizes and source types must agree at construction.
++
++Only the driver may call the concrete capture/pending-read/completion methods.
++The application uses the public frame capabilities, owns prepared source mutation
++and closes all dependent RX views before release. No reference counting or
++concurrent multi-owner lifecycle is provided. RX can remain acquired during TX.
++
++## Receive prefix
++
++EthernetLite reports receive completion after CRC checking, but has no independent
++actual-length register for arbitrary Ethernet II frames. Its memory includes FCS.
++Reading a fixed capacity unconditionally could publish FCS or retained tail bytes
++from a previous packet. IP/802.3 length fields are not trusted as wire length.
++
++The driver scans at most `RX_CAPACITY + 4` octets, stopping at the first Ethernet
++CRC residue after at least 64 octets. It publishes at most the bytes preceding
++that candidate FCS. If no residue appears in the lookahead window, the first
++`RX_CAPACITY` bytes precede the real FCS of the CRC-accepted packet. A coincidental
++earlier residue can only shorten the capture, so **wire length remains unknown**.
++This establishes a conservative prefix, not an authoritative frame boundary.
++
++The argument relies on the device's CRC-accepted receive status and minimum-frame
++filtering. It is not a generic parser for arbitrary memory or a replacement for
++receive checksums at higher layers. The driver reads little-endian words in wire
++byte order, handles FCS in every word lane and never publishes FCS/lookahead data.
++
++Capture capacity is 60..1514 bytes and need not be word aligned. The prefix is
++published only after the RX-bank release write succeeds. Partial capture errors
++publish nothing. Error acknowledgment does not itself repair the device.
++
++Hardware assumptions: [AMD receive interface](https://docs.amd.com/r/en-US/pg135-axi-ethernetlite/Receive-Interface)
++and [retained FCS](https://docs.amd.com/r/en-US/pg135-axi-ethernetlite/FCS).
++
++## Transmit and errors
++
++TX admission is NotReady until MAC programming finishes. The driver waits for
++both MAC-programming command bits to clear before enabling admission. Pending TX
++waits for the device's idle status before writing any data.
++
++Frames must contain 60..MAX_LENGTH initialized bytes, including Ethernet padding,
++with MAX_LENGTH at most 1514. Oversized nonstandard frames formerly admitted by
++the raw buffer API are rejected. Final unused AXI word lanes are zero without
++reading beyond the source publication. Register writes stay outside the data.
++
++The source stays borrowed until a latched terminal result. Delivered means the
++TX start-command write received AXI OKAY; it does not mean physical transmission,
++remote receipt or acknowledgment. Results remain readable until acknowledged.
++Cancellation is unsupported and never releases a pending borrow.
++
++Source-read failure terminates TX with DeviceFailure and no start command. AXI
++read/write error responses stop the driver, terminate pending TX with DeviceFailure
++and latch RX error without revoking an acquired frame. A failed start write may
++have affected the device; retry is not a promise of exactly-once delivery.
++
++The boundary owner can acknowledge errors/results and call `TryRecover()` after
++a completed error response. Recovery reprograms the MAC after the TX busy/program
++bits clear. An indefinitely stalled AXI transaction has no timeout or local abort.
++
++## Reset and verification limits
++
++Driver, capabilities, borrowed source/readers and the external MAC must share a
++coordinated reset. Reset clears metadata, disables admission and restarts MAC
++programming; RAM contents are not considered valid merely because they remain.
++Resetting only one participant during an outstanding transaction is unsupported.
++
++Verification uses Livt tests with a device register model, independent channel
++stalls, error responses, CRC vectors, retained storage and capability-only
++application tests. Simulation does not establish resource use, timing or board
++readiness. Historical native harness evidence applies to the former driver,
++not this implementation. No synthesis or native harness is required here.
+--- a/docs/frame-link.md
++++ b/docs/frame-link.md
+@@ -7,8 +7,8 @@
+ 
+ `TestFrameReceiver<CAPACITY>` and
+ `TestFrameTransmitter<P: IPacketData, MAX_LENGTH = 1514, CANCELLABLE = true>` are
+-deterministic test implementations. EthernetFrameIo has not yet been migrated to
+-these capabilities; its driver extraction is a separate change.
++deterministic test implementations. The production EthernetLite implementation
++uses the same capabilities; see [device construction and limits](ethernetlite.md).
+ 
+ ## Construction
+ 
+--- a/docs/hardware-notes.md
++++ b/docs/hardware-notes.md
+@@ -1,14 +1,11 @@
+ # Livt.Net Hardware Notes
+ 
+-## Frame Model
++## Frame model
+ 
+-`Livt.Net` uses compile-time-sized frame arrays and byte-indexed helpers. Ethernet parsing and
+-ARP helpers default to `byte[64]` where the minimum Ethernet frame is enough.
+-IPv4, ICMP, TCP, and frame-I/O helpers default to `byte[128]` where
+-the current request/response tests need more payload space.
+-
+-The package assumes Ethernet II frames and fixed 20-byte IPv4 and TCP headers.
+-IPv4 and TCP options are not part of the current hardware contract.
++Packet-facing APIs consume bounded `IPacketData` components. Fixed headers are
++cached; payloads remain borrowed provider views. Arrays/RAM are storage details,
++not parser arguments. See [packet parsing](packet-parsing.md) for supported
++headers, structural status and explicit checksum coverage.
+ 
+ ## Protocol Scope
+ 
+@@ -37,60 +34,17 @@
+ This keeps `Livt.Net` reusable and avoids embedding application content in the
+ networking package.
+ 
+-## EthernetLite Boundary
++## EthernetLite boundary
+ 
+-`EthernetFrameIo` bridges frame-oriented Livt code to an AXI4-Lite
+-EthernetLite-style register interface. The adapter targets the Xilinx/AMD AXI
+-EthernetLite register shape used by the current tests:
++The device implementation lives in `Livt.Net.Drivers.EthernetLite`. Its receiver
++owns capture RAM, transmitter owns source borrowing, and driver owns MAC
++programming, RX/TX polling and AXI word transactions. Applications depend on
++frame capabilities. See [the driver contract](ethernetlite.md) for construction,
++FCS-free bounded captures, TX limits, completion, errors and coordinated reset.
+ 
+-- 13-bit AXI4-Lite address bus
+-- 32-bit AXI4-Lite data bus
+-- ping/pong receive status polling
+-- transmit-buffer writes through word packing
+-- local MAC programming through the EthernetLite control path
++`Livt.Net 1.1.0-dev` uses `Livt.IO 1.2.0-dev` generic scheduled RAM. Storage cells
++may retain bytes across metadata reset, but unpublished data is not readable.
++There is no equal-latency, FPGA area or timing claim from these abstractions.
+ 
+-The AXI getters on `EthernetFrameIo` are diagnostics-oriented visibility helpers
+-for simulation and integration tests. Treat them as part of the current
+-low-level boundary, not as the preferred application API.
+-
+-## Dependency
+-
+-`Livt.Net 1.1.0-dev` uses `Livt.IO 1.2.0-dev` generic scheduled RAM.
+-The portable storage is generated from Livt; `InternalRam` and its handwritten
+-VHDL are no longer part of the dependency.
+-
+-## Storage, validity and reset
+-
+-Defaults retain two 2048-byte stores and a 128-byte RX capture. RX storage can
+-be explicitly reduced to the capture size; this is a configuration choice,
+-not a claim about resulting FPGA resource use. Auto supplies no placement hint.
+-
+-All declared TX payload bytes must be initialized before submission. Reopening
+-or consuming a buffer invalidates its initialized prefix without clearing RAM.
+-Unavailable RX reads and invalid/unwritten TX reads return zero. Reset cancels
+-scheduled work, clears frame metadata and restarts MAC programming. Committed
+-RAM cells remain stored. The EthernetLite slave must share reset; resetting only
+-the master during an AXI transaction is not a supported recovery protocol.
+-
+-`EthernetFrameIo` captures a fixed RX prefix, not an authoritative wire length.
+-Its AXI interface does not report the actual received length. Applications must
+-validate protocol lengths and provide a trustworthy valid prefix length to
+-classifiers when available. A larger array does not make truncated packets valid.
+-
+-## Transmit bounds and padding
+-
+-The length register is at byte offset `0x7F4` (2036), before the control register
+-at `0x7FC`. Payload writes must stay below `0x7F4`; the former 511-word cap could
+-write into the register area. The checked API now accepts lengths from 1 through
+-`min(TX_STORAGE_CAPACITY, 2036)` and rejects all others.
+-
+-Byte zero occupies bits 7..0 of an AXI word. The last word's unused high lanes
+-are zeroed without reading unwritten RAM. Applications still supply any required
+-Ethernet minimum-frame padding; bus-word padding is a separate operation.
+-
+-## Verification and performance
+-
+-See [the native AXI verification](../verification/ethernet/README.md) for edge
+-checks, measured transfer timings and any release blockers. Scheduled calls,
+-RAM arbitration and device stalls all contribute to latency. No area, Fmax or
+-board-readiness claim follows from passing Livt simulations alone.
++Current verification uses Livt tests only. Historical native AXI and board
++results for EthernetFrameIo do not verify the extracted implementation.
+--- a/docs/usage.md
++++ b/docs/usage.md
+@@ -11,65 +11,28 @@
+ 
+ ## Queue a complete response
+ 
+-```livt
+-using Livt.Net
++Prepare an `IPacketData` source such as `RamPacketData`, `EthernetFrame` or a
++response component, then call the bound transmitter's `TrySubmit()`. Accepted
++borrows the publication until `TryGetCompletion()` reports a terminal result.
++Acknowledge completion before another submission. Preserve source and dependent
++RX views through that lifetime; rejected submissions never acquire a borrow.
+ 
+-component FrameIoExample
+-{
+-    io: EthernetFrameIo
+-
+-    new(axi: IAxi4LiteEthernetLiteMaster, mac: in byte[6])
+-    {
+-        this.io = new EthernetFrameIo(axi, mac)
+-    }
+-
+-    public fn QueueFrame(frame: byte[128], length: int) bool
+-    {
+-        if (length <= 0 || length > 128) { return false }
+-        if (!this.io.TryBeginTxFrame(length)) { return false }
+-        for (var i = 0; i < length; i++)
+-        {
+-            if (!this.io.TryWriteTxByte(i, frame[i])) { return false }
+-        }
+-        return this.io.TrySubmitTxFrame()
+-    }
+-}
+-```
+-
+-Supply one AXI attachment and one application process that serializes lifecycle
+-calls. Do not change a submitted
+-frame; wait for `HasTxFrame()` to become false before starting the next one.
+-Every byte, including application-supplied minimum-frame padding, must be
+-written. The `Try...` methods report rejected operations; the old void methods
+-remain source-compatible and ignore rejection.
++See [EthernetLite construction](ethernetlite.md) for the concrete board adapter.
++Application protocol code uses [frame capabilities](frame-link.md), without AXI
++or device-specific methods. `EthernetFrameIo` has been replaced without legacy
++wrappers. Prepared TX bytes must include minimum-frame Ethernet padding.
+ 
+ ## Receive and release
+ 
+-Poll `IsFrameAvailable()`. Once true, read indices `0..RX_CAPACITY-1` using
+-`GetRxByte()` and call `ConsumeRxFrame()` after copying the required bytes.
+-Default hardware capture is 128 bytes. The captured prefix length is not the
+-actual wire length; validate protocol lengths before acting on a packet.
++Acquire through `IFrameReceiver.TryAcquire()`, inspect `GetAvailableLength()` and
++parse/read only that prefix. Invalidate child views before `TryRelease()`.
++EthernetLite reports unknown wire length and excludes retained FCS/tail bytes
++with a bounded CRC scan; capacity is not the received length.
+ 
+-Tests can inject a capture by calling `LoadRxByte()` in ascending order for the
+-entire configured prefix, followed by `SubmitRxFrame()`. Partial injection is
+-not published. Injection and hardware capture must not overlap. Fixtures that
+-edit selected fields between packets should keep an explicitly initialized local
+-`byte[RX_CAPACITY]` array, update that array, then copy every byte in ascending
+-order before each submission. Consuming a frame invalidates the injected prefix.
+-Tests that leave TX queued against a stalled slave need separate frame-I/O
+-instances, or must drive AXI completion before reusing the instance.
+-
+-## Select storage geometry
+-
+-```livt
+-// 256-byte capture, 256-byte RX storage, 512-byte TX storage.
+-io: EthernetFrameIo<256, 256, 512>
+-```
+-
+-Construct it with `new EthernetFrameIo<256, 256, 512>(axi, mac)`. RX capture must
+-be word aligned and fit its storage. TX lengths must fit both storage and the
+-EthernetLite data region. Storage cells retain data across reset; only initialized
+-bytes in the current frame are accessible through the application methods.
++Tests use `TestFrameReceiver`: inject initialized bytes then `Publish(known,
++length)`. `TestFrameTransmitter` binds a prepared provider; `Advance()` controls
++progress and lets a test hold the source borrow. Test injection is not exposed
++on the hardware driver.
+ 
+ ## Checksum array APIs
+ 
+--- a/livt.toml
++++ b/livt.toml
+@@ -17,8 +17,8 @@
+ 	"ChecksumApiTest",
+ 	"ArpResponderTest",
+ 	"EthernetFrameBuilderTest",
+-	"EthernetFrameIoTest",
+-	"EthernetFrameBufferTest",
++	"EthernetLiteDriverTest",
++	"EthernetLiteReceiveWindowTest",
+ 	"FrameCapacityTest",
+ 	"FrameCompositionTest",
+ 	"EthernetFrameParserTest",
+--- a/src/Axi4LiteEthernetLiteAdapter.lvt
++++ /dev/null
+@@ -1,13 +0,0 @@
+-namespace Livt.Net
+-
+-/**
+- * Concrete implementation of IAxi4LiteEthernetLiteMaster that bridges
+- * individual constructor-parameter signals into the interface contract.
+- *
+- * Only the slave-driven (in) signals are constructor parameters.
+- * The master-driven (out) signals are provided through the interface
+- * contract fields directly — no out constructor parameters needed.
+- */
+-component Axi4LiteEthernetLiteAdapter : IAxi4LiteEthernetLiteMaster
+-{
+-}
+--- a/src/EthernetFrameIo.lvt
++++ /dev/null
+@@ -1,1028 +0,0 @@
+-namespace Livt.Net
+-
+-using Livt.IO
+-
+-/**
+- * RFC 894 — A Standard for the Transmission of IP Datagrams over Ethernet Networks
+- * https://www.rfc-editor.org/rfc/rfc894
+- *
+- * Complete-frame byte buffer used as a small platform-neutral Ethernet I/O boundary.
+- */
+-component EthernetFrameIo<RX_CAPACITY: int = 128, RX_STORAGE_CAPACITY: int = 2048, TX_STORAGE_CAPACITY: int = 2048>
+-{
+-	static assert RX_CAPACITY > 0 && RX_CAPACITY <= 2036 && RX_CAPACITY % 4 == 0, "RX capture must be word aligned and fit below EthernetLite registers"
+-	static assert RX_STORAGE_CAPACITY >= RX_CAPACITY && RX_STORAGE_CAPACITY <= 2048, "RX storage must hold the captured prefix"
+-	static assert TX_STORAGE_CAPACITY > 0 && TX_STORAGE_CAPACITY <= 2048, "TX storage must fit the EthernetLite window"
+-	const AXI_STRB_ALL: logic[4] = 0b1111
+-	const AXI_STRB_NONE: logic[4] = 0b0000
+-	const RX_FRAME_WORDS: int = RX_CAPACITY / 4
+-	public const MAX_TX_LENGTH: int = 2036
+-	const TX_PING_BASE: logic[13] = 0b0000000000000
+-	const TX_PING_LENGTH: logic[13] = 0b0011111110100
+-	const TX_PING_CONTROL: logic[13] = 0b0011111111100
+-	const TX_CONTROL_START: logic[32] = 0x00000001
+-	const TX_CONTROL_PROGRAM_MAC: logic[32] = 0x00000003
+-	const RX_PING_BASE: logic[13] = 0b1000000000000
+-	const RX_PING_CONTROL: logic[13] = 0b1011111111100
+-	const RX_PONG_BASE: logic[13] = 0b1100000000000
+-	const RX_PONG_CONTROL: logic[13] = 0b1111111111100
+-
+-	// Explicit live AXI wiring; scheduled interface access adds register stages.
+-	busAwready: logic
+-	busAwaddr: logic[13]
+-	busAwvalid: logic
+-	busWready: logic
+-	busWdata: logic[32]
+-	busWstrb: logic[4]
+-	busWvalid: logic
+-	busBresp: logic[2]
+-	busBvalid: logic
+-	busBready: logic
+-	busArready: logic
+-	busAraddr: logic[13]
+-	busArvalid: logic
+-	busRdata: logic[32]
+-	busRresp: logic[2]
+-	busRvalid: logic
+-	busRready: logic
+-
+-	axi: IAxi4LiteEthernetLiteMaster
+-	localMac0: logic[8]
+-	localMac1: logic[8]
+-	localMac2: logic[8]
+-	localMac3: logic[8]
+-	localMac4: logic[8]
+-	localMac5: logic[8]
+-	hasProgrammedMac: bool
+-	rxFrame: byte[RX_CAPACITY]
+-	rxFrameFromAxi: bool
+-	rxWords: Ram<byte, RX_STORAGE_CAPACITY>
+-	hasRxFrame: bool
+-	txWords: Ram<byte, TX_STORAGE_CAPACITY>
+-	hasTxFrame: bool
+-	txFrameSent: bool
+-	txWritten: int
+-	txPreparing: bool
+-	rxWritten: int
+-	txLength: int
+-
+-	new(axi: IAxi4LiteEthernetLiteMaster, local_mac: in byte[6])
+-	{
+-		this.axi = axi
+-		this.localMac0 = local_mac[0]
+-		this.localMac1 = local_mac[1]
+-		this.localMac2 = local_mac[2]
+-		this.localMac3 = local_mac[3]
+-		this.localMac4 = local_mac[4]
+-		this.localMac5 = local_mac[5]
+-		this.rxWords = new Ram<byte, RX_STORAGE_CAPACITY>()
+-		this.txWords = new Ram<byte, TX_STORAGE_CAPACITY>()
+-		this.hasProgrammedMac = false
+-		this.rxFrameFromAxi = false
+-		this.hasRxFrame = false
+-		this.hasTxFrame = false
+-		this.txFrameSent = false
+-		this.txWritten = 0
+-		this.txPreparing = false
+-		this.rxWritten = 0
+-		this.txLength = 0
+-	}
+-
+-	/**
+-	 * Packs four frame bytes into one 32-bit EthernetLite transmit word.
+-	 * Bits 7..0: byte0; bits 15..8: byte1; bits 23..16: byte2; bits 31..24: byte3.
+-	 */
+-	public fn PackTxWord(byte0: logic[8], byte1: logic[8], byte2: logic[8], byte3: logic[8]) logic[32]
+-	{
+-		var word: logic[32] = 0x00000000
+-
+-		for (var i = 0; i < 8; i++)
+-		{
+-			word[i]      = byte0[i]
+-			word[i + 8]  = byte1[i]
+-			word[i + 16] = byte2[i]
+-			word[i + 24] = byte3[i]
+-		}
+-
+-		return word
+-	}
+-
+-	/** Declares live AXI wiring; the current compiler boundary defect is documented in migration evidence. */
+-	process AxiPorts[]()
+-	{
+-		this.busAwready = this.axi.m_axi_awready
+-		this.axi.m_axi_awaddr = this.busAwaddr
+-		this.axi.m_axi_awvalid = this.busAwvalid
+-		this.busWready = this.axi.m_axi_wready
+-		this.axi.m_axi_wdata = this.busWdata
+-		this.axi.m_axi_wstrb = this.busWstrb
+-		this.axi.m_axi_wvalid = this.busWvalid
+-		this.busBresp = this.axi.m_axi_bresp
+-		this.busBvalid = this.axi.m_axi_bvalid
+-		this.axi.m_axi_bready = this.busBready
+-		this.busArready = this.axi.m_axi_arready
+-		this.axi.m_axi_araddr = this.busAraddr
+-		this.axi.m_axi_arvalid = this.busArvalid
+-		this.busRdata = this.axi.m_axi_rdata
+-		this.busRresp = this.axi.m_axi_rresp
+-		this.busRvalid = this.axi.m_axi_rvalid
+-		this.axi.m_axi_rready = this.busRready
+-	}
+-
+-	process AccessEthernetLite()
+-	{
+-		var readAddress: logic[13] = 0b0000000000000
+-		var readData: logic[32] = 0x00000000
+-		var readPurpose = 0
+-		var writeAddress: logic[13] = 0b0000000000000
+-		var writeData: logic[32] = 0x00000000
+-		var writePurpose = 0
+-		var writeAddressDone = false
+-		var writeDataDone = false
+-		var rxBaseAddress: logic[13] = 0b0000000000000
+-		var rxControlAddress: logic[13] = 0b0000000000000
+-		var rxWordIndex = 0
+-		var rxByteAddr = 0
+-		var rxByte0: logic[8] = 0x00
+-		var rxByte1: logic[8] = 0x00
+-		var rxByte2: logic[8] = 0x00
+-		var rxByte3: logic[8] = 0x00
+-		var txWordIndex = 0
+-		var txWordCount = 0
+-		var macProgramWordIndex = 0
+-		var txByteAddr = 0
+-		var txByte0: logic[8] = 0x00
+-		var txByte1: logic[8] = 0x00
+-		var txByte2: logic[8] = 0x00
+-		var txByte3: logic[8] = 0x00
+-
+-		state Idle {
+-			this.busAwaddr = 0b0000000000000
+-			this.busAwvalid = 0b0
+-			this.busWdata = 0x00000000
+-			this.busWstrb = AXI_STRB_NONE
+-			this.busWvalid = 0b0
+-			this.busBready = 0b0
+-			this.busAraddr = 0b0000000000000
+-			this.busArvalid = 0b0
+-			this.busRready = 0b0
+-			writeAddressDone = false
+-			writeDataDone = false
+-
+-			if (this.hasProgrammedMac == false)
+-			{
+-				readAddress = TX_PING_CONTROL
+-				readPurpose = 5
+-				goto ReadStart
+-			}
+-			else
+-			{
+-				if (this.hasTxFrame == true)
+-				{
+-					readAddress = TX_PING_CONTROL
+-					readPurpose = 3
+-					goto ReadStart
+-				}
+-				else
+-				{
+-					if (this.hasRxFrame == false)
+-					{
+-						readAddress = RX_PING_CONTROL
+-						readPurpose = 1
+-						goto ReadStart
+-					}
+-					else
+-					{
+-						goto Idle
+-					}
+-				}
+-			}
+-		}
+-
+-		state ReadStart {
+-			this.busAraddr = readAddress
+-			this.busArvalid = 0b1
+-			this.busRready = 0b0
+-			goto ReadAddress
+-		}
+-
+-		state ReadAddress {
+-			this.busAraddr = readAddress
+-			this.busRready = 0b0
+-
+-			if (this.busArready)
+-			{
+-				this.busArvalid = 0b0
+-				goto ReadData
+-			}
+-			else
+-			{
+-				this.busArvalid = 0b1
+-				goto ReadAddress
+-			}
+-		}
+-
+-		state ReadData {
+-			this.busArvalid = 0b0
+-			this.busRready = 0b1
+-			goto WaitReadData
+-		}
+-
+-		state WaitReadData {
+-			this.busArvalid = 0b0
+-			this.busRready = 0b1
+-
+-			if (this.busRvalid)
+-			{
+-				readData = this.busRdata
+-				goto ReadComplete
+-			}
+-			else
+-			{
+-				goto WaitReadData
+-			}
+-		}
+-
+-		state ReadComplete {
+-			this.busArvalid = 0b0
+-			this.busRready = 0b0
+-
+-			if (readPurpose == 1)
+-			{
+-				goto HandleRxPingStatus
+-			}
+-			else
+-			{
+-				goto ReadCompleteCheckPong
+-			}
+-		}
+-
+-		state ReadCompleteCheckPong {
+-			if (readPurpose == 2)
+-			{
+-				goto HandleRxPongStatus
+-			}
+-			else
+-			{
+-				goto ReadCompleteCheckTx
+-			}
+-		}
+-
+-		state ReadCompleteCheckTx {
+-			if (readPurpose == 3)
+-			{
+-				goto HandleTxStatus
+-			}
+-			else
+-			{
+-				goto ReadCompleteCheckRxWord
+-			}
+-		}
+-
+-		state ReadCompleteCheckRxWord {
+-			if (readPurpose == 4)
+-			{
+-				goto RxStoreWord
+-			}
+-			else
+-			{
+-				goto ReadCompleteCheckMacProgramIdle
+-			}
+-		}
+-
+-		state ReadCompleteCheckMacProgramIdle {
+-			if (readPurpose == 5)
+-			{
+-				goto HandleMacProgramIdleStatus
+-			}
+-			else
+-			{
+-				goto ReadCompleteCheckMacProgramDone
+-			}
+-		}
+-
+-		state ReadCompleteCheckMacProgramDone {
+-			if (readPurpose == 6)
+-			{
+-				goto HandleMacProgramDoneStatus
+-			}
+-			else
+-			{
+-				goto Idle
+-			}
+-		}
+-
+-		state HandleMacProgramIdleStatus {
+-			if (readData[0] == 0b0)
+-			{
+-				macProgramWordIndex = 0
+-				goto MacProgramWriteDataStart
+-			}
+-			else
+-			{
+-				goto Idle
+-			}
+-		}
+-
+-		state HandleMacProgramDoneStatus {
+-			if (readData[0] == 0b0)
+-			{
+-				this.hasProgrammedMac = true
+-				goto Idle
+-			}
+-			else
+-			{
+-				readAddress = TX_PING_CONTROL
+-				readPurpose = 6
+-				goto ReadStart
+-			}
+-		}
+-
+-		state HandleRxPingStatus {
+-			if (readData[0] == 0b1)
+-			{
+-				rxBaseAddress = RX_PING_BASE
+-				rxControlAddress = RX_PING_CONTROL
+-				rxWordIndex = 0
+-				goto RxReadWordStart
+-			}
+-			else
+-			{
+-				readAddress = RX_PONG_CONTROL
+-				readPurpose = 2
+-				goto ReadStart
+-			}
+-		}
+-
+-		state HandleRxPongStatus {
+-			if (readData[0] == 0b1)
+-			{
+-				rxBaseAddress = RX_PONG_BASE
+-				rxControlAddress = RX_PONG_CONTROL
+-				rxWordIndex = 0
+-				goto RxReadWordStart
+-			}
+-			else
+-			{
+-				goto Idle
+-			}
+-		}
+-
+-		state HandleTxStatus {
+-			if (readData[0] == 0b0)
+-			{
+-				txWordIndex = 0
+-				txWordCount = (this.txLength + 3) / 4
+-
+-
+-				goto TxWriteDataStart
+-			}
+-			else
+-			{
+-				goto Idle
+-			}
+-		}
+-
+-		state RxReadWordStart {
+-			readPurpose = 4
+-			readAddress = ((rxBaseAddress as int) + (rxWordIndex * 4)) as logic[13]
+-			goto ReadStart
+-		}
+-
+-		state RxStoreWord {
+-			rxByte0[0] = readData[0]
+-			rxByte0[1] = readData[1]
+-			rxByte0[2] = readData[2]
+-			rxByte0[3] = readData[3]
+-			rxByte0[4] = readData[4]
+-			rxByte0[5] = readData[5]
+-			rxByte0[6] = readData[6]
+-			rxByte0[7] = readData[7]
+-			rxByte1[0] = readData[8]
+-			rxByte1[1] = readData[9]
+-			rxByte1[2] = readData[10]
+-			rxByte1[3] = readData[11]
+-			rxByte1[4] = readData[12]
+-			rxByte1[5] = readData[13]
+-			rxByte1[6] = readData[14]
+-			rxByte1[7] = readData[15]
+-			rxByte2[0] = readData[16]
+-			rxByte2[1] = readData[17]
+-			rxByte2[2] = readData[18]
+-			rxByte2[3] = readData[19]
+-			rxByte2[4] = readData[20]
+-			rxByte2[5] = readData[21]
+-			rxByte2[6] = readData[22]
+-			rxByte2[7] = readData[23]
+-			rxByte3[0] = readData[24]
+-			rxByte3[1] = readData[25]
+-			rxByte3[2] = readData[26]
+-			rxByte3[3] = readData[27]
+-			rxByte3[4] = readData[28]
+-			rxByte3[5] = readData[29]
+-			rxByte3[6] = readData[30]
+-			rxByte3[7] = readData[31]
+-			rxByteAddr = rxWordIndex * 4
+-			goto RxStoreWordByte0
+-		}
+-
+-		state RxStoreWordByte0 {
+-			this.rxWords.Write(rxByteAddr, rxByte0)
+-			goto RxStoreWordByte1
+-		}
+-
+-		state RxStoreWordByte1 {
+-			rxByteAddr = rxByteAddr + 1
+-			this.rxWords.Write(rxByteAddr, rxByte1)
+-			goto RxStoreWordByte2
+-		}
+-
+-		state RxStoreWordByte2 {
+-			rxByteAddr = rxByteAddr + 1
+-			this.rxWords.Write(rxByteAddr, rxByte2)
+-			goto RxStoreWordByte3
+-		}
+-
+-		state RxStoreWordByte3 {
+-			rxByteAddr = rxByteAddr + 1
+-			this.rxWords.Write(rxByteAddr, rxByte3)
+-			goto RxAdvanceWord
+-		}
+-
+-		state RxAdvanceWord {
+-			rxWordIndex = rxWordIndex + 1
+-
+-			if (rxWordIndex < RX_FRAME_WORDS)
+-			{
+-				goto RxReadWordStart
+-			}
+-			else
+-			{
+-				goto RxClearControlStart
+-			}
+-		}
+-
+-		state RxClearControlStart {
+-			writeAddress = rxControlAddress
+-			writeData = 0x00000000
+-			writePurpose = 1
+-			goto WriteStart
+-		}
+-
+-		state TxWriteDataStart {
+-			if (txWordIndex < txWordCount)
+-			{
+-				goto TxPrepareWriteAddress
+-			}
+-			else
+-			{
+-				goto TxWriteLengthStart
+-			}
+-		}
+-
+-		state TxPrepareWriteAddress {
+-			writeAddress = ((TX_PING_BASE as int) + (txWordIndex * 4)) as logic[13]
+-			goto TxPrepareWriteData
+-		}
+-
+-		state TxPrepareWriteData {
+-			txByteAddr = txWordIndex * 4
+-			goto TxReadByte0
+-		}
+-
+-		state TxReadByte0 {
+-			txByte0 = 0x00
+-			if (txByteAddr < this.txLength)
+-			{
+-				txByte0 = this.txWords.Read(txByteAddr)
+-			}
+-			goto TxReadByte1
+-		}
+-
+-		state TxReadByte1 {
+-			txByteAddr = txByteAddr + 1
+-			txByte1 = 0x00
+-			if (txByteAddr < this.txLength)
+-			{
+-				txByte1 = this.txWords.Read(txByteAddr)
+-			}
+-			goto TxReadByte2
+-		}
+-
+-		state TxReadByte2 {
+-			txByteAddr = txByteAddr + 1
+-			txByte2 = 0x00
+-			if (txByteAddr < this.txLength)
+-			{
+-				txByte2 = this.txWords.Read(txByteAddr)
+-			}
+-			goto TxReadByte3
+-		}
+-
+-		state TxReadByte3 {
+-			txByteAddr = txByteAddr + 1
+-			txByte3 = 0x00
+-			if (txByteAddr < this.txLength)
+-			{
+-				txByte3 = this.txWords.Read(txByteAddr)
+-			}
+-			goto TxPackWord
+-		}
+-
+-		state TxPackWord {
+-			writePurpose = 2
+-			writeData = 0x00000000
+-			writeData[0] = txByte0[0]
+-			writeData[1] = txByte0[1]
+-			writeData[2] = txByte0[2]
+-			writeData[3] = txByte0[3]
+-			writeData[4] = txByte0[4]
+-			writeData[5] = txByte0[5]
+-			writeData[6] = txByte0[6]
+-			writeData[7] = txByte0[7]
+-			writeData[8] = txByte1[0]
+-			writeData[9] = txByte1[1]
+-			writeData[10] = txByte1[2]
+-			writeData[11] = txByte1[3]
+-			writeData[12] = txByte1[4]
+-			writeData[13] = txByte1[5]
+-			writeData[14] = txByte1[6]
+-			writeData[15] = txByte1[7]
+-			writeData[16] = txByte2[0]
+-			writeData[17] = txByte2[1]
+-			writeData[18] = txByte2[2]
+-			writeData[19] = txByte2[3]
+-			writeData[20] = txByte2[4]
+-			writeData[21] = txByte2[5]
+-			writeData[22] = txByte2[6]
+-			writeData[23] = txByte2[7]
+-			writeData[24] = txByte3[0]
+-			writeData[25] = txByte3[1]
+-			writeData[26] = txByte3[2]
+-			writeData[27] = txByte3[3]
+-			writeData[28] = txByte3[4]
+-			writeData[29] = txByte3[5]
+-			writeData[30] = txByte3[6]
+-			writeData[31] = txByte3[7]
+-			goto WriteStart
+-		}
+-
+-		state MacProgramWriteDataStart {
+-			if (macProgramWordIndex < 2)
+-			{
+-				goto MacProgramPrepareWriteAddress
+-			}
+-			else
+-			{
+-				goto MacProgramWriteControlStart
+-			}
+-		}
+-
+-		state MacProgramPrepareWriteAddress {
+-			writeAddress = ((TX_PING_BASE as int) + (macProgramWordIndex * 4)) as logic[13]
+-			goto MacProgramPrepareWriteData
+-		}
+-
+-		state MacProgramPrepareWriteData {
+-			writePurpose = 5
+-			writeData = 0x00000000
+-
+-			if (macProgramWordIndex == 0)
+-			{
+-				writeData[0] = this.localMac0[0]
+-				writeData[1] = this.localMac0[1]
+-				writeData[2] = this.localMac0[2]
+-				writeData[3] = this.localMac0[3]
+-				writeData[4] = this.localMac0[4]
+-				writeData[5] = this.localMac0[5]
+-				writeData[6] = this.localMac0[6]
+-				writeData[7] = this.localMac0[7]
+-				writeData[8] = this.localMac1[0]
+-				writeData[9] = this.localMac1[1]
+-				writeData[10] = this.localMac1[2]
+-				writeData[11] = this.localMac1[3]
+-				writeData[12] = this.localMac1[4]
+-				writeData[13] = this.localMac1[5]
+-				writeData[14] = this.localMac1[6]
+-				writeData[15] = this.localMac1[7]
+-				writeData[16] = this.localMac2[0]
+-				writeData[17] = this.localMac2[1]
+-				writeData[18] = this.localMac2[2]
+-				writeData[19] = this.localMac2[3]
+-				writeData[20] = this.localMac2[4]
+-				writeData[21] = this.localMac2[5]
+-				writeData[22] = this.localMac2[6]
+-				writeData[23] = this.localMac2[7]
+-				writeData[24] = this.localMac3[0]
+-				writeData[25] = this.localMac3[1]
+-				writeData[26] = this.localMac3[2]
+-				writeData[27] = this.localMac3[3]
+-				writeData[28] = this.localMac3[4]
+-				writeData[29] = this.localMac3[5]
+-				writeData[30] = this.localMac3[6]
+-				writeData[31] = this.localMac3[7]
+-			}
+-			else
+-			{
+-				writeData[0] = this.localMac4[0]
+-				writeData[1] = this.localMac4[1]
+-				writeData[2] = this.localMac4[2]
+-				writeData[3] = this.localMac4[3]
+-				writeData[4] = this.localMac4[4]
+-				writeData[5] = this.localMac4[5]
+-				writeData[6] = this.localMac4[6]
+-				writeData[7] = this.localMac4[7]
+-				writeData[8] = this.localMac5[0]
+-				writeData[9] = this.localMac5[1]
+-				writeData[10] = this.localMac5[2]
+-				writeData[11] = this.localMac5[3]
+-				writeData[12] = this.localMac5[4]
+-				writeData[13] = this.localMac5[5]
+-				writeData[14] = this.localMac5[6]
+-				writeData[15] = this.localMac5[7]
+-			}
+-
+-			goto WriteStart
+-		}
+-
+-		state TxWriteLengthStart {
+-			writeAddress = TX_PING_LENGTH
+-			writeData = this.txLength as logic[32]
+-			writePurpose = 3
+-			goto WriteStart
+-		}
+-
+-		state TxWriteControlStart {
+-			writeAddress = TX_PING_CONTROL
+-			writeData = TX_CONTROL_START
+-			writePurpose = 4
+-			goto WriteStart
+-		}
+-
+-		state MacProgramWriteControlStart {
+-			writeAddress = TX_PING_CONTROL
+-			writeData = TX_CONTROL_PROGRAM_MAC
+-			writePurpose = 6
+-			goto WriteStart
+-		}
+-
+-		state WriteStart {
+-			this.busAwaddr = writeAddress
+-			this.busAwvalid = 0b1
+-			this.busWdata = writeData
+-			this.busWstrb = AXI_STRB_ALL
+-			this.busWvalid = 0b1
+-			this.busBready = 0b0
+-			writeAddressDone = false
+-			writeDataDone = false
+-			goto WriteAddressAndData
+-		}
+-
+-		state WriteAddressAndData {
+-			this.busAwaddr = writeAddress
+-			this.busWdata = writeData
+-			this.busWstrb = AXI_STRB_ALL
+-			this.busBready = 0b0
+-
+-			if (writeAddressDone == false)
+-			{
+-				this.busAwvalid = 0b1
+-			}
+-			else
+-			{
+-				this.busAwvalid = 0b0
+-			}
+-
+-			if (writeDataDone == false)
+-			{
+-				this.busWvalid = 0b1
+-			}
+-			else
+-			{
+-				this.busWvalid = 0b0
+-			}
+-
+-			if (this.busAwready)
+-			{
+-				writeAddressDone = true
+-				this.busAwvalid = 0b0
+-			}
+-
+-			if (this.busWready)
+-			{
+-				writeDataDone = true
+-				this.busWvalid = 0b0
+-			}
+-
+-			if (writeAddressDone && writeDataDone)
+-			{
+-				goto WriteResponse
+-			}
+-			else
+-			{
+-				goto WriteAddressAndData
+-			}
+-		}
+-
+-		state WriteResponse {
+-			this.busAwvalid = 0b0
+-			this.busWvalid = 0b0
+-			this.busWstrb = AXI_STRB_NONE
+-			this.busBready = 0b1
+-			goto WaitWriteResponse
+-		}
+-
+-		state WaitWriteResponse {
+-			this.busAwvalid = 0b0
+-			this.busWvalid = 0b0
+-			this.busWstrb = AXI_STRB_NONE
+-			this.busBready = 0b1
+-
+-			if (this.busBvalid)
+-			{
+-				goto WriteComplete
+-			}
+-			else
+-			{
+-				goto WaitWriteResponse
+-			}
+-		}
+-
+-		state WriteComplete {
+-			this.busBready = 0b0
+-
+-			if (writePurpose == 1)
+-			{
+-				goto CompleteRxWrite
+-			}
+-			else
+-			{
+-				goto WriteCompleteCheckTxData
+-			}
+-		}
+-
+-		state WriteCompleteCheckTxData {
+-			if (writePurpose == 2)
+-			{
+-				goto CompleteTxDataWrite
+-			}
+-			else
+-			{
+-				goto WriteCompleteCheckTxLength
+-			}
+-		}
+-
+-		state WriteCompleteCheckTxLength {
+-			if (writePurpose == 3)
+-			{
+-				goto TxWriteControlStart
+-			}
+-			else
+-			{
+-				goto WriteCompleteCheckTxControl
+-			}
+-		}
+-
+-		state WriteCompleteCheckTxControl {
+-			if (writePurpose == 4)
+-			{
+-				goto CompleteTxControlWrite
+-			}
+-			else
+-			{
+-				goto WriteCompleteCheckMacProgramData
+-			}
+-		}
+-
+-		state WriteCompleteCheckMacProgramData {
+-			if (writePurpose == 5)
+-			{
+-				goto CompleteMacProgramDataWrite
+-			}
+-			else
+-			{
+-				goto WriteCompleteCheckMacProgramControl
+-			}
+-		}
+-
+-		state WriteCompleteCheckMacProgramControl {
+-			if (writePurpose == 6)
+-			{
+-				goto CompleteMacProgramControlWrite
+-			}
+-			else
+-			{
+-				goto Idle
+-			}
+-		}
+-
+-		state CompleteRxWrite {
+-			this.rxFrameFromAxi = true
+-			this.hasRxFrame = true
+-			goto WaitForRxFrameFlag
+-		}
+-
+-		state WaitForRxFrameFlag {
+-			goto WaitForRxFrameConsumed
+-		}
+-
+-		state WaitForRxFrameConsumed {
+-			if (this.hasRxFrame == true)
+-			{
+-				goto WaitForRxFrameConsumed
+-			}
+-			else
+-			{
+-				goto Idle
+-			}
+-		}
+-
+-		state CompleteTxDataWrite {
+-			txWordIndex = txWordIndex + 1
+-			goto TxWriteDataStart
+-		}
+-
+-		state CompleteMacProgramDataWrite {
+-			macProgramWordIndex = macProgramWordIndex + 1
+-			goto MacProgramWriteDataStart
+-		}
+-
+-		state CompleteTxControlWrite {
+-			this.hasTxFrame = false
+-			this.txFrameSent = true
+-			readAddress = RX_PING_CONTROL
+-			readPurpose = 1
+-			goto ReadStart
+-		}
+-
+-		state CompleteMacProgramControlWrite {
+-			// A caller may have queued TX while MAC programming was in flight.
+-			this.hasProgrammedMac = true
+-			goto Idle
+-		}
+-	}
+-
+-	/**
+-	 * Appends or overwrites an initialized injected RX byte. Use one caller;
+-	 * injection and hardware RX must not run concurrently.
+-	 */
+-	public fn LoadRxByte(index: int, value: byte)
+-	{
+-		if (this.hasRxFrame || index < 0 || index >= RX_CAPACITY || index > this.rxWritten) { return }
+-		this.rxFrameFromAxi = false
+-		this.rxFrame[index] = value
+-		if (index == this.rxWritten) { this.rxWritten = this.rxWritten + 1 }
+-	}
+-
+-	/** Publishes only a completely initialized injected capture buffer. */
+-	public fn SubmitRxFrame()
+-	{
+-		if (this.rxWritten == RX_CAPACITY && !this.hasRxFrame)
+-		{
+-			this.rxFrameFromAxi = false
+-			this.hasRxFrame = true
+-		}
+-	}
+-
+-	/** Reports a captured frame awaiting consumption. */
+-	public fn IsFrameAvailable() bool { return this.hasRxFrame }
+-
+-	/** Returns zero for unavailable frames and indices outside the capture. */
+-	public fn GetRxByte(index: int) byte
+-	{
+-		if (!this.hasRxFrame || index < 0 || index >= RX_CAPACITY) { return 0x00 }
+-		if (this.rxFrameFromAxi) { return this.rxWords.Read(index) }
+-		return this.rxFrame[index]
+-	}
+-
+-	/** Releases the current capture and invalidates injected payload metadata. */
+-	public fn ConsumeRxFrame()
+-	{
+-		this.hasRxFrame = false
+-		this.rxWritten = 0
+-	}
+-
+-	/** Starts a frame, preserving an already submitted frame on failure. */
+-	public fn TryBeginTxFrame(length: int) bool
+-	{
+-		if (this.hasTxFrame) { return false }
+-		this.txPreparing = false
+-		this.txWritten = 0
+-		this.txLength = 0
+-		this.txFrameSent = false
+-		if (length <= 0 || length > MAX_TX_LENGTH || length > TX_STORAGE_CAPACITY) { return false }
+-		this.txLength = length
+-		this.txPreparing = true
+-		return true
+-	}
+-
+-	/** Compatibility entry point; use TryBeginTxFrame to observe rejection. */
+-	public fn BeginTxFrame(length: int) {
+-		this.TryBeginTxFrame(length)
+-	}
+-
+-	/**
+-	 * Appends the next byte or overwrites an initialized byte before submission.
+-	 * Holes are rejected so retained RAM cells cannot become new frame payload.
+-	 */
+-	public fn TryWriteTxByte(index: int, value: logic[8]) bool
+-	{
+-		if (!this.txPreparing || this.hasTxFrame || index < 0 || index >= this.txLength || index > this.txWritten) { return false }
+-		this.txWords.Write(index, value as byte)
+-		if (index == this.txWritten) { this.txWritten = this.txWritten + 1 }
+-		return true
+-	}
+-
+-	/** Compatibility entry point; invalid or out-of-order writes are ignored. */
+-	public fn WriteTxByte(index: int, value: logic[8]) {
+-		this.TryWriteTxByte(index, value)
+-	}
+-
+-	/** Submits exactly one completely initialized frame. */
+-	public fn TrySubmitTxFrame() bool
+-	{
+-		if (!this.txPreparing || this.hasTxFrame || this.txWritten != this.txLength) { return false }
+-		this.txPreparing = false
+-		this.hasTxFrame = true
+-		return true
+-	}
+-
+-	/** Compatibility entry point; incomplete and repeated submissions do nothing. */
+-	public fn SubmitTxFrame() {
+-		this.TrySubmitTxFrame()
+-	}
+-
+-	/** Reports queued or in-flight TX ownership by the hardware process. */
+-	public fn HasTxFrame() bool { return this.hasTxFrame }
+-
+-	/** Reports delivery to EthernetLite, not completion on the physical link. */
+-	public fn HasSentFrameToAxi() bool { return this.txFrameSent }
+-
+-	/** Reports completion of the EthernetLite MAC-programming commands. */
+-	public fn HasProgrammedMac() bool { return this.hasProgrammedMac }
+-
+-	/** Returns the accepted frame length, or zero after an invalid begin. */
+-	public fn GetTxLength() int { return this.txLength }
+-
+-	/** Reads initialized bytes only; invalid and unwritten indices return zero. */
+-	public fn GetTxByte(index: int) logic[8]
+-	{
+-		if (index < 0 || index >= this.txWritten) { return 0x00 }
+-		return this.txWords.Read(index)
+-	}
+-
+-	/** Releases local metadata only when no hardware transfer owns the frame. */
+-	public fn ConsumeTxFrame()
+-	{
+-		if (!this.hasTxFrame)
+-		{
+-			this.txPreparing = false
+-			this.txWritten = 0
+-			this.txLength = 0
+-		}
+-	}
+-
+-	// AXI test accessors — expose the internal AXI interface signals for simulation tests.
+-	// Master getters (read signals that EthernetFrameIo drives toward the AXI slave).
+-	/**
+-	 * Returns the AXI read-address valid signal driven toward the EthernetLite slave.
+-	 */
+-	public fn GetAxiArvalid() logic { return this.axi.m_axi_arvalid }
+-	/**
+-	 * Returns the AXI read address driven toward the EthernetLite slave.
+-	 */
+-	public fn GetAxiAraddr() logic[13] { return this.axi.m_axi_araddr }
+-	/**
+-	 * Returns the AXI read-data ready signal driven toward the EthernetLite slave.
+-	 */
+-	public fn GetAxiRready() logic { return this.axi.m_axi_rready }
+-	/**
+-	 * Returns the AXI write-address valid signal driven toward the EthernetLite slave.
+-	 */
+-	public fn GetAxiAwvalid() logic { return this.axi.m_axi_awvalid }
+-	/**
+-	 * Returns the AXI write address driven toward the EthernetLite slave.
+-	 */
+-	public fn GetAxiAwaddr() logic[13] { return this.axi.m_axi_awaddr }
+-	/**
+-	 * Returns the AXI write-data valid signal driven toward the EthernetLite slave.
+-	 */
+-	public fn GetAxiWvalid() logic { return this.axi.m_axi_wvalid }
+-	/**
+-	 * Returns the AXI write-data word driven toward the EthernetLite slave.
+-	 */
+-	public fn GetAxiWdata() logic[32] { return this.axi.m_axi_wdata }
+-	/**
+-	 * Returns the AXI write strobe bits driven toward the EthernetLite slave.
+-	 */
+-	public fn GetAxiWstrb() logic[4] { return this.axi.m_axi_wstrb }
+-	/**
+-	 * Returns the AXI write-response ready signal driven toward the EthernetLite slave.
+-	 */
+-	public fn GetAxiBready() logic { return this.axi.m_axi_bready }
+-	// Slave-side input getter retained for simulation visibility.
+-	/**
+-	 * Returns the AXI read-data valid signal received from the EthernetLite slave.
+-	 */
+-	public fn GetAxiRvalid() logic { return this.axi.m_axi_rvalid }
+-}
+--- a/src/IAxi4LiteEthernetLiteMaster.lvt
++++ /dev/null
+@@ -1,40 +0,0 @@
+-namespace Livt.Net
+-
+-/**
+- * AXI4-Lite signal contract for the Xilinx/AMD AXI EthernetLite core (PG135).
+- *
+- * Implements the master-side AXI4-Lite bus: the component drives the address/
+- * data/control outputs and reads the ready/response/data inputs.
+- *
+- * Address bus width: 13 bits (covers the EthernetLite register map up to 0x1FFF).
+- * Data bus width: 32 bits.
+- */
+-interface IAxi4LiteEthernetLiteMaster
+-{
+-	// ── Write-address channel ─────────────────────────────────────────────
+-	m_axi_awready: in logic       // slave accepted the write address
+-	m_axi_awaddr: out logic[13]   // write address driven by master
+-	m_axi_awvalid: out logic      // write address valid from master
+-
+-	// ── Write-data channel ────────────────────────────────────────────────
+-	m_axi_wready: in logic        // slave ready to accept write data
+-	m_axi_wdata: out logic[32]    // write data from master
+-	m_axi_wstrb: out logic[4]     // byte-enable strobes from master
+-	m_axi_wvalid: out logic       // write data valid from master
+-
+-	// ── Write-response channel ────────────────────────────────────────────
+-	m_axi_bresp: in logic[2]      // write response from slave
+-	m_axi_bvalid: in logic        // write response valid from slave
+-	m_axi_bready: out logic       // master ready to accept write response
+-
+-	// ── Read-address channel ──────────────────────────────────────────────
+-	m_axi_arready: in logic       // slave accepted the read address
+-	m_axi_araddr: out logic[13]   // read address driven by master
+-	m_axi_arvalid: out logic      // read address valid from master
+-
+-	// ── Read-data channel ─────────────────────────────────────────────────
+-	m_axi_rdata: in logic[32]     // read data from slave
+-	m_axi_rresp: in logic[2]      // read response from slave
+-	m_axi_rvalid: in logic        // read data valid from slave
+-	m_axi_rready: out logic       // master ready to accept read data
+-}
+--- /dev/null
++++ b/src/drivers/ethernetlite/Axi4LiteEthernetLiteAdapter.lvt
+@@ -0,0 +1,13 @@
++namespace Livt.Net.Drivers.EthernetLite
++
++/**
++ * Concrete implementation of IAxi4LiteEthernetLiteMaster that bridges
++ * individual constructor-parameter signals into the interface contract.
++ *
++ * Only the slave-driven (in) signals are constructor parameters.
++ * The master-driven (out) signals are provided through the interface
++ * contract fields directly — no out constructor parameters needed.
++ */
++component Axi4LiteEthernetLiteAdapter : IAxi4LiteEthernetLiteMaster
++{
++}
+--- /dev/null
++++ b/src/drivers/ethernetlite/EthernetLiteBus.lvt
+@@ -0,0 +1,66 @@
++namespace Livt.Net.Drivers.EthernetLite
++
++/**
++ * Adapts the board's AXI signal interface to the shared word transaction core.
++ * Signal publication is combinational; scheduled Read/Write calls delegate to
++ * the same core exercised by the pin-level Livt device fixture.
++ */
++component EthernetLiteBus : IEthernetLiteRegisterAccess
++{
++	// Private live signal bridge; no protocol or frame storage lives here.
++	axi: IAxi4LiteEthernetLiteMaster
++	transactions: EthernetLiteTransactions
++
++	/**
++	 * Binds the external bus and creates the single-owner transaction sequencer.
++	 */
++	new(axi: IAxi4LiteEthernetLiteMaster)
++	{
++		this.axi = axi
++		this.transactions = new EthernetLiteTransactions()
++	}
++
++	/**
++	 * Reads one device word, returning false for non-OKAY responses.
++	 */
++	override fn Read(address: logic[13], value: out logic[32]) bool
++	{
++		var word: logic[32] = 0x00000000
++		var success = this.transactions.Read(address, word)
++		value = word
++		return success
++	}
++
++	/**
++	 * Writes one device word, completing only after its B response.
++	 */
++	override fn Write(address: logic[13], value: logic[32]) bool
++	{
++		return this.transactions.Write(address, value)
++	}
++
++	/**
++	 * Bridges interface pins without scheduled accessors.
++	 */
++	process AxiPorts[]()
++	{
++		this.transactions.awready = this.axi.m_axi_awready
++		this.axi.m_axi_awaddr = this.transactions.awaddr
++		this.axi.m_axi_awvalid = this.transactions.awvalid
++		this.transactions.wready = this.axi.m_axi_wready
++		this.axi.m_axi_wdata = this.transactions.wdata
++		this.axi.m_axi_wstrb = this.transactions.wstrb
++		this.axi.m_axi_wvalid = this.transactions.wvalid
++		this.transactions.bresp = this.axi.m_axi_bresp
++		this.transactions.bvalid = this.axi.m_axi_bvalid
++		this.axi.m_axi_bready = this.transactions.bready
++		this.transactions.arready = this.axi.m_axi_arready
++		this.axi.m_axi_araddr = this.transactions.araddr
++		this.axi.m_axi_arvalid = this.transactions.arvalid
++		this.transactions.rdata = this.axi.m_axi_rdata
++		this.transactions.rresp = this.axi.m_axi_rresp
++		this.transactions.rvalid = this.axi.m_axi_rvalid
++		this.axi.m_axi_rready = this.transactions.rready
++	}
++
++}
+--- /dev/null
++++ b/src/drivers/ethernetlite/EthernetLiteDriver.lvt
+@@ -0,0 +1,197 @@
++namespace Livt.Net.Drivers.EthernetLite
++
++using Livt.Net
++
++/**
++ * Polled ping/pong RX and ping TX EthernetLite implementation.
++ * Owns transaction sequencing, register addresses and byte packing; borrowed
++ * receiver/transmitter components own packet and submission lifetimes.
++ * All components and the external slave share coordinated reset. AXI stalls
++ * have no timeout: reset the whole graph to recover from a nonresponsive slave.
++ */
++component EthernetLiteDriver<B: IEthernetLiteRegisterAccess, S: IPacketData, RX_CAPACITY: int = 128, MAX_TX_LENGTH: int = 1514>
++{
++	// Device register map; standard untagged frames fit below all control registers.
++	const TX_LENGTH: logic[13] = 0x07F4
++	const TX_CONTROL: logic[13] = 0x07FC
++	const RX_PING: int = 0x1000
++	const RX_PONG: int = 0x1800
++	const RX_CONTROL_OFFSET: int = 0x07FC
++
++	// Borrowed register access and owned receive-prefix scanner.
++	bus: B
++	window: EthernetLiteReceiveWindow<RX_CAPACITY>
++	mac: byte[6]
++
++	// Borrowed capabilities and driver initialization/recovery state.
++	receiver: EthernetLiteReceiver<RX_CAPACITY>
++	transmitter: EthernetLiteTransmitter<S, MAX_TX_LENGTH>
++	initialized: bool
++	failed: bool
++	recover: bool
++	pollPong: bool
++
++	/**
++	 * Binds independent RX/TX ownership components at the application boundary.
++	 * MAC programming must complete before transmission admission is enabled.
++	 */
++	new(bus: B, receiver: EthernetLiteReceiver<RX_CAPACITY>, transmitter: EthernetLiteTransmitter<S, MAX_TX_LENGTH>, localMac: byte[6])
++	{
++		this.bus = bus
++		this.window = new EthernetLiteReceiveWindow<RX_CAPACITY>()
++		this.receiver = receiver
++		this.transmitter = transmitter
++		this.mac = localMac
++	}
++
++	/**
++	 * Reports completed MAC programming and absence of a latched bus failure.
++	 */
++	public fn IsInitialized() bool { return this.initialized && !this.failed }
++
++	/**
++	 * Reports a latched device/transaction failure; source failures only affect TX.
++	 */
++	public fn HasDeviceError() bool { return this.failed }
++
++	/**
++	 * Requests reinitialization after a completed error response, not an AXI abort.
++	 * The owner separately acknowledges RX errors and TX completion before reuse.
++	 */
++	public fn TryRecover() FrameLinkResult
++	{
++		if (!this.failed) { return FrameLinkResult.NotReady }
++		if (this.recover) { return FrameLinkResult.Busy }
++		this.recover = true
++		return FrameLinkResult.Accepted
++	}
++
++	/**
++	 * Programs the MAC only while TX is idle, then waits for both command bits clear.
++	 */
++	fn Initialize() bool
++	{
++		var status: logic[32] = 0x00000000
++		if (!this.bus.Read(TX_CONTROL, status)) { return false }
++		if (status[0] == 0b1 || status[1] == 0b1) { return true }
++		for (var index = 0; index < 2; index++) {
++			var word: logic[32] = 0x00000000
++			for (var lane = 0; lane < 4; lane++) {
++				var offset = index * 4 + lane
++				if (offset < 6) {
++					var octet = this.mac[offset] as logic[8]
++					for (var bit = 0; bit < 8; bit++) { word[lane * 8 + bit] = octet[bit] }
++				}
++			}
++			if (!this.bus.Write((index * 4) as logic[13], word)) { return false }
++		}
++		if (!this.bus.Write(TX_CONTROL, 0x00000003)) { return false }
++		while (true) {
++			if (!this.bus.Read(TX_CONTROL, status)) { return false }
++			if (status[0] == 0b0 && status[1] == 0b0) { break }
++		}
++		this.initialized = true
++		this.transmitter.SetDeviceReady(true, false)
++		return true
++	}
++
++	/**
++	 * Writes initialized source bytes with zero-filled final lanes. Delivered means
++	 * the start-command write received OKAY, not physical transmission or peer receipt.
++	 */
++	fn Transmit() bool
++	{
++		var status: logic[32] = 0x00000000
++		if (!this.bus.Read(TX_CONTROL, status)) { return false }
++		if (status[0] == 0b1 || status[1] == 0b1) { return true }
++		var length = this.transmitter.GetPendingLength()
++		for (var index = 0; index < length; index = index + 4) {
++			var word: logic[32] = 0x00000000
++			for (var lane = 0; lane < 4; lane++) {
++				if (index + lane < length) {
++					var value: byte = 0x00
++					var result = this.transmitter.TryReadPending(index + lane, value)
++					if (result != PacketDataResult.Success) {
++						this.transmitter.Complete(FrameTransmitOutcome.DeviceFailure)
++						return true
++					}
++					var bits = value as logic[8]
++					for (var bit = 0; bit < 8; bit++) { word[lane * 8 + bit] = bits[bit] }
++				}
++			}
++			if (!this.bus.Write(index as logic[13], word)) { return false }
++		}
++		if (!this.bus.Write(TX_LENGTH, length as logic[32])) { return false }
++		if (!this.bus.Write(TX_CONTROL, 0x00000001)) { return false }
++		this.transmitter.Complete(FrameTransmitOutcome.Delivered)
++		return true
++	}
++
++	/**
++	 * Alternates RX banks and copies only before publication. CRC lookahead excludes
++	 * short-frame FCS/stale RAM without interpreting untrusted protocol lengths.
++	 */
++	fn Receive() bool
++	{
++		if (!this.receiver.TryBeginCapture()) { return true }
++		var base = RX_PING
++		if (this.pollPong) { base = RX_PONG }
++		this.pollPong = !this.pollPong
++		var control = (base + RX_CONTROL_OFFSET) as logic[13]
++		var status: logic[32] = 0x00000000
++		if (!this.bus.Read(control, status)) { return false }
++		if (status[0] == 0b0) {
++			this.receiver.AbandonCapture()
++			return true
++		}
++		this.window.Reset()
++		var index = 0
++		while (!this.window.IsFinished()) {
++			var word: logic[32] = 0x00000000
++			if (!this.bus.Read((base + index) as logic[13], word)) { return false }
++			for (var lane = 0; lane < 4; lane++) {
++				if (!this.window.IsFinished()) {
++					var value: logic[8] = 0x00
++					for (var bit = 0; bit < 8; bit++) { value[bit] = word[lane * 8 + bit] }
++					if (index + lane < RX_CAPACITY) {
++						if (!this.receiver.TryAppend(value as byte)) { return false }
++					}
++					this.window.AddByte(value as byte)
++				}
++			}
++			index = index + 4
++		}
++		if (!this.bus.Write(control, 0x00000000)) { return false }
++		var length = this.window.GetLength()
++		return this.receiver.TryPublish(length)
++	}
++
++	/**
++	 * Serializes hardware access while RX ownership and TX completion remain independent.
++	 * A device failure stops new work until explicit recovery or coordinated reset.
++	 */
++	process Service()
++	{
++		if (this.failed) {
++			if (!this.recover) { continue }
++			this.recover = false
++			this.failed = false
++			this.initialized = false
++			this.transmitter.SetDeviceReady(false, false)
++		}
++		var success = true
++		if (!this.initialized) {
++			success = this.Initialize()
++		} elif (this.transmitter.IsSourceBorrowed()) {
++			success = this.Transmit()
++		} else {
++			success = this.Receive()
++		}
++		if (!success) {
++			this.failed = true
++			this.transmitter.SetDeviceReady(false, true)
++			this.transmitter.Complete(FrameTransmitOutcome.DeviceFailure)
++			this.receiver.Fail()
++		}
++	}
++}
+--- /dev/null
++++ b/src/drivers/ethernetlite/EthernetLiteReceiveWindow.lvt
+@@ -0,0 +1,76 @@
++namespace Livt.Net.Drivers.EthernetLite
++
++/**
++ * Finds a conservative prefix in CRC-accepted EthernetLite RX storage.
++ * Scan at most capacity + four FCS octets. The first valid residue at or after
++ * 64 octets bounds payload before FCS; an earlier accidental residue only
++ * shortens the prefix. It does not establish exact wire length.
++ */
++component EthernetLiteReceiveWindow<CAPACITY: int = 128>
++{
++	static assert CAPACITY >= 60 && CAPACITY <= 1514, "Capture capacity must be 60..1514"
++
++	// Reflected Ethernet CRC polynomial and residue, before final complement.
++	const POLYNOMIAL: uint = 0xEDB88320
++	const RESIDUE: uint = 0xDEBB20E3
++
++	// Current scan state; no packet storage is owned here.
++	crc: uint
++	count: int
++	finished: bool
++	length: int
++
++	/**
++	 * Starts an empty scan. Capacity must fit the device's data window.
++	 */
++	new()
++	{
++		this.crc = 0xFFFFFFFF
++	}
++
++	/**
++	 * Discards the previous scan before reading a new CRC-accepted device buffer.
++	 */
++	public fn Reset()
++	{
++		this.crc = 0xFFFFFFFF
++		this.count = 0
++		this.finished = false
++		this.length = 0
++	}
++
++	/**
++	 * Consumes the next memory octet in wire order, including retained FCS.
++	 */
++	public fn AddByte(value: byte)
++	{
++		if (this.finished) { return }
++		var next = this.crc ^ (value as uint)
++		for (var bit = 0; bit < 8; bit++) {
++			if ((next & (1 as uint)) != (0 as uint)) {
++				next = (next >> 1) ^ POLYNOMIAL
++			} else {
++				next = next >> 1
++			}
++		}
++		this.crc = next
++		this.count = this.count + 1
++		if (this.count >= 64 && next == RESIDUE) {
++			this.length = this.count - 4
++			this.finished = true
++		} elif (this.count == CAPACITY + 4) {
++			this.length = CAPACITY
++			this.finished = true
++		}
++	}
++
++	/**
++	 * Reports whether the scan has certified a prefix.
++	 */
++	public fn IsFinished() bool { return this.finished }
++
++	/**
++	 * Returns the certified prefix length, or zero before scan completion.
++	 */
++	public fn GetLength() int { return this.length }
++}
+--- /dev/null
++++ b/src/drivers/ethernetlite/EthernetLiteReceiver.lvt
+@@ -0,0 +1,175 @@
++namespace Livt.Net.Drivers.EthernetLite
++
++using Livt.Net
++using Livt.IO
++
++enum EthernetLiteReceiveState { Empty Capturing Available Acquired }
++
++/**
++ * Owns one RAM capture independently of the AXI transaction engine.
++ * Only the bound driver calls capture methods; one service owns acquisition.
++ * All borrowers and the driver must share coordinated reset.
++ */
++component EthernetLiteReceiver<CAPACITY: int = 128> : IFrameReceiver
++{
++	static assert CAPACITY >= 60 && CAPACITY <= 1514, "RX capacity must be 60..1514"
++
++	// Storage is mutable only before publication or after release.
++	storage: Ram<byte, CAPACITY>
++	phase: EthernetLiteReceiveState
++	written: int
++	length: int
++	failed: bool
++
++	/**
++	 * Creates empty receive storage. Capture is supplied by the device driver.
++	 */
++	new() { this.storage = new Ram<byte, CAPACITY>() }
++
++	/**
++	 * Reports the allocated prefix capacity, not a wire-length claim.
++	 */
++	override fn GetReceiveCapacity() int { return CAPACITY }
++
++	/**
++	 * Reports a frame available to acquire or currently acquired.
++	 */
++	override fn HasReceiveFrame() bool
++	{
++		return this.phase == EthernetLiteReceiveState.Available || this.phase == EthernetLiteReceiveState.Acquired
++	}
++
++	/**
++	 * Packet data is readable only by the current acquisition owner.
++	 */
++	override fn IsReady() bool { return this.phase == EthernetLiteReceiveState.Acquired }
++
++	/**
++	 * Returns the safe captured prefix only while acquired.
++	 */
++	override fn GetAvailableLength() int
++	{
++		if (!this.IsReady()) { return 0 }
++		return this.length
++	}
++
++	/**
++	 * Reads an acquired byte; failure initializes the output to zero.
++	 */
++	override fn TryRead(index: int, value: out byte) PacketDataResult
++	{
++		value = 0x00
++		if (!this.IsReady()) { return PacketDataResult.NotReady }
++		if (index < 0 || index >= this.length) { return PacketDataResult.Invalid }
++		var captured = this.storage.Read(index)
++		value = captured
++		return PacketDataResult.Success
++	}
++
++	/**
++	 * Acquires one published prefix; repeated acquisition is Busy.
++	 */
++	override fn TryAcquire() FrameLinkResult
++	{
++		if (this.phase == EthernetLiteReceiveState.Acquired) { return FrameLinkResult.Busy }
++		if (this.failed) { return FrameLinkResult.DeviceFailure }
++		if (this.phase != EthernetLiteReceiveState.Available) { return FrameLinkResult.NotReady }
++		this.phase = EthernetLiteReceiveState.Acquired
++		return FrameLinkResult.Success
++	}
++
++	/**
++	 * Releases storage after every dependent reader has finished.
++	 */
++	override fn TryRelease() FrameLinkResult
++	{
++		if (this.phase != EthernetLiteReceiveState.Acquired) { return FrameLinkResult.Invalid }
++		this.length = 0
++		this.written = 0
++		this.phase = EthernetLiteReceiveState.Empty
++		return FrameLinkResult.Success
++	}
++
++	/**
++	 * EthernetLite does not supply exact wire length; CRC prefix scanning cannot prove it.
++	 */
++	override fn HasKnownWireLength() bool { return false }
++
++	/**
++	 * Unknown wire length has no usable numeric value.
++	 */
++	override fn GetWireLength() int { return 0 }
++
++	/**
++	 * Reports a latched capture or device error.
++	 */
++	override fn HasReceiveError() bool { return this.failed }
++
++	/**
++	 * Acknowledges the error; device recovery is a separate driver operation.
++	 */
++	override fn TryAcknowledgeReceiveError() FrameLinkResult
++	{
++		if (!this.failed) { return FrameLinkResult.NotReady }
++		this.failed = false
++		return FrameLinkResult.Success
++	}
++
++	/**
++	 * Driver-only admission: never overwrite published or acquired storage.
++	 */
++	public fn TryBeginCapture() bool
++	{
++		if (this.failed || this.phase != EthernetLiteReceiveState.Empty) { return false }
++		this.written = 0
++		this.length = 0
++		this.phase = EthernetLiteReceiveState.Capturing
++		return true
++	}
++
++	/**
++	 * Driver-only append; rejects holes and overflow.
++	 */
++	public fn TryAppend(value: byte) bool
++	{
++		if (this.phase != EthernetLiteReceiveState.Capturing || this.written >= CAPACITY) { return false }
++		this.storage.Write(this.written, value)
++		this.written = this.written + 1
++		return true
++	}
++
++	/**
++	 * Publishes only a certified initialized prefix after device release succeeds.
++	 */
++	public fn TryPublish(length: int) bool
++	{
++		if (this.phase != EthernetLiteReceiveState.Capturing || length < 60 || length > this.written) { return false }
++		this.length = length
++		this.phase = EthernetLiteReceiveState.Available
++		return true
++	}
++
++	/**
++	 * Abandons incomplete capture and latches failure without revoking an acquired frame.
++	 */
++	public fn Fail()
++	{
++		if (this.phase == EthernetLiteReceiveState.Capturing) {
++			this.length = 0
++			this.written = 0
++			this.phase = EthernetLiteReceiveState.Empty
++		}
++		this.failed = true
++	}
++
++	/**
++	 * Ends an empty poll without publishing or reporting failure.
++	 */
++	public fn AbandonCapture()
++	{
++		if (this.phase == EthernetLiteReceiveState.Capturing) {
++			this.written = 0
++			this.phase = EthernetLiteReceiveState.Empty
++		}
++	}
++}
+--- /dev/null
++++ b/src/drivers/ethernetlite/EthernetLiteTransactions.lvt
+@@ -0,0 +1,183 @@
++namespace Livt.Net.Drivers.EthernetLite
++
++enum EthernetLiteBusOperation { Read Write }
++
++/**
++ * Serialized AXI4-Lite word transactions with independent AW/W acceptance.
++ * One driver calls the scheduled methods; hardware signals remain live through
++ * constructor-bound pins. Stalls retain requests until handshake.
++ * Reset must also reset the external slave; no local abort of an AXI transfer.
++ */
++component EthernetLiteTransactions : IEthernetLiteRegisterAccess
++{
++	public awready: in logic
++	public wready: in logic
++	public bresp: in logic[2]
++	public bvalid: in logic
++	public arready: in logic
++	public rdata: in logic[32]
++	public rresp: in logic[2]
++	public rvalid: in logic
++	public awaddr: out logic[13]
++	public awvalid: out logic
++	public wdata: out logic[32]
++	public wstrb: out logic[4]
++	public wvalid: out logic
++	public bready: out logic
++	public araddr: out logic[13]
++	public arvalid: out logic
++	public rready: out logic
++
++	// Live AXI signals, sampled by the transaction state machine.
++	busAwready: logic
++	busAwaddr: logic[13]
++	busAwvalid: logic
++	busWready: logic
++	busWdata: logic[32]
++	busWstrb: logic[4]
++	busWvalid: logic
++	busBresp: logic[2]
++	busBvalid: logic
++	busBready: logic
++	busArready: logic
++	busAraddr: logic[13]
++	busArvalid: logic
++	busRdata: logic[32]
++	busRresp: logic[2]
++	busRvalid: logic
++	busRready: logic
++
++
++	// Single-owner command mailbox; completion is published after response capture.
++	operation: EthernetLiteBusOperation
++	address: logic[13]
++	writeData: logic[32]
++	readData: logic[32]
++	response: logic[2]
++	requested: bool
++	completed: bool
++
++	/**
++	 * Binds the device bus. All channels start inactive after coordinated reset.
++	 */
++	new() { }
++
++	/**
++	 * Waits for a read response; only OKAY returns true. Output is zero on failure.
++	 */
++	override fn Read(address: logic[13], value: out logic[32]) bool
++	{
++		this.address = address
++		this.operation = EthernetLiteBusOperation.Read
++		this.requested = !this.requested
++		while (this.completed != this.requested) { state {} }
++		value = 0x00000000
++		if (this.response != 0b00) { return false }
++		value = this.readData
++		return true
++	}
++
++	/**
++	 * Waits for both channel acceptances and B response; only OKAY returns true.
++	 */
++	override fn Write(address: logic[13], value: logic[32]) bool
++	{
++		this.address = address
++		this.writeData = value
++		this.operation = EthernetLiteBusOperation.Write
++		this.requested = !this.requested
++		while (this.completed != this.requested) { state {} }
++		return this.response == 0b00
++	}
++
++	/**
++	 * Publishes and samples live pins without implicit stored-field boundary stages.
++	 */
++	process Pins[]()
++	{
++		this.busAwready = this.awready
++		this.busWready = this.wready
++		this.busBresp = this.bresp
++		this.busBvalid = this.bvalid
++		this.busArready = this.arready
++		this.busRdata = this.rdata
++		this.busRresp = this.rresp
++		this.busRvalid = this.rvalid
++		this.awaddr = this.busAwaddr
++		this.awvalid = this.busAwvalid
++		this.wdata = this.busWdata
++		this.wstrb = this.busWstrb
++		this.wvalid = this.busWvalid
++		this.bready = this.busBready
++		this.araddr = this.busAraddr
++		this.arvalid = this.busArvalid
++		this.rready = this.busRready
++	}
++
++	/**
++	 * Completes one command at a time; response data is latched at handshake.
++	 */
++	process Transactions()
++	{
++		var addressDone = false
++		var dataDone = false
++		state Idle {
++			if (this.requested == this.completed) { goto Idle }
++			elif (this.operation == EthernetLiteBusOperation.Read) {
++				this.busAraddr = this.address
++				this.busArvalid = 0b1
++				goto ReadAddress
++			} else {
++				this.busAwaddr = this.address
++				this.busWdata = this.writeData
++				this.busWstrb = 0b1111
++				this.busAwvalid = 0b1
++				this.busWvalid = 0b1
++				addressDone = false
++				dataDone = false
++				goto WriteChannels
++			}
++		}
++		state ReadAddress {
++			if (this.busArready == 0b1) {
++				this.busArvalid = 0b0
++				this.busRready = 0b1
++				goto ReadResponse
++			} else { goto ReadAddress }
++		}
++		state ReadResponse {
++			if (this.busRvalid == 0b1) {
++				this.readData = this.busRdata
++				this.response = this.busRresp
++				this.busRready = 0b0
++				goto Complete
++			} else { goto ReadResponse }
++		}
++		state WriteChannels {
++			if (!addressDone && this.busAwready == 0b1) {
++				addressDone = true
++				this.busAwvalid = 0b0
++			}
++			if (!dataDone && this.busWready == 0b1) {
++				dataDone = true
++				this.busWvalid = 0b0
++			}
++			if (addressDone && dataDone) {
++				this.busWstrb = 0b0000
++				this.busBready = 0b1
++				goto WriteResponse
++			} else { goto WriteChannels }
++		}
++		state WriteResponse {
++			if (this.busBvalid == 0b1) {
++				this.response = this.busBresp
++				this.busBready = 0b0
++				goto Complete
++			} else { goto WriteResponse }
++		}
++		state Complete {
++			this.completed = this.requested
++			goto Idle
++		}
++	}
++}
+--- /dev/null
++++ b/src/drivers/ethernetlite/EthernetLiteTransmitter.lvt
+@@ -0,0 +1,134 @@
++namespace Livt.Net.Drivers.EthernetLite
++
++using Livt.Net
++
++enum EthernetLiteTransmitState { Idle Borrowed Terminal }
++
++/**
++ * Owns submission/completion metadata and borrows a statically bound source.
++ * The driver alone reads pending bytes and publishes terminal outcomes.
++ * No copy is required when the application already owns prepared packet storage.
++ */
++component EthernetLiteTransmitter<S: IPacketData, MAX_LENGTH: int = 1514> : IFrameTransmitter
++{
++	static assert MAX_LENGTH >= 60 && MAX_LENGTH <= 1514, "TX length must fit a standard EthernetLite frame"
++
++	// Prepared source remains owned by its caller and stable during a borrow.
++	source: S
++	phase: EthernetLiteTransmitState
++	length: int
++	ready: bool
++	failed: bool
++	outcome: FrameTransmitOutcome
++
++	/**
++	 * Binds prepared data. Admission remains disabled until MAC initialization succeeds.
++	 */
++	new(source: S) { this.source = source }
++
++	/**
++	 * Composer-supplied Ethernet padding must bring frames to at least 60 bytes.
++	 */
++	override fn GetMinimumFrameLength() int { return 60 }
++
++	/**
++	 * Reports the configured device frame limit, excluding FCS.
++	 */
++	override fn GetMaximumFrameLength() int { return MAX_LENGTH }
++
++	/**
++	 * Device transmission cannot be cancelled through this driver.
++	 */
++	override fn SupportsCancellation() bool { return false }
++
++	/**
++	 * Keeps the source borrowed through terminal device acceptance or failure.
++	 */
++	override fn IsSourceBorrowed() bool { return this.phase == EthernetLiteTransmitState.Borrowed }
++
++	/**
++	 * Borrows a prepared frame; acceptance is not delivery.
++	 */
++	override fn TrySubmit() FrameLinkResult
++	{
++		if (this.phase != EthernetLiteTransmitState.Idle) { return FrameLinkResult.Busy }
++		if (this.failed) { return FrameLinkResult.DeviceFailure }
++		if (!this.ready) { return FrameLinkResult.NotReady }
++		if (!this.source.IsReady()) { return FrameLinkResult.Invalid }
++		var size = this.source.GetAvailableLength()
++		if (size <= 0) { return FrameLinkResult.Invalid }
++		if (size < 60 || size > MAX_LENGTH) { return FrameLinkResult.Unsupported }
++		this.length = size
++		this.phase = EthernetLiteTransmitState.Borrowed
++		return FrameLinkResult.Accepted
++	}
++
++	/**
++	 * Unsupported cancellation preserves a pending borrow.
++	 */
++	override fn TryCancel() FrameLinkResult
++	{
++		if (!this.IsSourceBorrowed()) { return FrameLinkResult.Invalid }
++		return FrameLinkResult.Unsupported
++	}
++
++	/**
++	 * Reads the stable terminal result without clearing it.
++	 */
++	override fn TryGetCompletion(outcome: out FrameTransmitOutcome) FrameLinkResult
++	{
++		outcome = FrameTransmitOutcome.DeviceFailure
++		if (this.phase != EthernetLiteTransmitState.Terminal) { return FrameLinkResult.NotReady }
++		outcome = this.outcome
++		return FrameLinkResult.Success
++	}
++
++	/**
++	 * Acknowledges the result and permits the next admission when initialized.
++	 */
++	override fn TryAcknowledgeCompletion() FrameLinkResult
++	{
++		if (this.phase != EthernetLiteTransmitState.Terminal) { return FrameLinkResult.NotReady }
++		this.phase = EthernetLiteTransmitState.Idle
++		this.length = 0
++		return FrameLinkResult.Success
++	}
++
++	/**
++	 * Driver-only initialization/recovery status, independent of a latched completion.
++	 */
++	public fn SetDeviceReady(ready: bool, failed: bool)
++	{
++		this.ready = ready
++		this.failed = failed
++	}
++
++	/**
++	 * Driver-only byte count for the current borrow.
++	 */
++	public fn GetPendingLength() int { return this.length }
++
++	/**
++	 * Driver-only bounded source read; failure does not release ownership itself.
++	 */
++	public fn TryReadPending(index: int, value: out byte) PacketDataResult
++	{
++		value = 0x00
++		if (!this.IsSourceBorrowed()) { return PacketDataResult.NotReady }
++		if (index < 0 || index >= this.length) { return PacketDataResult.Invalid }
++		var octet: byte = 0x00
++		var result = this.source.TryRead(index, octet)
++		value = octet
++		return result
++	}
++
++	/**
++	 * Driver-only terminal transition, after all local source reads have stopped.
++	 */
++	public fn Complete(outcome: FrameTransmitOutcome)
++	{
++		if (!this.IsSourceBorrowed()) { return }
++		this.outcome = outcome
++		this.phase = EthernetLiteTransmitState.Terminal
++	}
++}
+--- /dev/null
++++ b/src/drivers/ethernetlite/IAxi4LiteEthernetLiteMaster.lvt
+@@ -0,0 +1,40 @@
++namespace Livt.Net.Drivers.EthernetLite
++
++/**
++ * AXI4-Lite signal contract for the Xilinx/AMD AXI EthernetLite core (PG135).
++ *
++ * Implements the master-side AXI4-Lite bus: the component drives the address/
++ * data/control outputs and reads the ready/response/data inputs.
++ *
++ * Address bus width: 13 bits (covers the EthernetLite register map up to 0x1FFF).
++ * Data bus width: 32 bits.
++ */
++interface IAxi4LiteEthernetLiteMaster
++{
++	// ── Write-address channel ─────────────────────────────────────────────
++	m_axi_awready: in logic       // slave accepted the write address
++	m_axi_awaddr: out logic[13]   // write address driven by master
++	m_axi_awvalid: out logic      // write address valid from master
++
++	// ── Write-data channel ────────────────────────────────────────────────
++	m_axi_wready: in logic        // slave ready to accept write data
++	m_axi_wdata: out logic[32]    // write data from master
++	m_axi_wstrb: out logic[4]     // byte-enable strobes from master
++	m_axi_wvalid: out logic       // write data valid from master
++
++	// ── Write-response channel ────────────────────────────────────────────
++	m_axi_bresp: in logic[2]      // write response from slave
++	m_axi_bvalid: in logic        // write response valid from slave
++	m_axi_bready: out logic       // master ready to accept write response
++
++	// ── Read-address channel ──────────────────────────────────────────────
++	m_axi_arready: in logic       // slave accepted the read address
++	m_axi_araddr: out logic[13]   // read address driven by master
++	m_axi_arvalid: out logic      // read address valid from master
++
++	// ── Read-data channel ─────────────────────────────────────────────────
++	m_axi_rdata: in logic[32]     // read data from slave
++	m_axi_rresp: in logic[2]      // read response from slave
++	m_axi_rvalid: in logic        // read data valid from slave
++	m_axi_rready: out logic       // master ready to accept read data
++}
+--- /dev/null
++++ b/src/drivers/ethernetlite/IEthernetLiteRegisterAccess.lvt
+@@ -0,0 +1,19 @@
++namespace Livt.Net.Drivers.EthernetLite
++
++/**
++ * Device-internal word transactions, owned by one sequencer in one reset domain.
++ * These are not frame-link operations. Calls wait for the device response;
++ * a nonresponsive device requires coordinated reset, not source reuse.
++ */
++interface IEthernetLiteRegisterAccess
++{
++	/**
++	 * Reads an aligned device address; only OKAY succeeds, otherwise value is zero.
++	 */
++	fn Read(address: logic[13], value: out logic[32]) bool
++
++	/**
++	 * Writes all four byte lanes and waits for both channel acceptances and B response.
++	 */
++	fn Write(address: logic[13], value: logic[32]) bool
++}
+--- a/tests/EthernetFrameBufferTest.lvt
++++ /dev/null
+@@ -1,93 +0,0 @@
+-namespace Livt.Net.Tests
+-
+-using Livt.Net
+-
+-/** Buffer ownership and write-before-read contracts without an active AXI slave. */
+-@Test
+-component EthernetFrameBufferTest
+-{
+-	axi: Axi4LiteEthernetLiteAdapter
+-	io: EthernetFrameIo
+-	queuedAxi: Axi4LiteEthernetLiteAdapter
+-	queued: EthernetFrameIo
+-
+-	new()
+-	{
+-		var mac: byte[6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01]
+-		this.axi = new Axi4LiteEthernetLiteAdapter()
+-		this.io = new EthernetFrameIo(this.axi, mac)
+-		this.queuedAxi = new Axi4LiteEthernetLiteAdapter()
+-		this.queued = new EthernetFrameIo(this.queuedAxi, mac)
+-	}
+-
+-	@Test
+-	fn RejectsInvalidAndIncompleteFrames()
+-	{
+-		assert this.queued.TryBeginTxFrame(-1) == false
+-		assert this.queued.TryBeginTxFrame(0) == false
+-		assert this.queued.TryBeginTxFrame(2037) == false
+-		assert this.queued.TrySubmitTxFrame() == false
+-		assert this.queued.GetTxLength() == 0
+-		assert this.queued.TryBeginTxFrame(2) == true
+-		assert this.queued.TryWriteTxByte(1, 0xEE) == false
+-		assert this.queued.TryWriteTxByte(-1, 0xEE) == false
+-		assert this.queued.TryWriteTxByte(2, 0xEE) == false
+-		assert this.queued.TryWriteTxByte(0, 0x80) == true
+-		assert this.queued.GetTxByte(0) == 0x80
+-		assert this.queued.GetTxByte(1) == 0x00
+-		assert this.queued.TrySubmitTxFrame() == false
+-		assert this.queued.TryWriteTxByte(1, 0xFF) == true
+-		assert this.queued.TrySubmitTxFrame() == true
+-		assert this.queued.TrySubmitTxFrame() == false
+-		assert this.queued.TryBeginTxFrame(1) == false
+-		assert this.queued.TryWriteTxByte(0, 0x00) == false
+-		this.queued.ConsumeTxFrame()
+-		assert this.queued.HasTxFrame() == true
+-		assert this.queued.GetTxLength() == 2
+-	}
+-
+-	@Test
+-	fn InvalidatesRetainedPayloadOnBegin()
+-	{
+-		this.io.BeginTxFrame(2)
+-		this.io.WriteTxByte(0, 0xFE)
+-		this.io.WriteTxByte(1, 0xDC)
+-		this.io.BeginTxFrame(1)
+-		assert this.io.GetTxByte(0) == 0x00
+-		assert this.io.GetTxByte(1) == 0x00
+-		assert this.io.TrySubmitTxFrame() == false
+-		this.io.WriteTxByte(0, 0x81)
+-		assert this.io.GetTxByte(0) == 0x81
+-		this.io.ConsumeTxFrame()
+-		assert this.io.GetTxByte(0) == 0x00
+-		assert this.io.GetTxLength() == 0
+-	}
+-
+-	@Test
+-	fn PublishesOnlyInitializedInjectedRx()
+-	{
+-		assert this.io.GetRxByte(0) == 0x00
+-		this.io.LoadRxByte(1, 0xFF)
+-		this.io.SubmitRxFrame()
+-		assert this.io.IsFrameAvailable() == false
+-		for (var i = 0; i < 128; i++) { this.io.LoadRxByte(i, (i + 128) as byte) }
+-		this.io.SubmitRxFrame()
+-		assert this.io.IsFrameAvailable() == true
+-		assert this.io.GetRxByte(0) == 0x80
+-		assert this.io.GetRxByte(127) == 0xFF
+-		assert this.io.GetRxByte(-1) == 0x00
+-		assert this.io.GetRxByte(128) == 0x00
+-		this.io.LoadRxByte(0, 0x00)
+-		assert this.io.GetRxByte(0) == 0x80
+-		this.io.ConsumeRxFrame()
+-		this.io.SubmitRxFrame()
+-		assert this.io.IsFrameAvailable() == false
+-		assert this.io.GetRxByte(0) == 0x00
+-	}
+-
+-	@Test
+-	fn PacksNetworkBytesIntoLowFirstAxiLanes()
+-	{
+-		assert this.io.PackTxWord(0x80, 0x01, 0xFE, 0x7F) == 0x7FFE0180
+-	}
+-}
+--- a/tests/EthernetFrameIoTest.lvt
++++ /dev/null
+@@ -1,227 +0,0 @@
+-namespace Livt.Net.Tests
+-
+-using Livt.Net
+-
+-@Test
+-component EthernetFrameIoTest
+-{
+-	const AXI_RESP_OKAY: logic[2] = 0b00
+-	const TX_PING_BASE: logic[13] = 0b0000000000000
+-	const TX_PING_BASE_PLUS_4: logic[13] = 0b0000000000100
+-	const TX_PING_CONTROL: logic[13] = 0b0011111111100
+-	const TX_PING_IDLE: logic[32] = 0x00000000
+-	const TX_PROGRAM_MAC: logic[32] = 0x00000003
+-	const TX_PROGRAM_MAC_WORD0: logic[32] = 0x005E0000
+-	const TX_PROGRAM_MAC_WORD1: logic[32] = 0x0000CEFA
+-	const RX_PING_CONTROL: logic[13] = 0b1011111111100
+-	const RX_PONG_CONTROL: logic[13] = 0b1111111111100
+-	const RX_PING_NO_FRAME: logic[32] = 0x00000000
+-
+-	axi: Axi4LiteEthernetLiteAdapter
+-
+-	io: EthernetFrameIo
+-
+-	new()
+-	{
+-		var localMac: byte[6]
+-		localMac[0] = 0x00
+-		localMac[1] = 0x00
+-		localMac[2] = 0x5E
+-		localMac[3] = 0x00
+-		localMac[4] = 0xFA
+-		localMac[5] = 0xCE
+-		this.axi = new Axi4LiteEthernetLiteAdapter()
+-		this.io = new EthernetFrameIo(
+-			this.axi,
+-			localMac)
+-	}
+-
+-	fn ProgramDefaultMac()
+-	{
+-		var hasReadAddress = false
+-
+-		for (var cycle = 0; cycle < 100; cycle++)
+-		{
+-			if (hasReadAddress == false)
+-			{
+-				if (this.io.GetAxiArvalid() == 0b1)
+-				{
+-					assert this.io.GetAxiAraddr() == TX_PING_CONTROL
+-					assert this.io.GetAxiRready() == 0b0
+-					hasReadAddress = true
+-					this.axi.m_axi_arready = 0b1
+-				}
+-			}
+-
+-			this.axi.m_axi_arready = 0b0
+-		}
+-
+-		assert hasReadAddress == true
+-		assert this.io.GetAxiArvalid() == 0b0
+-		assert this.io.GetAxiRready() == 0b1
+-
+-		this.axi.m_axi_rdata = TX_PING_IDLE
+-		this.axi.m_axi_rresp = AXI_RESP_OKAY
+-		this.axi.m_axi_rvalid = 0b1
+-		var hasAcceptedMacDoneReadResponse = false
+-		hasAcceptedMacDoneReadResponse = false
+-
+-		for (var cycle = 0; cycle < 100; cycle++)
+-		{
+-			if (hasAcceptedMacDoneReadResponse == false)
+-			{
+-				if (this.io.GetAxiRready() == 0b0)
+-				{
+-					hasAcceptedMacDoneReadResponse = true
+-				}
+-			}
+-
+-			Simulation.Wait(1)
+-		}
+-
+-		assert hasAcceptedMacDoneReadResponse == true
+-		this.axi.m_axi_rvalid = 0b0
+-
+-		for (var writeIndex = 0; writeIndex < 3; writeIndex++)
+-		{
+-			var expectedAddress: logic[13] = TX_PING_CONTROL
+-			var expectedData: logic[32] = TX_PROGRAM_MAC
+-
+-			if (writeIndex == 0)
+-			{
+-				expectedAddress = TX_PING_BASE
+-				expectedData = TX_PROGRAM_MAC_WORD0
+-			}
+-
+-			if (writeIndex == 1)
+-			{
+-				expectedAddress = TX_PING_BASE_PLUS_4
+-				expectedData = TX_PROGRAM_MAC_WORD1
+-			}
+-
+-			var hasAcceptedAddress = false
+-			var hasAcceptedData = false
+-			hasAcceptedAddress = false
+-			hasAcceptedData = false
+-
+-			for (var cycle = 0; cycle < 100; cycle++)
+-			{
+-				if (hasAcceptedAddress == false)
+-				{
+-					if (this.io.GetAxiAwvalid() == 0b1)
+-					{
+-						assert this.io.GetAxiAwaddr() == expectedAddress
+-						hasAcceptedAddress = true
+-						this.axi.m_axi_awready = 0b1
+-					}
+-				}
+-
+-				if (hasAcceptedData == false)
+-				{
+-					if (this.io.GetAxiWvalid() == 0b1)
+-					{
+-						assert this.io.GetAxiWdata() == expectedData
+-						hasAcceptedData = true
+-						this.axi.m_axi_wready = 0b1
+-					}
+-				}
+-
+-				this.axi.m_axi_awready = 0b0
+-				this.axi.m_axi_wready = 0b0
+-			}
+-
+-			assert hasAcceptedAddress == true
+-			assert hasAcceptedData == true
+-
+-			var hasAcceptedWriteResponse = false
+-			hasAcceptedWriteResponse = false
+-
+-			for (var cycle = 0; cycle < 100; cycle++)
+-			{
+-				if (hasAcceptedWriteResponse == false)
+-				{
+-					if (this.io.GetAxiBready() == 0b1)
+-					{
+-						hasAcceptedWriteResponse = true
+-						this.axi.m_axi_bvalid = 0b1
+-					}
+-				}
+-
+-				if (hasAcceptedWriteResponse == true)
+-				{
+-					this.axi.m_axi_bvalid = 0b0
+-				}
+-			}
+-
+-			assert hasAcceptedWriteResponse == true
+-		}
+-
+-		Simulation.Wait(10)
+-		var hasDrainedTxControlRead = false
+-		hasDrainedTxControlRead = false
+-
+-		for (var cycle = 0; cycle < 50; cycle++)
+-		{
+-			if (hasDrainedTxControlRead == false)
+-			{
+-				if (this.io.GetAxiArvalid() == 0b1)
+-				{
+-					if (this.io.GetAxiAraddr() == TX_PING_CONTROL)
+-					{
+-						hasDrainedTxControlRead = true
+-						this.axi.m_axi_arready = 0b1
+-					}
+-				}
+-			}
+-
+-			this.axi.m_axi_arready = 0b0
+-		}
+-
+-		if (hasDrainedTxControlRead == true)
+-		{
+-			this.axi.m_axi_rdata = TX_PING_IDLE
+-			this.axi.m_axi_rresp = AXI_RESP_OKAY
+-			this.axi.m_axi_rvalid = 0b1
+-			Simulation.Wait(20)
+-			this.axi.m_axi_rvalid = 0b0
+-			Simulation.Wait(10)
+-		}
+-
+-		assert this.io.HasProgrammedMac() == true
+-	}
+-
+-	@Test
+-	fn DoesNotExposeFrameOrReleaseWriteWhenNoFrameIsReady()
+-	{
+-		this.axi.m_axi_awready = 0b0
+-		this.axi.m_axi_wready = 0b0
+-		this.axi.m_axi_bresp = AXI_RESP_OKAY
+-		this.axi.m_axi_bvalid = 0b0
+-		this.axi.m_axi_arready = 0b0
+-		this.axi.m_axi_rdata = 0x00000000
+-		this.axi.m_axi_rresp = AXI_RESP_OKAY
+-		this.axi.m_axi_rvalid = 0b0
+-
+-		this.ProgramDefaultMac()
+-
+-		var sawRxReleaseWrite = false
+-
+-		for (var cycle = 0; cycle < 400; cycle++)
+-		{
+-			if (this.io.GetAxiAwvalid() == 0b1)
+-			{
+-				if (this.io.GetAxiAwaddr() == RX_PING_CONTROL || this.io.GetAxiAwaddr() == RX_PONG_CONTROL)
+-				{
+-					sawRxReleaseWrite = true
+-				}
+-			}
+-
+-			Simulation.Wait(1)
+-		}
+-
+-		assert sawRxReleaseWrite == false
+-		assert this.io.IsFrameAvailable() == false
+-		assert this.io.HasSentFrameToAxi() == false
+-		assert this.io.HasTxFrame() == false
+-	}
+-}
+--- /dev/null
++++ b/tests/EthernetLiteDeviceFixture.lvt
+@@ -0,0 +1,281 @@
++namespace Livt.Net.Tests
++
++using Livt.Net.Drivers.EthernetLite
++
++/**
++ * Livt-only register model with independently stalled AXI channels.
++ * RX memory deliberately retains bytes after shorter frames. The fixture accepts
++ * externally computed FCS values rather than sharing the driver's CRC algorithm.
++ */
++component EthernetLiteDeviceFixture
++{
++	public awready: out logic
++	public wready: out logic
++	public bresp: out logic[2]
++	public bvalid: out logic
++	public arready: out logic
++	public rdata: out logic[32]
++	public rresp: out logic[2]
++	public rvalid: out logic
++	public awaddr: in logic[13]
++	public awvalid: in logic
++	public wdata: in logic[32]
++	public wstrb: in logic[4]
++	public wvalid: in logic
++	public bready: in logic
++	public araddr: in logic[13]
++	public arvalid: in logic
++	public rready: in logic
++
++	// Borrowed bus and model-visible slave outputs.
++
++	m_axi_arvalid: logic
++	m_axi_araddr: logic[13]
++	m_axi_rready: logic
++	m_axi_awvalid: logic
++	m_axi_awaddr: logic[13]
++	m_axi_wvalid: logic
++	m_axi_wdata: logic[32]
++	m_axi_wstrb: logic[4]
++	m_axi_bready: logic
++
++	driveArready: logic
++	driveRdata: logic[32]
++	driveRresp: logic[2]
++	driveRvalid: logic
++	driveAwready: logic
++	driveWready: logic
++	driveBresp: logic[2]
++	driveBvalid: logic
++
++	// Register model, error injection and immutable completed write trace.
++	memory: byte[256]
++	ping: bool
++	pong: bool
++	reads: int
++	writes: int
++	addresses: int[512]
++	values: logic[512, 32]
++	readError: int
++	writeError: int
++	addressFirst: bool
++	holdResponses: bool
++	programming: int
++
++	/**
++	 * Starts idle with no errors; choose write-channel order before transactions.
++	 */
++	new()
++	{
++		this.readError = -1
++		this.writeError = -1
++	}
++
++	/**
++	 * Drives and samples live pins in the same clock domain as the transaction core.
++	 */
++	process Pins[]()
++	{
++		this.awready = this.driveAwready
++		this.wready = this.driveWready
++		this.bresp = this.driveBresp
++		this.bvalid = this.driveBvalid
++		this.arready = this.driveArready
++		this.rdata = this.driveRdata
++		this.rresp = this.driveRresp
++		this.rvalid = this.driveRvalid
++		this.m_axi_awaddr = this.awaddr
++		this.m_axi_awvalid = this.awvalid
++		this.m_axi_wdata = this.wdata
++		this.m_axi_wstrb = this.wstrb
++		this.m_axi_wvalid = this.wvalid
++		this.m_axi_bready = this.bready
++		this.m_axi_araddr = this.araddr
++		this.m_axi_arvalid = this.arvalid
++		this.m_axi_rready = this.rready
++	}
++
++	/**
++	 * Returns a register value in the fixture, not a protocol parser result.
++	 */
++	fn ReadWord(address: int) logic[32]
++	{
++		if (address == 0x07FC) {
++			if (this.programming > 0) {
++				this.programming = this.programming - 1
++				return 0x00000003
++			}
++			return 0x00000000
++		}
++		if (address == 0x17FC) {
++			if (this.ping) { return 0x00000001 }
++			return 0x00000000
++		}
++		if (address == 0x1FFC) {
++			if (this.pong) { return 0x00000001 }
++			return 0x00000000
++		}
++		var offset = address - 0x1000
++		if (address >= 0x1800) { offset = address - 0x1800 }
++		assert offset >= 0 && offset + 3 < 256
++		var word: logic[32] = 0x00000000
++		for (var lane = 0; lane < 4; lane++) {
++			var octet = this.memory[offset + lane] as logic[8]
++			for (var bit = 0; bit < 8; bit++) { word[lane * 8 + bit] = octet[bit] }
++		}
++		return word
++	}
++
++	/**
++	 * Delays AR and R independently and holds response fields until acceptance.
++	 */
++	process ReadChannel()
++	{
++		var address = 0
++		var delay = 0
++		state Idle {
++			if (this.m_axi_arvalid == 0b1) {
++				delay = 3
++				address = (this.m_axi_araddr as uint) as int
++				goto DelayAddress
++			} else { goto Idle }
++		}
++		state DelayAddress {
++			assert this.m_axi_arvalid == 0b1
++			assert this.m_axi_araddr == (address as logic[13])
++			delay = delay - 1
++			if (delay == 0) { this.driveArready = 0b1; goto AcceptAddress }
++			else { goto DelayAddress }
++		}
++		state AcceptAddress {
++			this.driveArready = 0b0
++			this.reads = this.reads + 1
++			goto PrepareResponse
++		}
++		state PrepareResponse {
++			this.driveRdata = this.ReadWord(address)
++			this.driveRresp = 0b00
++			if (address == this.readError) { this.driveRresp = 0b10 }
++			delay = 4
++			goto DelayResponse
++		}
++		state DelayResponse {
++			if (this.holdResponses) { goto DelayResponse }
++			else {
++				delay = delay - 1
++				if (delay == 0) { this.driveRvalid = 0b1; goto Response }
++				else { goto DelayResponse }
++			}
++		}
++		state Response {
++			if (this.m_axi_rready == 0b1) { this.driveRvalid = 0b0; goto Idle }
++			else { goto Response }
++		}
++	}
++
++	/**
++	 * Accepts AW/W in either order, delays B and checks stability during stalls.
++	 */
++	process WriteChannels()
++	{
++		var address = 0
++		var word: logic[32] = 0x00000000
++		var delay = 0
++		state Idle {
++			if (this.m_axi_awvalid == 0b1 && this.m_axi_wvalid == 0b1) {
++				address = (this.m_axi_awaddr as uint) as int
++				word = this.m_axi_wdata
++				delay = 3
++				goto DelayFirst
++			} else { goto Idle }
++		}
++		state DelayFirst {
++			assert this.m_axi_awaddr == (address as logic[13])
++			assert this.m_axi_wdata == word
++			assert this.m_axi_awvalid == 0b1 && this.m_axi_wvalid == 0b1
++			assert this.m_axi_wstrb == 0b1111
++			delay = delay - 1
++			if (delay == 0) {
++				if (this.addressFirst) { this.driveAwready = 0b1 }
++				else { this.driveWready = 0b1 }
++				goto AcceptFirst
++			} else { goto DelayFirst }
++		}
++		state AcceptFirst {
++			this.driveAwready = 0b0
++			this.driveWready = 0b0
++			delay = 5
++			goto DelaySecond
++		}
++		state DelaySecond {
++			if (this.addressFirst) {
++				assert this.m_axi_awvalid == 0b0
++				assert this.m_axi_wvalid == 0b1
++				assert this.m_axi_wdata == word
++			} else {
++				assert this.m_axi_wvalid == 0b0
++				assert this.m_axi_awvalid == 0b1
++				assert this.m_axi_awaddr == (address as logic[13])
++			}
++			delay = delay - 1
++			if (delay == 0) {
++				if (this.addressFirst) { this.driveWready = 0b1 }
++				else { this.driveAwready = 0b1 }
++				goto AcceptSecond
++			} else { goto DelaySecond }
++		}
++		state AcceptSecond {
++			this.driveAwready = 0b0
++			this.driveWready = 0b0
++			assert this.writes < 512
++			this.addresses[this.writes] = address
++			this.values[this.writes] = word
++			this.writes = this.writes + 1
++			this.driveBresp = 0b00
++			if (address == this.writeError) { this.driveBresp = 0b11 }
++			else {
++				if (address == 0x17FC) { this.ping = false }
++				if (address == 0x1FFC) { this.pong = false }
++				if (address == 0x07FC && word == 0x00000003) { this.programming = 2 }
++			}
++			delay = 7
++			goto DelayResponse
++		}
++		state DelayResponse {
++			if (this.holdResponses) { goto DelayResponse }
++			else {
++				delay = delay - 1
++				if (delay == 0) { this.driveBvalid = 0b1; goto Response }
++				else { goto DelayResponse }
++			}
++		}
++		state Response {
++			if (this.m_axi_bready == 0b1) { this.driveBvalid = 0b0; goto Idle }
++			else { goto Response }
++		}
++	}
++
++	/** Selects the independent write-channel acceptance order. */
++	public fn SetAddressFirst(value: bool) { this.addressFirst = value }
++	/** Holds future responses while addresses/data may already have been accepted. */
++	public fn HoldResponses(value: bool) { this.holdResponses = value }
++	/** Injects SLVERR at a read address; -1 disables injection. */
++	public fn SetReadError(address: int) { this.readError = address }
++	/** Injects DECERR at a write address; -1 disables injection. */
++	public fn SetWriteError(address: int) { this.writeError = address }
++	/** Reports accepted write count, including injected failures. */
++	public fn GetWriteCount() int { return this.writes }
++	/** Reads a completed trace address. */
++	public fn GetWriteAddress(index: int) int { return this.addresses[index] }
++	/** Reads a completed trace value. */
++	public fn GetWriteValue(index: int) logic[32] { return this.values[index] }
++	/** Prepares increasing octets plus an independent precomputed FCS; retains tail RAM. */
++	public fn QueueFrame(length: int, fcs: byte[4], pong: bool)
++	{
++		assert !this.ping && !this.pong
++		for (var i = 0; i < length; i++) { this.memory[i] = i as byte }
++		for (var i = 0; i < 4; i++) { this.memory[length + i] = fcs[i] }
++		if (pong) { this.pong = true }
++		else { this.ping = true }
++	}
++}
+--- /dev/null
++++ b/tests/EthernetLiteDriverTest.lvt
+@@ -0,0 +1,229 @@
++namespace Livt.Net.Tests
++
++using Livt.Net
++using Livt.Net.Drivers.EthernetLite
++
++/**
++ * Device lifecycle exercised entirely in Livt, including real AXI handshake stalls.
++ */
++@Test
++component EthernetLiteDriverTest
++{
++	transactions: EthernetLiteTransactions
++	device: EthernetLiteDeviceFixture
++	source: ArrayPacketData<1600>
++	receiver: EthernetLiteReceiver<128>
++	transmitter: EthernetLiteTransmitter<ArrayPacketData<1600>>
++	driver: EthernetLiteDriver<EthernetLiteTransactions, ArrayPacketData<1600>>
++
++	/**
++	 * Creates the independent storage/capability graph and hardware boundary.
++	 */
++	new()
++	{
++		this.transactions = new EthernetLiteTransactions()
++		this.device = new EthernetLiteDeviceFixture()
++		this.source = new ArrayPacketData<1600>()
++		this.receiver = new EthernetLiteReceiver<128>()
++		this.transmitter = new EthernetLiteTransmitter<ArrayPacketData<1600>>(this.source)
++		var mac: byte[6] = [0x00, 0x00, 0x5E, 0x00, 0xFA, 0xCE]
++		this.driver = new EthernetLiteDriver<EthernetLiteTransactions, ArrayPacketData<1600>>(this.transactions, this.receiver, this.transmitter, mac)
++	}
++
++	/**
++	 * Wires the real transaction engine to the Livt slave fixture at signal level.
++	 */
++	process Pins[]()
++	{
++		this.transactions.awready = this.device.awready
++		this.transactions.wready = this.device.wready
++		this.transactions.bresp = this.device.bresp
++		this.transactions.bvalid = this.device.bvalid
++		this.transactions.arready = this.device.arready
++		this.transactions.rdata = this.device.rdata
++		this.transactions.rresp = this.device.rresp
++		this.transactions.rvalid = this.device.rvalid
++		this.device.awaddr = this.transactions.awaddr
++		this.device.awvalid = this.transactions.awvalid
++		this.device.wdata = this.transactions.wdata
++		this.device.wstrb = this.transactions.wstrb
++		this.device.wvalid = this.transactions.wvalid
++		this.device.bready = this.transactions.bready
++		this.device.araddr = this.transactions.araddr
++		this.device.arvalid = this.transactions.arvalid
++		this.device.rready = this.transactions.rready
++	}
++
++	/**
++	 * Waits with a finite test deadline for the MAC programming completion poll.
++	 */
++	fn WaitInitialized()
++	{
++		var ready = false
++		for (var i = 0; i < 5000; i++) {
++			ready = this.driver.IsInitialized()
++			if (ready) { break }
++		}
++		assert ready
++	}
++
++	/**
++	 * Prepares deterministic bytes; callers must have ended the preceding borrow.
++	 */
++	fn Prepare(length: int)
++	{
++		if (this.source.IsReady()) { this.source.TryRelease() }
++		else { this.source.TryClear() }
++		for (var i = 0; i < length; i++) { assert this.source.TryWrite(i, (i + 128) as byte) == PacketDataResult.Success }
++		assert this.source.TryPublish() == PacketDataResult.Success
++	}
++
++	/**
++	 * Checks a stable terminal result and the end of source ownership.
++	 */
++	fn WaitCompletion(expected: FrameTransmitOutcome)
++	{
++		var outcome = FrameTransmitOutcome.Cancelled
++		var result = FrameLinkResult.NotReady
++		for (var i = 0; i < 10000; i++) {
++			result = this.transmitter.TryGetCompletion(outcome)
++			if (result == FrameLinkResult.Success) { break }
++		}
++		assert result == FrameLinkResult.Success
++		assert outcome == expected
++		assert !this.transmitter.IsSourceBorrowed()
++		assert this.transmitter.TryGetCompletion(outcome) == FrameLinkResult.Success
++		assert outcome == expected
++		assert this.transmitter.TrySubmit() == FrameLinkResult.Busy
++		assert this.transmitter.TryAcknowledgeCompletion() == FrameLinkResult.Success
++	}
++
++	/**
++	 * Validates unknown wire length, exact safe prefix, bounds and acquisition lifetime.
++	 */
++	fn CheckCapture(length: int)
++	{
++		var acquired = FrameLinkResult.NotReady
++		for (var i = 0; i < 10000; i++) {
++			acquired = this.receiver.TryAcquire()
++			if (acquired == FrameLinkResult.Success) { break }
++		}
++		assert acquired == FrameLinkResult.Success
++		assert this.receiver.TryAcquire() == FrameLinkResult.Busy
++		assert this.receiver.GetAvailableLength() == length
++		assert !this.receiver.HasKnownWireLength()
++		assert this.receiver.GetWireLength() == 0
++		var value: byte = 0x00
++		for (var i = 0; i < length; i++) {
++			assert this.receiver.TryRead(i, value) == PacketDataResult.Success
++			assert value == (i as byte)
++		}
++		assert this.receiver.TryRead(length, value) == PacketDataResult.Invalid
++		assert value == 0x00
++		assert this.receiver.TryRead(-1, value) == PacketDataResult.Invalid
++	}
++
++	/**
++	 * Confirms initialization, both AW/W orders, source bounds, zero tail lanes,
++	 * retained completion, RX ping/pong reuse and bus error recovery.
++	 */
++	@Test
++	fn PreservesOwnershipAcrossDeviceTransactionsAndFailures()
++	{
++		assert this.transmitter.TrySubmit() == FrameLinkResult.NotReady
++		assert this.receiver.TryRelease() == FrameLinkResult.Invalid
++		this.WaitInitialized()
++		assert this.device.GetWriteCount() == 3
++		assert this.device.GetWriteAddress(0) == 0
++		assert this.device.GetWriteValue(0) == 0x005E0000
++		assert this.device.GetWriteAddress(1) == 4
++		assert this.device.GetWriteValue(1) == 0x0000CEFA
++		assert this.device.GetWriteAddress(2) == 0x07FC
++		assert this.device.GetWriteValue(2) == 0x00000003
++		assert this.transmitter.TrySubmit() == FrameLinkResult.Invalid
++		this.Prepare(0)
++		assert this.transmitter.TrySubmit() == FrameLinkResult.Invalid
++		this.Prepare(59)
++		assert this.transmitter.TrySubmit() == FrameLinkResult.Unsupported
++		this.Prepare(1515)
++		assert this.transmitter.TrySubmit() == FrameLinkResult.Unsupported
++		assert !this.transmitter.IsSourceBorrowed()
++
++		this.Prepare(61)
++		this.device.HoldResponses(true)
++		assert this.transmitter.TrySubmit() == FrameLinkResult.Accepted
++		assert this.transmitter.IsSourceBorrowed()
++		assert this.transmitter.TrySubmit() == FrameLinkResult.Busy
++		assert !this.transmitter.SupportsCancellation()
++		assert this.transmitter.TryCancel() == FrameLinkResult.Unsupported
++		Simulation.Wait(100)
++		var outcome = FrameTransmitOutcome.Delivered
++		assert this.transmitter.TryGetCompletion(outcome) == FrameLinkResult.NotReady
++		assert this.transmitter.IsSourceBorrowed()
++		this.device.HoldResponses(false)
++		this.WaitCompletion(FrameTransmitOutcome.Delivered)
++		assert this.device.GetWriteCount() == 21
++		assert this.device.GetWriteValue(3) == 0x83828180
++		assert this.device.GetWriteAddress(18) == 60
++		assert this.device.GetWriteValue(18) == 0x000000BC
++		assert this.device.GetWriteAddress(19) == 0x07F4
++		assert this.device.GetWriteValue(19) == 0x0000003D
++		assert this.device.GetWriteAddress(20) == 0x07FC
++		assert this.device.GetWriteValue(20) == 0x00000001
++
++		this.device.SetAddressFirst(true)
++		this.Prepare(60)
++		assert this.transmitter.TrySubmit() == FrameLinkResult.Accepted
++		this.WaitCompletion(FrameTransmitOutcome.Delivered)
++
++		// A long packet followed by a short packet must not expose retained bytes/FCS.
++		var longFcs: byte[4] = [0x80, 0x61, 0x08, 0xED]
++		this.device.QueueFrame(200, longFcs, false)
++		this.CheckCapture(128)
++		this.Prepare(60)
++		assert this.transmitter.TrySubmit() == FrameLinkResult.Accepted
++		this.WaitCompletion(FrameTransmitOutcome.Delivered)
++		assert this.receiver.IsReady()
++		assert this.receiver.TryRelease() == FrameLinkResult.Success
++		var shortFcs: byte[4] = [0xEE, 0x7F, 0xEC, 0xB0]
++		this.device.QueueFrame(60, shortFcs, true)
++		this.CheckCapture(60)
++		assert this.receiver.TryRelease() == FrameLinkResult.Success
++		assert this.receiver.GetAvailableLength() == 0
++
++		// A failed start write is not Delivered, and completion survives recovery.
++		this.device.SetWriteError(0x07FC)
++		this.Prepare(60)
++		assert this.transmitter.TrySubmit() == FrameLinkResult.Accepted
++		this.WaitCompletion(FrameTransmitOutcome.DeviceFailure)
++		assert this.driver.HasDeviceError()
++		assert this.transmitter.TrySubmit() == FrameLinkResult.DeviceFailure
++		assert this.receiver.HasReceiveError()
++		assert this.receiver.TryAcknowledgeReceiveError() == FrameLinkResult.Success
++		this.device.SetWriteError(-1)
++		assert this.driver.TryRecover() == FrameLinkResult.Accepted
++		this.WaitInitialized()
++		assert this.transmitter.TrySubmit() == FrameLinkResult.Accepted
++		this.WaitCompletion(FrameTransmitOutcome.Delivered)
++
++		// Failed capture never publishes partially read memory.
++		this.device.SetReadError(0x1004)
++		this.device.QueueFrame(60, shortFcs, false)
++		var failed = false
++		for (var i = 0; i < 10000; i++) {
++			failed = this.driver.HasDeviceError()
++			if (failed) { break }
++		}
++		assert failed
++		assert this.receiver.HasReceiveError()
++		assert this.receiver.TryAcquire() == FrameLinkResult.DeviceFailure
++		assert !this.receiver.HasReceiveFrame()
++		assert this.receiver.GetAvailableLength() == 0
++		this.device.SetReadError(-1)
++		assert this.receiver.TryAcknowledgeReceiveError() == FrameLinkResult.Success
++		assert this.driver.TryRecover() == FrameLinkResult.Accepted
++		this.WaitInitialized()
++		this.CheckCapture(60)
++		assert this.receiver.TryRelease() == FrameLinkResult.Success
++	}
++}
+--- /dev/null
++++ b/tests/EthernetLiteReceiveWindowTest.lvt
+@@ -0,0 +1,46 @@
++namespace Livt.Net.Tests
++
++using Livt.Net.Drivers.EthernetLite
++
++/**
++ * Independent CRC vectors cover FCS termination in every word lane.
++ */
++@Test
++component EthernetLiteReceiveWindowTest
++{
++	window: EthernetLiteReceiveWindow<128>
++
++	/** Creates a reusable scan subject. */
++	new() { this.window = new EthernetLiteReceiveWindow<128>() }
++
++	/** Checks a precomputed IEEE CRC32 in little-endian Ethernet octet order. */
++	fn Check(length: int, fcs: byte[4])
++	{
++		this.window.Reset()
++		for (var i = 0; i < length; i++) { this.window.AddByte(i as byte) }
++		assert !this.window.IsFinished()
++		for (var i = 0; i < 4; i++) { this.window.AddByte(fcs[i]) }
++		assert this.window.IsFinished()
++		assert this.window.GetLength() == length
++		this.window.AddByte(0xEE)
++		assert this.window.GetLength() == length
++	}
++
++	/** Checks all alignment cases and a capture truncated before the actual FCS. */
++	@Test
++	fn ExcludesFcsAndRetainedTailAtEveryWordAlignment()
++	{
++		var a: byte[4] = [0xEE, 0x7F, 0xEC, 0xB0]
++		var b: byte[4] = [0x0A, 0xB0, 0x6F, 0xBA]
++		var c: byte[4] = [0x32, 0x25, 0x05, 0x6A]
++		var d: byte[4] = [0x83, 0xA6, 0xDE, 0xDB]
++		this.Check(60, a)
++		this.Check(61, b)
++		this.Check(62, c)
++		this.Check(63, d)
++		this.window.Reset()
++		for (var i = 0; i < 132; i++) { this.window.AddByte(i as byte) }
++		assert this.window.IsFinished()
++		assert this.window.GetLength() == 128
++	}
++}
+--- a/tests/FrameCapacityTest.lvt
++++ b/tests/FrameCapacityTest.lvt
+@@ -9,23 +9,14 @@
+ 	icmpLarge: IcmpCapacityChecks<256>
+ 	small: ArpCompositionChecks<96>
+ 	large: ArpCompositionChecks<256>
+-	axiSmall: Axi4LiteEthernetLiteAdapter
+-	axiLarge: Axi4LiteEthernetLiteAdapter
+-	ioSmall: EthernetFrameIo<64, 64, 5>
+-	ioLarge: EthernetFrameIo<256, 256, 512>
+ 
+ 	new()
+ 	{
+-		var mac: byte[6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01]
+ 		this.icmpSmall = new IcmpCapacityChecks<96>()
+ 		this.icmpLarge = new IcmpCapacityChecks<256>()
+ 		this.small = new ArpCompositionChecks<96>()
+ 		this.large = new ArpCompositionChecks<256>()
+-		this.axiSmall = new Axi4LiteEthernetLiteAdapter()
+-		this.axiLarge = new Axi4LiteEthernetLiteAdapter()
+-		this.ioSmall = new EthernetFrameIo<64, 64, 5>(this.axiSmall, mac)
+-		var largeMac: byte[6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01]
+-		this.ioLarge = new EthernetFrameIo<256, 256, 512>(this.axiLarge, largeMac)
++
+ 	}
+ 
+ 	@Test
+@@ -37,18 +28,4 @@
+ 		this.large.Check()
+ 	}
+ 
+-	@Test
+-	fn EnforcesConfiguredStorageAndCaptureLimits()
+-	{
+-		assert this.ioSmall.TryBeginTxFrame(6) == false
+-		assert this.ioSmall.TryBeginTxFrame(5) == true
+-		assert this.ioLarge.TryBeginTxFrame(512) == true
+-		assert this.ioLarge.TryBeginTxFrame(513) == false
+-		for (var i = 0; i < 64; i++) { this.ioSmall.LoadRxByte(i, i as byte) }
+-		this.ioSmall.SubmitRxFrame()
+-		assert this.ioSmall.IsFrameAvailable() == true
+-		assert this.ioSmall.GetRxByte(63) == 0x3F
+-		assert this.ioSmall.GetRxByte(64) == 0x00
+-		assert this.ioLarge.IsFrameAvailable() == false
+-	}
+ }

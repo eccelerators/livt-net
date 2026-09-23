@@ -1,0 +1,10 @@
+[project]
+name="Net014.Verification"
+version="0.1.0"
+path="src"
+outdir="out"
+[tests]
+path="tests"
+components=["EthernetLiteReceiveWindowTest", "EthernetLiteDriverTest"]
+[dependencies]
+"Livt.IO"="1.2.0-dev"

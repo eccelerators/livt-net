@@ -7,11 +7,17 @@ namespace Livt.Net
  */
 component PacketRegion<S: IPacketData> : IPacketData
 {
+	// Borrowed fixed provider; the caller coordinates its publication lifetime.
 	source: S
+
+	// Opened region bounds relative to the source, valid only while opened.
 	offset: int
 	length: int
 	opened: bool
 
+	/**
+	 * Borrows a fixed source and starts closed; construction performs no source reads.
+	 */
 	new(source: S)
 	{
 		this.source = source
@@ -20,47 +26,94 @@ component PacketRegion<S: IPacketData> : IPacketData
 		opened = false
 	}
 
-	/** Failed opening leaves a closed region; an already open region is Busy. */
+	/**
+	 * Opens offset..offset+length within the published source; both are byte counts.
+	 * Failure leaves a closed region, except Busy preserves an already open region.
+	 * An empty region is valid. The caller retains the source until TryClose.
+	 */
 	public fn TryOpen(offset: int, length: int) PacketDataResult
 	{
-		if (opened) { return PacketDataResult.Busy }
-		if (!source.IsReady()) { return PacketDataResult.NotReady }
+		if (opened) {
+			return PacketDataResult.Busy
+		}
+
+		if (!source.IsReady()) {
+			return PacketDataResult.NotReady
+		}
+
 		var available = source.GetAvailableLength()
-		if (offset < 0 || length < 0 || offset > available) { return PacketDataResult.Invalid }
-		if (length > available - offset) { return PacketDataResult.Invalid }
+
+		if (offset < 0 || length < 0 || offset > available) {
+			return PacketDataResult.Invalid
+		}
+
+		if (length > available - offset) {
+			return PacketDataResult.Invalid
+		}
+
 		this.offset = offset
 		this.length = length
 		opened = true
 		return PacketDataResult.Success
 	}
 
+	/**
+	 * Reports whether this region is open and its borrowed source remains ready.
+	 */
 	override fn IsReady() bool
 	{
-		if (!opened) { return false }
+		if (!opened) {
+			return false
+		}
+
 		return source.IsReady()
 	}
 
+	/**
+	 * Returns the opened region length in bytes, or zero while unavailable.
+	 */
 	override fn GetAvailableLength() int
 	{
-		if (!this.IsReady()) { return 0 }
+		if (!this.IsReady()) {
+			return 0
+		}
+
 		return length
 	}
 
+	/**
+	 * Reads index in 0..length-1 relative to the opened region. Returns NotReady
+	 * when unavailable, Invalid outside the region, or the source result.
+	 * The output is data only on Success; keep the source stable throughout the call.
+	 */
 	override fn TryRead(index: int, value: out byte) PacketDataResult
 	{
 		value = 0x00
-		if (!this.IsReady()) { return PacketDataResult.NotReady }
-		if (index < 0 || index >= length) { return PacketDataResult.Invalid }
+
+		if (!this.IsReady()) {
+			return PacketDataResult.NotReady
+		}
+
+		if (index < 0 || index >= length) {
+			return PacketDataResult.Invalid
+		}
+
 		var readValue: byte = 0x00
 		var result = source.TryRead(offset + index, readValue)
 		value = readValue
 		return result
 	}
 
-	/** Caller must first close descendants and finish outstanding reads. */
+	/**
+	 * Closes the region without releasing its borrowed source. Returns Invalid
+	 * if already closed. First close descendants and finish outstanding reads.
+	 */
 	public fn TryClose() PacketDataResult
 	{
-		if (!opened) { return PacketDataResult.Invalid }
+		if (!opened) {
+			return PacketDataResult.Invalid
+		}
+
 		opened = false
 		offset = 0
 		length = 0

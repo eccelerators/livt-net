@@ -7,10 +7,15 @@ namespace Livt.Net
  */
 component PacketHeader<S: IPacketData, SIZE: int> : IPacketData
 {
+	// Borrowed provider; reads and payload views share its publication lifetime.
 	source: S
+
+	// Owned header snapshot and validation state.
 	header: byte[SIZE]
 	loaded: bool
 	opened: bool
+
+	// Opened payload bounds relative to the borrowed provider.
 	payloadOffset: int
 	payloadLength: int
 
@@ -39,17 +44,24 @@ component PacketHeader<S: IPacketData, SIZE: int> : IPacketData
 	{
 		this.Invalidate()
 
-		if (!source.IsReady()) { return PacketParseResult.NotReady }
+		if (!source.IsReady()) {
+			return PacketParseResult.NotReady
+		}
+
 		var captured = source.GetAvailableLength()
 
-		if (captured < SIZE) { return PacketParseResult.Truncated }
+		if (captured < SIZE) {
+			return PacketParseResult.Truncated
+		}
 
 		for (var i = 0; i < SIZE; i++) {
 			var value: byte = 0x00
 
 			var result = source.TryRead(i, value)
 
-			if (result != PacketDataResult.Success) { return PacketParseResult.NotReady }
+			if (result != PacketDataResult.Success) {
+				return PacketParseResult.NotReady
+			}
 
 			header[i] = value
 		}
@@ -71,7 +83,9 @@ component PacketHeader<S: IPacketData, SIZE: int> : IPacketData
 	 */
 	public fn GetByte(index: int) byte
 	{
-		if (!loaded || !source.IsReady() || index < 0 || index >= SIZE) { return 0x00 }
+		if (!loaded || !source.IsReady() || index < 0 || index >= SIZE) {
+			return 0x00
+		}
 
 		return header[index]
 	}
@@ -104,8 +118,13 @@ component PacketHeader<S: IPacketData, SIZE: int> : IPacketData
 		opened = false
 		var available = source.GetAvailableLength()
 
-		if (!loaded || !source.IsReady()) { return PacketParseResult.NotReady }
-		if (offset < SIZE || offset > available || length < 0 || length > available - offset) { return PacketParseResult.Invalid }
+		if (!loaded || !source.IsReady()) {
+			return PacketParseResult.NotReady
+		}
+
+		if (offset < SIZE || offset > available || length < 0 || length > available - offset) {
+			return PacketParseResult.Invalid
+		}
 
 		payloadOffset = offset
 		payloadLength = length
@@ -126,7 +145,9 @@ component PacketHeader<S: IPacketData, SIZE: int> : IPacketData
 	 */
 	override fn GetAvailableLength() int
 	{
-		if (!this.IsReady()) { return 0 }
+		if (!this.IsReady()) {
+			return 0
+		}
 
 		return payloadLength
 	}
@@ -138,8 +159,13 @@ component PacketHeader<S: IPacketData, SIZE: int> : IPacketData
 	{
 		value = 0x00
 
-		if (!this.IsReady()) { return PacketDataResult.NotReady }
-		if (index < 0 || index >= payloadLength) { return PacketDataResult.Invalid }
+		if (!this.IsReady()) {
+			return PacketDataResult.NotReady
+		}
+
+		if (index < 0 || index >= payloadLength) {
+			return PacketDataResult.Invalid
+		}
 
 		var readValue: byte = 0x00
 		var result = source.TryRead(payloadOffset + index, readValue)

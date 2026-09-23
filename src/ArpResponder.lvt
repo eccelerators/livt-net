@@ -5,8 +5,11 @@ namespace Livt.Net
  */
 component ArpResponder<S: IPacketData> : IPacketData
 {
+	// Owned parsers borrowing the request source in protocol order.
 	ethernet: EthernetFrameParser<S>
 	parser: ArpPacketParser<EthernetFrameParser<S>>
+
+	// Owned reply snapshot and its Ethernet envelope.
 	reply: ArpReply
 	frame: EthernetFrame<ArpReply>
 
@@ -40,14 +43,24 @@ component ArpResponder<S: IPacketData> : IPacketData
 		this.Invalidate()
 		ethernet.TryParse()
 
-		if (!ethernet.IsReady() || ethernet.GetEtherType() != 2054) { return PacketDataResult.Invalid }
-		if (parser.TryParse() != PacketParseResult.Success) { return PacketDataResult.Invalid }
-		if (parser.GetOperation() != 1) { return PacketDataResult.Invalid }
+		if (!ethernet.IsReady() || ethernet.GetEtherType() != 2054) {
+			return PacketDataResult.Invalid
+		}
+
+		if (parser.TryParse() != PacketParseResult.Success) {
+			return PacketDataResult.Invalid
+		}
+
+		if (parser.GetOperation() != 1) {
+			return PacketDataResult.Invalid
+		}
 
 		var destination = parser.GetTargetIpv4()
 
 		for (var i = 0; i < 4; i++) {
-			if (destination[i] != localIp[i]) { return PacketDataResult.Invalid }
+			if (destination[i] != localIp[i]) {
+				return PacketDataResult.Invalid
+			}
 		}
 
 		var peerMac = parser.GetSenderMac()
@@ -56,7 +69,9 @@ component ArpResponder<S: IPacketData> : IPacketData
 		ethernet.Invalidate()
 		var result = reply.TryPrepare(localMac, localIp, peerMac, peerIp)
 
-		if (result != PacketDataResult.Success) { return result }
+		if (result != PacketDataResult.Success) {
+			return result
+		}
 
 		return frame.TryPrepare(localMac, peerMac)
 	}
@@ -64,15 +79,24 @@ component ArpResponder<S: IPacketData> : IPacketData
 	/**
 	 * Reports prepared reply availability.
 	 */
-	override fn IsReady() bool { return frame.IsReady() }
+	override fn IsReady() bool
+	{
+		return frame.IsReady()
+	}
 
 	/**
 	 * Returns the complete padded reply length.
 	 */
-	override fn GetAvailableLength() int { return frame.GetAvailableLength() }
+	override fn GetAvailableLength() int
+	{
+		return frame.GetAvailableLength()
+	}
 
 	/**
 	 * Reads a prepared reply byte; request storage is no longer needed.
 	 */
-	override fn TryRead(index: int, value: out byte) PacketDataResult { return frame.TryRead(index, value) }
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		return frame.TryRead(index, value)
+	}
 }

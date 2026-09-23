@@ -52,9 +52,14 @@ component GenericPacketTest
 		assert smallIp.TryRead(0, value) == PacketDataResult.NotReady
 		assert smallFrame.TryRead(0, value) == PacketDataResult.NotReady
 		assert smallEcho.TryPrepare(identifier, sequence) == PacketDataResult.NotReady
+
 		// Independent complete frame vector; includes checksum and padding bytes.
 		var expected0: byte[74] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x08, 0x00, 0x45, 0x00, 0x00, 0x3C, 0x12, 0x34, 0x40, 0x00, 0x40, 0x01, 0xA3, 0xBD, 0xC0, 0xA8, 0x01, 0x80, 0xC0, 0xA8, 0x01, 0xFF, 0x00, 0x00, 0xDA, 0x2A, 0xAB, 0xCD, 0x80, 0xFE, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x8B, 0x8C, 0x8D, 0x8E, 0x8F, 0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0x9B, 0x9C, 0x9D, 0x9E, 0x9F]
-		for (var i = 0; i < 32; i++) { assert small.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success }
+
+		for (var i = 0; i < 32; i++) {
+			assert small.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success
+		}
+
 		assert small.TryPublish() == PacketDataResult.Success
 		assert smallEcho.TryPrepare(identifier, sequence) == PacketDataResult.Success
 		assert smallIp.TryPrepare(localIp, remoteIp, identification) == PacketDataResult.Success
@@ -63,10 +68,12 @@ component GenericPacketTest
 		assert smallIp.GetAvailableLength() == 60
 		assert smallFrame.GetAvailableLength() == 74
 		assert small.TryWrite(0, 0x00) == PacketDataResult.Busy
+
 		for (var i = 0; i < 74; i++) {
 			assert smallFrame.TryRead(i, value) == PacketDataResult.Success
 			assert value == expected0[i]
 		}
+
 		assert smallFrame.TryRead(-1, value) == PacketDataResult.Invalid
 		assert smallFrame.TryRead(74, value) == PacketDataResult.Invalid
 		assert smallIp.TryRead(60, value) == PacketDataResult.Invalid
@@ -75,9 +82,14 @@ component GenericPacketTest
 		smallIp.Invalidate()
 		smallEcho.Invalidate()
 		assert small.TryRelease() == PacketDataResult.Success
+
 		// Independent complete frame vector; includes checksum and padding bytes.
 		var expected1: byte[60] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x08, 0x00, 0x45, 0x00, 0x00, 0x1F, 0x12, 0x34, 0x40, 0x00, 0x40, 0x01, 0xA3, 0xDA, 0xC0, 0xA8, 0x01, 0x80, 0xC0, 0xA8, 0x01, 0xFF, 0x00, 0x00, 0xD0, 0xB1, 0xAB, 0xCD, 0x80, 0xFE, 0x80, 0x81, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
-		for (var i = 0; i < 3; i++) { assert small.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success }
+
+		for (var i = 0; i < 3; i++) {
+			assert small.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success
+		}
+
 		assert small.TryPublish() == PacketDataResult.Success
 		assert smallEcho.TryPrepare(identifier, sequence) == PacketDataResult.Success
 		assert smallIp.TryPrepare(localIp, remoteIp, identification) == PacketDataResult.Success
@@ -86,10 +98,12 @@ component GenericPacketTest
 		assert smallIp.GetAvailableLength() == 31
 		assert smallFrame.GetAvailableLength() == 60
 		assert small.TryWrite(0, 0x00) == PacketDataResult.Busy
+
 		for (var i = 0; i < 60; i++) {
 			assert smallFrame.TryRead(i, value) == PacketDataResult.Success
 			assert value == expected1[i]
 		}
+
 		assert smallFrame.TryRead(-1, value) == PacketDataResult.Invalid
 		assert smallFrame.TryRead(60, value) == PacketDataResult.Invalid
 		assert smallIp.TryRead(31, value) == PacketDataResult.Invalid
@@ -98,9 +112,14 @@ component GenericPacketTest
 		smallIp.Invalidate()
 		smallEcho.Invalidate()
 		assert small.TryRelease() == PacketDataResult.Success
+
 		// Independent complete frame vector; includes checksum and padding bytes.
 		var expected2: byte[60] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x08, 0x00, 0x45, 0x00, 0x00, 0x20, 0x12, 0x34, 0x40, 0x00, 0x40, 0x01, 0xA3, 0xD9, 0xC0, 0xA8, 0x01, 0x80, 0xC0, 0xA8, 0x01, 0xFF, 0x00, 0x00, 0xD0, 0x2E, 0xAB, 0xCD, 0x80, 0xFE, 0x80, 0x81, 0x82, 0x83, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
-		for (var i = 0; i < 4; i++) { assert small.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success }
+
+		for (var i = 0; i < 4; i++) {
+			assert small.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success
+		}
+
 		assert small.TryPublish() == PacketDataResult.Success
 		assert smallEcho.TryPrepare(identifier, sequence) == PacketDataResult.Success
 		assert smallIp.TryPrepare(localIp, remoteIp, identification) == PacketDataResult.Success
@@ -109,10 +128,12 @@ component GenericPacketTest
 		assert smallIp.GetAvailableLength() == 32
 		assert smallFrame.GetAvailableLength() == 60
 		assert small.TryWrite(0, 0x00) == PacketDataResult.Busy
+
 		for (var i = 0; i < 60; i++) {
 			assert smallFrame.TryRead(i, value) == PacketDataResult.Success
 			assert value == expected2[i]
 		}
+
 		assert smallFrame.TryRead(-1, value) == PacketDataResult.Invalid
 		assert smallFrame.TryRead(60, value) == PacketDataResult.Invalid
 		assert smallIp.TryRead(32, value) == PacketDataResult.Invalid
@@ -121,9 +142,14 @@ component GenericPacketTest
 		smallIp.Invalidate()
 		smallEcho.Invalidate()
 		assert small.TryRelease() == PacketDataResult.Success
+
 		// Independent complete frame vector; includes checksum and padding bytes.
 		var expected3: byte[60] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x08, 0x00, 0x45, 0x00, 0x00, 0x1C, 0x12, 0x34, 0x40, 0x00, 0x40, 0x01, 0xA3, 0xDD, 0xC0, 0xA8, 0x01, 0x80, 0xC0, 0xA8, 0x01, 0xFF, 0x00, 0x00, 0xD3, 0x33, 0xAB, 0xCD, 0x80, 0xFE, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
-		for (var i = 0; i < 0; i++) { assert small.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success }
+
+		for (var i = 0; i < 0; i++) {
+			assert small.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success
+		}
+
 		assert small.TryPublish() == PacketDataResult.Success
 		assert smallEcho.TryPrepare(identifier, sequence) == PacketDataResult.Success
 		assert smallIp.TryPrepare(localIp, remoteIp, identification) == PacketDataResult.Success
@@ -132,10 +158,12 @@ component GenericPacketTest
 		assert smallIp.GetAvailableLength() == 28
 		assert smallFrame.GetAvailableLength() == 60
 		assert small.TryWrite(0, 0x00) == PacketDataResult.Busy
+
 		for (var i = 0; i < 60; i++) {
 			assert smallFrame.TryRead(i, value) == PacketDataResult.Success
 			assert value == expected3[i]
 		}
+
 		assert smallFrame.TryRead(-1, value) == PacketDataResult.Invalid
 		assert smallFrame.TryRead(60, value) == PacketDataResult.Invalid
 		assert smallIp.TryRead(28, value) == PacketDataResult.Invalid
@@ -144,9 +172,14 @@ component GenericPacketTest
 		smallIp.Invalidate()
 		smallEcho.Invalidate()
 		assert small.TryRelease() == PacketDataResult.Success
+
 		// Independent complete frame vector; includes checksum and padding bytes.
 		var expected4: byte[74] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x08, 0x00, 0x45, 0x00, 0x00, 0x3C, 0x12, 0x34, 0x40, 0x00, 0x40, 0x01, 0xA3, 0xBD, 0xC0, 0xA8, 0x01, 0x80, 0xC0, 0xA8, 0x01, 0xFF, 0x00, 0x00, 0xDA, 0x2A, 0xAB, 0xCD, 0x80, 0xFE, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x8B, 0x8C, 0x8D, 0x8E, 0x8F, 0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0x9B, 0x9C, 0x9D, 0x9E, 0x9F]
-		for (var i = 0; i < 32; i++) { assert small.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success }
+
+		for (var i = 0; i < 32; i++) {
+			assert small.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success
+		}
+
 		assert small.TryPublish() == PacketDataResult.Success
 		assert smallEcho.TryPrepare(identifier, sequence) == PacketDataResult.Success
 		assert smallIp.TryPrepare(localIp, remoteIp, identification) == PacketDataResult.Success
@@ -155,10 +188,12 @@ component GenericPacketTest
 		assert smallIp.GetAvailableLength() == 60
 		assert smallFrame.GetAvailableLength() == 74
 		assert small.TryWrite(0, 0x00) == PacketDataResult.Busy
+
 		for (var i = 0; i < 74; i++) {
 			assert smallFrame.TryRead(i, value) == PacketDataResult.Success
 			assert value == expected4[i]
 		}
+
 		assert smallFrame.TryRead(-1, value) == PacketDataResult.Invalid
 		assert smallFrame.TryRead(74, value) == PacketDataResult.Invalid
 		assert smallIp.TryRead(60, value) == PacketDataResult.Invalid
@@ -167,9 +202,14 @@ component GenericPacketTest
 		smallIp.Invalidate()
 		smallEcho.Invalidate()
 		assert small.TryRelease() == PacketDataResult.Success
+
 		// Independent complete frame vector; includes checksum and padding bytes.
 		var expected5: byte[74] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x08, 0x00, 0x45, 0x00, 0x00, 0x3C, 0x12, 0x34, 0x40, 0x00, 0x40, 0x01, 0xA3, 0xBD, 0xC0, 0xA8, 0x01, 0x80, 0xC0, 0xA8, 0x01, 0xFF, 0x00, 0x00, 0xCA, 0x1A, 0xAB, 0xCD, 0x80, 0xFE, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x8B, 0x8C, 0x8D, 0x8E, 0x8F, 0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0x9B, 0x9C, 0x9D, 0x9E, 0x9F, 0xA0]
-		for (var i = 0; i < 32; i++) { assert small.TryWrite(i, (129 + i) as byte) == PacketDataResult.Success }
+
+		for (var i = 0; i < 32; i++) {
+			assert small.TryWrite(i, (129 + i) as byte) == PacketDataResult.Success
+		}
+
 		assert small.TryPublish() == PacketDataResult.Success
 		assert smallEcho.TryPrepare(identifier, sequence) == PacketDataResult.Success
 		assert smallIp.TryPrepare(localIp, remoteIp, identification) == PacketDataResult.Success
@@ -178,10 +218,12 @@ component GenericPacketTest
 		assert smallIp.GetAvailableLength() == 60
 		assert smallFrame.GetAvailableLength() == 74
 		assert small.TryWrite(0, 0x00) == PacketDataResult.Busy
+
 		for (var i = 0; i < 74; i++) {
 			assert smallFrame.TryRead(i, value) == PacketDataResult.Success
 			assert value == expected5[i]
 		}
+
 		assert smallFrame.TryRead(-1, value) == PacketDataResult.Invalid
 		assert smallFrame.TryRead(74, value) == PacketDataResult.Invalid
 		assert smallIp.TryRead(60, value) == PacketDataResult.Invalid
@@ -207,9 +249,14 @@ component GenericPacketTest
 		assert largeIp.TryRead(0, value) == PacketDataResult.NotReady
 		assert largeFrame.TryRead(0, value) == PacketDataResult.NotReady
 		assert largeEcho.TryPrepare(identifier, sequence) == PacketDataResult.NotReady
+
 		// Independent complete frame vector; includes checksum and padding bytes.
 		var expected0: byte[74] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x08, 0x00, 0x45, 0x00, 0x00, 0x3C, 0x12, 0x34, 0x40, 0x00, 0x40, 0x01, 0xA3, 0xBD, 0xC0, 0xA8, 0x01, 0x80, 0xC0, 0xA8, 0x01, 0xFF, 0x00, 0x00, 0xDA, 0x2A, 0xAB, 0xCD, 0x80, 0xFE, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x8B, 0x8C, 0x8D, 0x8E, 0x8F, 0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0x9B, 0x9C, 0x9D, 0x9E, 0x9F]
-		for (var i = 0; i < 32; i++) { assert large.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success }
+
+		for (var i = 0; i < 32; i++) {
+			assert large.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success
+		}
+
 		assert large.TryPublish() == PacketDataResult.Success
 		assert largeEcho.TryPrepare(identifier, sequence) == PacketDataResult.Success
 		assert largeIp.TryPrepare(localIp, remoteIp, identification) == PacketDataResult.Success
@@ -218,10 +265,12 @@ component GenericPacketTest
 		assert largeIp.GetAvailableLength() == 60
 		assert largeFrame.GetAvailableLength() == 74
 		assert large.TryWrite(0, 0x00) == PacketDataResult.Busy
+
 		for (var i = 0; i < 74; i++) {
 			assert largeFrame.TryRead(i, value) == PacketDataResult.Success
 			assert value == expected0[i]
 		}
+
 		assert largeFrame.TryRead(-1, value) == PacketDataResult.Invalid
 		assert largeFrame.TryRead(74, value) == PacketDataResult.Invalid
 		assert largeIp.TryRead(60, value) == PacketDataResult.Invalid
@@ -230,9 +279,14 @@ component GenericPacketTest
 		largeIp.Invalidate()
 		largeEcho.Invalidate()
 		assert large.TryRelease() == PacketDataResult.Success
+
 		// Independent complete frame vector; includes checksum and padding bytes.
 		var expected1: byte[60] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x08, 0x00, 0x45, 0x00, 0x00, 0x1F, 0x12, 0x34, 0x40, 0x00, 0x40, 0x01, 0xA3, 0xDA, 0xC0, 0xA8, 0x01, 0x80, 0xC0, 0xA8, 0x01, 0xFF, 0x00, 0x00, 0xD0, 0xB1, 0xAB, 0xCD, 0x80, 0xFE, 0x80, 0x81, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
-		for (var i = 0; i < 3; i++) { assert large.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success }
+
+		for (var i = 0; i < 3; i++) {
+			assert large.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success
+		}
+
 		assert large.TryPublish() == PacketDataResult.Success
 		assert largeEcho.TryPrepare(identifier, sequence) == PacketDataResult.Success
 		assert largeIp.TryPrepare(localIp, remoteIp, identification) == PacketDataResult.Success
@@ -241,10 +295,12 @@ component GenericPacketTest
 		assert largeIp.GetAvailableLength() == 31
 		assert largeFrame.GetAvailableLength() == 60
 		assert large.TryWrite(0, 0x00) == PacketDataResult.Busy
+
 		for (var i = 0; i < 60; i++) {
 			assert largeFrame.TryRead(i, value) == PacketDataResult.Success
 			assert value == expected1[i]
 		}
+
 		assert largeFrame.TryRead(-1, value) == PacketDataResult.Invalid
 		assert largeFrame.TryRead(60, value) == PacketDataResult.Invalid
 		assert largeIp.TryRead(31, value) == PacketDataResult.Invalid
@@ -253,9 +309,14 @@ component GenericPacketTest
 		largeIp.Invalidate()
 		largeEcho.Invalidate()
 		assert large.TryRelease() == PacketDataResult.Success
+
 		// Independent complete frame vector; includes checksum and padding bytes.
 		var expected2: byte[60] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x08, 0x00, 0x45, 0x00, 0x00, 0x20, 0x12, 0x34, 0x40, 0x00, 0x40, 0x01, 0xA3, 0xD9, 0xC0, 0xA8, 0x01, 0x80, 0xC0, 0xA8, 0x01, 0xFF, 0x00, 0x00, 0xD0, 0x2E, 0xAB, 0xCD, 0x80, 0xFE, 0x80, 0x81, 0x82, 0x83, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
-		for (var i = 0; i < 4; i++) { assert large.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success }
+
+		for (var i = 0; i < 4; i++) {
+			assert large.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success
+		}
+
 		assert large.TryPublish() == PacketDataResult.Success
 		assert largeEcho.TryPrepare(identifier, sequence) == PacketDataResult.Success
 		assert largeIp.TryPrepare(localIp, remoteIp, identification) == PacketDataResult.Success
@@ -264,10 +325,12 @@ component GenericPacketTest
 		assert largeIp.GetAvailableLength() == 32
 		assert largeFrame.GetAvailableLength() == 60
 		assert large.TryWrite(0, 0x00) == PacketDataResult.Busy
+
 		for (var i = 0; i < 60; i++) {
 			assert largeFrame.TryRead(i, value) == PacketDataResult.Success
 			assert value == expected2[i]
 		}
+
 		assert largeFrame.TryRead(-1, value) == PacketDataResult.Invalid
 		assert largeFrame.TryRead(60, value) == PacketDataResult.Invalid
 		assert largeIp.TryRead(32, value) == PacketDataResult.Invalid
@@ -276,9 +339,14 @@ component GenericPacketTest
 		largeIp.Invalidate()
 		largeEcho.Invalidate()
 		assert large.TryRelease() == PacketDataResult.Success
+
 		// Independent complete frame vector; includes checksum and padding bytes.
 		var expected3: byte[60] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x08, 0x00, 0x45, 0x00, 0x00, 0x1C, 0x12, 0x34, 0x40, 0x00, 0x40, 0x01, 0xA3, 0xDD, 0xC0, 0xA8, 0x01, 0x80, 0xC0, 0xA8, 0x01, 0xFF, 0x00, 0x00, 0xD3, 0x33, 0xAB, 0xCD, 0x80, 0xFE, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
-		for (var i = 0; i < 0; i++) { assert large.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success }
+
+		for (var i = 0; i < 0; i++) {
+			assert large.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success
+		}
+
 		assert large.TryPublish() == PacketDataResult.Success
 		assert largeEcho.TryPrepare(identifier, sequence) == PacketDataResult.Success
 		assert largeIp.TryPrepare(localIp, remoteIp, identification) == PacketDataResult.Success
@@ -287,10 +355,12 @@ component GenericPacketTest
 		assert largeIp.GetAvailableLength() == 28
 		assert largeFrame.GetAvailableLength() == 60
 		assert large.TryWrite(0, 0x00) == PacketDataResult.Busy
+
 		for (var i = 0; i < 60; i++) {
 			assert largeFrame.TryRead(i, value) == PacketDataResult.Success
 			assert value == expected3[i]
 		}
+
 		assert largeFrame.TryRead(-1, value) == PacketDataResult.Invalid
 		assert largeFrame.TryRead(60, value) == PacketDataResult.Invalid
 		assert largeIp.TryRead(28, value) == PacketDataResult.Invalid
@@ -299,9 +369,14 @@ component GenericPacketTest
 		largeIp.Invalidate()
 		largeEcho.Invalidate()
 		assert large.TryRelease() == PacketDataResult.Success
+
 		// Independent complete frame vector; includes checksum and padding bytes.
 		var expected4: byte[107] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x08, 0x00, 0x45, 0x00, 0x00, 0x5D, 0x12, 0x34, 0x40, 0x00, 0x40, 0x01, 0xA3, 0x9C, 0xC0, 0xA8, 0x01, 0x80, 0xC0, 0xA8, 0x01, 0xFF, 0x00, 0x00, 0x1F, 0x1F, 0xAB, 0xCD, 0x80, 0xFE, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x8B, 0x8C, 0x8D, 0x8E, 0x8F, 0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0x9B, 0x9C, 0x9D, 0x9E, 0x9F, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF, 0xC0]
-		for (var i = 0; i < 65; i++) { assert large.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success }
+
+		for (var i = 0; i < 65; i++) {
+			assert large.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success
+		}
+
 		assert large.TryPublish() == PacketDataResult.Success
 		assert largeEcho.TryPrepare(identifier, sequence) == PacketDataResult.Success
 		assert largeIp.TryPrepare(localIp, remoteIp, identification) == PacketDataResult.Success
@@ -310,10 +385,12 @@ component GenericPacketTest
 		assert largeIp.GetAvailableLength() == 93
 		assert largeFrame.GetAvailableLength() == 107
 		assert large.TryWrite(0, 0x00) == PacketDataResult.Busy
+
 		for (var i = 0; i < 107; i++) {
 			assert largeFrame.TryRead(i, value) == PacketDataResult.Success
 			assert value == expected4[i]
 		}
+
 		assert largeFrame.TryRead(-1, value) == PacketDataResult.Invalid
 		assert largeFrame.TryRead(107, value) == PacketDataResult.Invalid
 		assert largeIp.TryRead(93, value) == PacketDataResult.Invalid
@@ -322,9 +399,14 @@ component GenericPacketTest
 		largeIp.Invalidate()
 		largeEcho.Invalidate()
 		assert large.TryRelease() == PacketDataResult.Success
+
 		// Independent complete frame vector; includes checksum and padding bytes.
 		var expected5: byte[107] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x08, 0x00, 0x45, 0x00, 0x00, 0x5D, 0x12, 0x34, 0x40, 0x00, 0x40, 0x01, 0xA3, 0x9C, 0xC0, 0xA8, 0x01, 0x80, 0xC0, 0xA8, 0x01, 0xFF, 0x00, 0x00, 0xFD, 0xFE, 0xAB, 0xCD, 0x80, 0xFE, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x8B, 0x8C, 0x8D, 0x8E, 0x8F, 0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0x9B, 0x9C, 0x9D, 0x9E, 0x9F, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF, 0xC0, 0xC1]
-		for (var i = 0; i < 65; i++) { assert large.TryWrite(i, (129 + i) as byte) == PacketDataResult.Success }
+
+		for (var i = 0; i < 65; i++) {
+			assert large.TryWrite(i, (129 + i) as byte) == PacketDataResult.Success
+		}
+
 		assert large.TryPublish() == PacketDataResult.Success
 		assert largeEcho.TryPrepare(identifier, sequence) == PacketDataResult.Success
 		assert largeIp.TryPrepare(localIp, remoteIp, identification) == PacketDataResult.Success
@@ -333,10 +415,12 @@ component GenericPacketTest
 		assert largeIp.GetAvailableLength() == 93
 		assert largeFrame.GetAvailableLength() == 107
 		assert large.TryWrite(0, 0x00) == PacketDataResult.Busy
+
 		for (var i = 0; i < 107; i++) {
 			assert largeFrame.TryRead(i, value) == PacketDataResult.Success
 			assert value == expected5[i]
 		}
+
 		assert largeFrame.TryRead(-1, value) == PacketDataResult.Invalid
 		assert largeFrame.TryRead(107, value) == PacketDataResult.Invalid
 		assert largeIp.TryRead(93, value) == PacketDataResult.Invalid
@@ -362,9 +446,14 @@ component GenericPacketTest
 		assert ramIp.TryRead(0, value) == PacketDataResult.NotReady
 		assert ramFrame.TryRead(0, value) == PacketDataResult.NotReady
 		assert ramEcho.TryPrepare(identifier, sequence) == PacketDataResult.NotReady
+
 		// Independent complete frame vector; includes checksum and padding bytes.
 		var expected0: byte[74] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x08, 0x00, 0x45, 0x00, 0x00, 0x3C, 0x12, 0x34, 0x40, 0x00, 0x40, 0x01, 0xA3, 0xBD, 0xC0, 0xA8, 0x01, 0x80, 0xC0, 0xA8, 0x01, 0xFF, 0x00, 0x00, 0xDA, 0x2A, 0xAB, 0xCD, 0x80, 0xFE, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x8B, 0x8C, 0x8D, 0x8E, 0x8F, 0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0x9B, 0x9C, 0x9D, 0x9E, 0x9F]
-		for (var i = 0; i < 32; i++) { assert ram.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success }
+
+		for (var i = 0; i < 32; i++) {
+			assert ram.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success
+		}
+
 		assert ram.TryPublish() == PacketDataResult.Success
 		assert ramEcho.TryPrepare(identifier, sequence) == PacketDataResult.Success
 		assert ramIp.TryPrepare(localIp, remoteIp, identification) == PacketDataResult.Success
@@ -373,10 +462,12 @@ component GenericPacketTest
 		assert ramIp.GetAvailableLength() == 60
 		assert ramFrame.GetAvailableLength() == 74
 		assert ram.TryWrite(0, 0x00) == PacketDataResult.Busy
+
 		for (var i = 0; i < 74; i++) {
 			assert ramFrame.TryRead(i, value) == PacketDataResult.Success
 			assert value == expected0[i]
 		}
+
 		assert ramFrame.TryRead(-1, value) == PacketDataResult.Invalid
 		assert ramFrame.TryRead(74, value) == PacketDataResult.Invalid
 		assert ramIp.TryRead(60, value) == PacketDataResult.Invalid
@@ -385,9 +476,14 @@ component GenericPacketTest
 		ramIp.Invalidate()
 		ramEcho.Invalidate()
 		assert ram.TryRelease() == PacketDataResult.Success
+
 		// Independent complete frame vector; includes checksum and padding bytes.
 		var expected1: byte[60] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x08, 0x00, 0x45, 0x00, 0x00, 0x1F, 0x12, 0x34, 0x40, 0x00, 0x40, 0x01, 0xA3, 0xDA, 0xC0, 0xA8, 0x01, 0x80, 0xC0, 0xA8, 0x01, 0xFF, 0x00, 0x00, 0xD0, 0xB1, 0xAB, 0xCD, 0x80, 0xFE, 0x80, 0x81, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
-		for (var i = 0; i < 3; i++) { assert ram.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success }
+
+		for (var i = 0; i < 3; i++) {
+			assert ram.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success
+		}
+
 		assert ram.TryPublish() == PacketDataResult.Success
 		assert ramEcho.TryPrepare(identifier, sequence) == PacketDataResult.Success
 		assert ramIp.TryPrepare(localIp, remoteIp, identification) == PacketDataResult.Success
@@ -396,10 +492,12 @@ component GenericPacketTest
 		assert ramIp.GetAvailableLength() == 31
 		assert ramFrame.GetAvailableLength() == 60
 		assert ram.TryWrite(0, 0x00) == PacketDataResult.Busy
+
 		for (var i = 0; i < 60; i++) {
 			assert ramFrame.TryRead(i, value) == PacketDataResult.Success
 			assert value == expected1[i]
 		}
+
 		assert ramFrame.TryRead(-1, value) == PacketDataResult.Invalid
 		assert ramFrame.TryRead(60, value) == PacketDataResult.Invalid
 		assert ramIp.TryRead(31, value) == PacketDataResult.Invalid
@@ -408,9 +506,14 @@ component GenericPacketTest
 		ramIp.Invalidate()
 		ramEcho.Invalidate()
 		assert ram.TryRelease() == PacketDataResult.Success
+
 		// Independent complete frame vector; includes checksum and padding bytes.
 		var expected2: byte[60] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x08, 0x00, 0x45, 0x00, 0x00, 0x20, 0x12, 0x34, 0x40, 0x00, 0x40, 0x01, 0xA3, 0xD9, 0xC0, 0xA8, 0x01, 0x80, 0xC0, 0xA8, 0x01, 0xFF, 0x00, 0x00, 0xD0, 0x2E, 0xAB, 0xCD, 0x80, 0xFE, 0x80, 0x81, 0x82, 0x83, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
-		for (var i = 0; i < 4; i++) { assert ram.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success }
+
+		for (var i = 0; i < 4; i++) {
+			assert ram.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success
+		}
+
 		assert ram.TryPublish() == PacketDataResult.Success
 		assert ramEcho.TryPrepare(identifier, sequence) == PacketDataResult.Success
 		assert ramIp.TryPrepare(localIp, remoteIp, identification) == PacketDataResult.Success
@@ -419,10 +522,12 @@ component GenericPacketTest
 		assert ramIp.GetAvailableLength() == 32
 		assert ramFrame.GetAvailableLength() == 60
 		assert ram.TryWrite(0, 0x00) == PacketDataResult.Busy
+
 		for (var i = 0; i < 60; i++) {
 			assert ramFrame.TryRead(i, value) == PacketDataResult.Success
 			assert value == expected2[i]
 		}
+
 		assert ramFrame.TryRead(-1, value) == PacketDataResult.Invalid
 		assert ramFrame.TryRead(60, value) == PacketDataResult.Invalid
 		assert ramIp.TryRead(32, value) == PacketDataResult.Invalid
@@ -431,9 +536,14 @@ component GenericPacketTest
 		ramIp.Invalidate()
 		ramEcho.Invalidate()
 		assert ram.TryRelease() == PacketDataResult.Success
+
 		// Independent complete frame vector; includes checksum and padding bytes.
 		var expected3: byte[60] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x08, 0x00, 0x45, 0x00, 0x00, 0x1C, 0x12, 0x34, 0x40, 0x00, 0x40, 0x01, 0xA3, 0xDD, 0xC0, 0xA8, 0x01, 0x80, 0xC0, 0xA8, 0x01, 0xFF, 0x00, 0x00, 0xD3, 0x33, 0xAB, 0xCD, 0x80, 0xFE, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
-		for (var i = 0; i < 0; i++) { assert ram.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success }
+
+		for (var i = 0; i < 0; i++) {
+			assert ram.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success
+		}
+
 		assert ram.TryPublish() == PacketDataResult.Success
 		assert ramEcho.TryPrepare(identifier, sequence) == PacketDataResult.Success
 		assert ramIp.TryPrepare(localIp, remoteIp, identification) == PacketDataResult.Success
@@ -442,10 +552,12 @@ component GenericPacketTest
 		assert ramIp.GetAvailableLength() == 28
 		assert ramFrame.GetAvailableLength() == 60
 		assert ram.TryWrite(0, 0x00) == PacketDataResult.Busy
+
 		for (var i = 0; i < 60; i++) {
 			assert ramFrame.TryRead(i, value) == PacketDataResult.Success
 			assert value == expected3[i]
 		}
+
 		assert ramFrame.TryRead(-1, value) == PacketDataResult.Invalid
 		assert ramFrame.TryRead(60, value) == PacketDataResult.Invalid
 		assert ramIp.TryRead(28, value) == PacketDataResult.Invalid
@@ -454,9 +566,14 @@ component GenericPacketTest
 		ramIp.Invalidate()
 		ramEcho.Invalidate()
 		assert ram.TryRelease() == PacketDataResult.Success
+
 		// Independent complete frame vector; includes checksum and padding bytes.
 		var expected4: byte[107] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x08, 0x00, 0x45, 0x00, 0x00, 0x5D, 0x12, 0x34, 0x40, 0x00, 0x40, 0x01, 0xA3, 0x9C, 0xC0, 0xA8, 0x01, 0x80, 0xC0, 0xA8, 0x01, 0xFF, 0x00, 0x00, 0x1F, 0x1F, 0xAB, 0xCD, 0x80, 0xFE, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x8B, 0x8C, 0x8D, 0x8E, 0x8F, 0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0x9B, 0x9C, 0x9D, 0x9E, 0x9F, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF, 0xC0]
-		for (var i = 0; i < 65; i++) { assert ram.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success }
+
+		for (var i = 0; i < 65; i++) {
+			assert ram.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success
+		}
+
 		assert ram.TryPublish() == PacketDataResult.Success
 		assert ramEcho.TryPrepare(identifier, sequence) == PacketDataResult.Success
 		assert ramIp.TryPrepare(localIp, remoteIp, identification) == PacketDataResult.Success
@@ -465,10 +582,12 @@ component GenericPacketTest
 		assert ramIp.GetAvailableLength() == 93
 		assert ramFrame.GetAvailableLength() == 107
 		assert ram.TryWrite(0, 0x00) == PacketDataResult.Busy
+
 		for (var i = 0; i < 107; i++) {
 			assert ramFrame.TryRead(i, value) == PacketDataResult.Success
 			assert value == expected4[i]
 		}
+
 		assert ramFrame.TryRead(-1, value) == PacketDataResult.Invalid
 		assert ramFrame.TryRead(107, value) == PacketDataResult.Invalid
 		assert ramIp.TryRead(93, value) == PacketDataResult.Invalid
@@ -477,9 +596,14 @@ component GenericPacketTest
 		ramIp.Invalidate()
 		ramEcho.Invalidate()
 		assert ram.TryRelease() == PacketDataResult.Success
+
 		// Independent complete frame vector; includes checksum and padding bytes.
 		var expected5: byte[107] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x08, 0x00, 0x45, 0x00, 0x00, 0x5D, 0x12, 0x34, 0x40, 0x00, 0x40, 0x01, 0xA3, 0x9C, 0xC0, 0xA8, 0x01, 0x80, 0xC0, 0xA8, 0x01, 0xFF, 0x00, 0x00, 0xFD, 0xFE, 0xAB, 0xCD, 0x80, 0xFE, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x8B, 0x8C, 0x8D, 0x8E, 0x8F, 0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0x9B, 0x9C, 0x9D, 0x9E, 0x9F, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF, 0xC0, 0xC1]
-		for (var i = 0; i < 65; i++) { assert ram.TryWrite(i, (129 + i) as byte) == PacketDataResult.Success }
+
+		for (var i = 0; i < 65; i++) {
+			assert ram.TryWrite(i, (129 + i) as byte) == PacketDataResult.Success
+		}
+
 		assert ram.TryPublish() == PacketDataResult.Success
 		assert ramEcho.TryPrepare(identifier, sequence) == PacketDataResult.Success
 		assert ramIp.TryPrepare(localIp, remoteIp, identification) == PacketDataResult.Success
@@ -488,10 +612,12 @@ component GenericPacketTest
 		assert ramIp.GetAvailableLength() == 93
 		assert ramFrame.GetAvailableLength() == 107
 		assert ram.TryWrite(0, 0x00) == PacketDataResult.Busy
+
 		for (var i = 0; i < 107; i++) {
 			assert ramFrame.TryRead(i, value) == PacketDataResult.Success
 			assert value == expected5[i]
 		}
+
 		assert ramFrame.TryRead(-1, value) == PacketDataResult.Invalid
 		assert ramFrame.TryRead(107, value) == PacketDataResult.Invalid
 		assert ramIp.TryRead(93, value) == PacketDataResult.Invalid
@@ -519,10 +645,12 @@ component GenericPacketTest
 		assert arp.TryPrepare(mac, localIp, peer, remoteIp) == PacketDataResult.Success
 		assert arpFrame.TryPrepare(mac, peer) == PacketDataResult.Success
 		var expected: byte[60] = [0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x08, 0x06, 0x00, 0x01, 0x08, 0x00, 0x06, 0x04, 0x00, 0x02, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xC0, 0xA8, 0x01, 0x80, 0x82, 0x10, 0x20, 0x30, 0x40, 0xFE, 0xC0, 0xA8, 0x01, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+
 		for (var i = 0; i < 60; i++) {
 			assert arpFrame.TryRead(i, value) == PacketDataResult.Success
 			assert value == expected[i]
 		}
+
 		assert arp.TryRead(28, value) == PacketDataResult.Invalid
 		assert arpFrame.TryRead(60, value) == PacketDataResult.Invalid
 		arpFrame.Invalidate()
@@ -530,12 +658,14 @@ component GenericPacketTest
 		assert arpFrame.TryPrepare(mac, peer) == PacketDataResult.NotReady
 		assert arp.TryPrepare(peer, remoteIp, mac, localIp) == PacketDataResult.Success
 		assert arpFrame.TryPrepare(peer, mac) == PacketDataResult.Success
+
 		for (var i = 0; i < 6; i++) {
 			assert arpFrame.TryRead(i, value) == PacketDataResult.Success
 			assert value == mac[i]
 			assert arpFrame.TryRead(6 + i, value) == PacketDataResult.Success
 			assert value == peer[i]
 		}
+
 		arpFrame.Invalidate()
 		arp.Invalidate()
 	}

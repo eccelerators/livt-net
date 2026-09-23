@@ -9,7 +9,11 @@ namespace Livt.Net
 component EthernetFrameParser<S: IPacketData> : IPacketData
 {
 	public const HEADER_LENGTH: int = 14
+
+	// Owned header snapshot and payload view borrowing the constructor source.
 	header: PacketHeader<S, HEADER_LENGTH>
+
+	// Validation state for the current parse lifetime.
 	status: PacketParseResult
 
 	/**
@@ -37,7 +41,9 @@ component EthernetFrameParser<S: IPacketData> : IPacketData
 	{
 		status = header.TryLoad()
 
-		if (status != PacketParseResult.Success) { return status }
+		if (status != PacketParseResult.Success) {
+			return status
+		}
 
 		if (header.GetWord(12) < 1536) {
 			status = PacketParseResult.Unsupported
@@ -46,7 +52,10 @@ component EthernetFrameParser<S: IPacketData> : IPacketData
 
 		status = header.TryOpenPayload(HEADER_LENGTH, header.GetCapturedLength() - HEADER_LENGTH)
 
-		if (status == PacketParseResult.Success) { status = PacketParseResult.HeaderOnly }
+		if (status == PacketParseResult.Success) {
+			status = PacketParseResult.HeaderOnly
+		}
+
 		return status
 	}
 
@@ -55,7 +64,9 @@ component EthernetFrameParser<S: IPacketData> : IPacketData
 	 */
 	public fn GetStatus() PacketParseResult
 	{
-		if ((status == PacketParseResult.Success || status == PacketParseResult.HeaderOnly) && !header.IsReady()) { return PacketParseResult.NotReady }
+		if ((status == PacketParseResult.Success || status == PacketParseResult.HeaderOnly) && !header.IsReady()) {
+			return PacketParseResult.NotReady
+		}
 
 		return status
 	}
@@ -73,7 +84,9 @@ component EthernetFrameParser<S: IPacketData> : IPacketData
 	 */
 	override fn GetAvailableLength() int
 	{
-		if (!this.IsReady()) { return 0 }
+		if (!this.IsReady()) {
+			return 0
+		}
 
 		return header.GetAvailableLength()
 	}
@@ -85,7 +98,9 @@ component EthernetFrameParser<S: IPacketData> : IPacketData
 	{
 		value = 0x00
 
-		if (!this.IsReady()) { return PacketDataResult.NotReady }
+		if (!this.IsReady()) {
+			return PacketDataResult.NotReady
+		}
 
 		var readValue: byte = 0x00
 		var result = header.TryRead(index, readValue)
@@ -98,7 +113,9 @@ component EthernetFrameParser<S: IPacketData> : IPacketData
 	 */
 	public fn GetEtherType() int
 	{
-		if (!this.IsReady()) { return 0 }
+		if (!this.IsReady()) {
+			return 0
+		}
 
 		return header.GetWord(12)
 	}
@@ -113,7 +130,9 @@ component EthernetFrameParser<S: IPacketData> : IPacketData
 		for (var i = 0; i < 6; i++) {
 			value[i] = 0x00
 
-			if (this.IsReady()) { value[i] = header.GetByte(6 + i) }
+			if (this.IsReady()) {
+				value[i] = header.GetByte(6 + i)
+			}
 		}
 
 		return value
@@ -129,7 +148,9 @@ component EthernetFrameParser<S: IPacketData> : IPacketData
 		for (var i = 0; i < 6; i++) {
 			value[i] = 0x00
 
-			if (this.IsReady()) { value[i] = header.GetByte(0 + i) }
+			if (this.IsReady()) {
+				value[i] = header.GetByte(0 + i)
+			}
 		}
 
 		return value

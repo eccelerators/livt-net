@@ -10,7 +10,11 @@ namespace Livt.Net
 component TcpHeaderParser<S: IPacketData> : IPacketData
 {
 	public const HEADER_LENGTH: int = 20
+
+	// Owned header snapshot and payload view borrowing the constructor source.
 	header: PacketHeader<S, HEADER_LENGTH>
+
+	// Validation state for the current parse lifetime.
 	status: PacketParseResult
 
 	/**
@@ -38,7 +42,9 @@ component TcpHeaderParser<S: IPacketData> : IPacketData
 	{
 		status = header.TryLoad()
 
-		if (status != PacketParseResult.Success) { return status }
+		if (status != PacketParseResult.Success) {
+			return status
+		}
 
 		var dataOffset = header.GetByte(12)
 		var size = ((dataOffset as int) / 16) * 4
@@ -67,7 +73,9 @@ component TcpHeaderParser<S: IPacketData> : IPacketData
 	 */
 	public fn GetStatus() PacketParseResult
 	{
-		if ((status == PacketParseResult.Success || status == PacketParseResult.HeaderOnly) && !header.IsReady()) { return PacketParseResult.NotReady }
+		if ((status == PacketParseResult.Success || status == PacketParseResult.HeaderOnly) && !header.IsReady()) {
+			return PacketParseResult.NotReady
+		}
 
 		return status
 	}
@@ -85,7 +93,9 @@ component TcpHeaderParser<S: IPacketData> : IPacketData
 	 */
 	override fn GetAvailableLength() int
 	{
-		if (!this.IsReady()) { return 0 }
+		if (!this.IsReady()) {
+			return 0
+		}
 
 		return header.GetAvailableLength()
 	}
@@ -97,7 +107,9 @@ component TcpHeaderParser<S: IPacketData> : IPacketData
 	{
 		value = 0x00
 
-		if (!this.IsReady()) { return PacketDataResult.NotReady }
+		if (!this.IsReady()) {
+			return PacketDataResult.NotReady
+		}
 
 		var readValue: byte = 0x00
 		var result = header.TryRead(index, readValue)
@@ -110,7 +122,9 @@ component TcpHeaderParser<S: IPacketData> : IPacketData
 	 */
 	public fn GetSourcePort() int
 	{
-		if (!this.IsReady()) { return 0 }
+		if (!this.IsReady()) {
+			return 0
+		}
 
 		return header.GetWord(0)
 	}
@@ -120,7 +134,9 @@ component TcpHeaderParser<S: IPacketData> : IPacketData
 	 */
 	public fn GetDestinationPort() int
 	{
-		if (!this.IsReady()) { return 0 }
+		if (!this.IsReady()) {
+			return 0
+		}
 
 		return header.GetWord(2)
 	}
@@ -130,7 +146,9 @@ component TcpHeaderParser<S: IPacketData> : IPacketData
 	 */
 	public fn GetSequenceNumber() uint
 	{
-		if (!this.IsReady()) { return 0 }
+		if (!this.IsReady()) {
+			return 0
+		}
 
 		return header.GetSequence(4)
 	}
@@ -140,7 +158,9 @@ component TcpHeaderParser<S: IPacketData> : IPacketData
 	 */
 	public fn GetAcknowledgmentNumber() uint
 	{
-		if (!this.IsReady()) { return 0 }
+		if (!this.IsReady()) {
+			return 0
+		}
 
 		return header.GetSequence(8)
 	}
@@ -150,7 +170,9 @@ component TcpHeaderParser<S: IPacketData> : IPacketData
 	 */
 	public fn GetHeaderLength() int
 	{
-		if (!this.IsReady()) { return 0 }
+		if (!this.IsReady()) {
+			return 0
+		}
 
 		return ((header.GetByte(12) as int) / 16) * 4
 	}
@@ -160,7 +182,9 @@ component TcpHeaderParser<S: IPacketData> : IPacketData
 	 */
 	public fn GetFlags() byte
 	{
-		if (!this.IsReady()) { return 0 }
+		if (!this.IsReady()) {
+			return 0
+		}
 
 		return header.GetByte(13)
 	}

@@ -1,11 +1,16 @@
 namespace Livt.Net.Tests
 using Livt.Net
 
-/** Reusable receive checks; publication/reset controls stay in the harness. */
+/**
+ * Reusable receive checks; publication/reset controls stay in the harness.
+ */
 component ReceiveContractChecks<R: IFrameReceiver>
 {
 	link: R
-	new(link: R) { this.link = link }
+	new(link: R)
+	{
+		this.link = link
+	}
 	public fn Empty()
 	{
 		var value: byte = 0x00
@@ -22,18 +27,27 @@ component ReceiveContractChecks<R: IFrameReceiver>
 		assert link.HasReceiveFrame() == true
 		assert link.GetAvailableLength() == length
 		assert link.HasKnownWireLength() == known
-		if (known) { assert link.GetWireLength() == wireLength }
+
+		if (known) {
+			assert link.GetWireLength() == wireLength
+		}
+
 		assert link.TryAcquire() == FrameLinkResult.Busy
 		assert link.TryRead(-1, value) == PacketDataResult.Invalid
 		assert link.TryRead(length, value) == PacketDataResult.Invalid
 	}
 }
 
-/** Reusable assertions: this consumer has no test-adapter controls. */
+/**
+ * Reusable assertions: this consumer has no test-adapter controls.
+ */
 component TransmitContractChecks<T: IFrameTransmitter>
 {
 	link: T
-	new(link: T) { this.link = link }
+	new(link: T)
+	{
+		this.link = link
+	}
 	public fn Pending()
 	{
 		var outcome: FrameTransmitOutcome = FrameTransmitOutcome.Delivered
@@ -57,7 +71,9 @@ component TransmitContractChecks<T: IFrameTransmitter>
 	}
 }
 
-/** Small service using only public capabilities; TX is wired to its RX source. */
+/**
+ * Small service using only public capabilities; TX is wired to its RX source.
+ */
 component FrameForwarder<R: IFrameReceiver, T: IFrameTransmitter>
 {
 	receiver: R
@@ -71,24 +87,45 @@ component FrameForwarder<R: IFrameReceiver, T: IFrameTransmitter>
 	}
 	public fn TryStart() FrameLinkResult
 	{
-		if (active) { return FrameLinkResult.Busy }
+		if (active) {
+			return FrameLinkResult.Busy
+		}
+
 		var result = receiver.TryAcquire()
-		if (result != FrameLinkResult.Success) { return result }
+
+		if (result != FrameLinkResult.Success) {
+			return result
+		}
+
 		if (!receiver.HasKnownWireLength() || receiver.GetWireLength() != receiver.GetAvailableLength()) {
 			receiver.TryRelease()
 			return FrameLinkResult.Invalid
 		}
+
 		result = transmitter.TrySubmit()
-		if (result != FrameLinkResult.Accepted) { receiver.TryRelease(); return result }
+
+		if (result != FrameLinkResult.Accepted) {
+			receiver.TryRelease();
+			return result
+		}
+
 		active = true
 		return FrameLinkResult.Accepted
 	}
 	public fn TryFinish(outcome: out FrameTransmitOutcome) FrameLinkResult
 	{
 		outcome = FrameTransmitOutcome.DeviceFailure
-		if (!active) { return FrameLinkResult.NotReady }
+
+		if (!active) {
+			return FrameLinkResult.NotReady
+		}
+
 		var result = transmitter.TryGetCompletion(outcome)
-		if (result != FrameLinkResult.Success) { return result }
+
+		if (result != FrameLinkResult.Success) {
+			return result
+		}
+
 		receiver.TryRelease()
 		transmitter.TryAcknowledgeCompletion()
 		active = false
@@ -101,15 +138,33 @@ component FaultingFrameData : IPacketData
 	length: int
 	failAt: int
 	reads: int
-	public fn Configure(length: int, failAt: int) { this.length = length; this.failAt = failAt; reads = 0 }
-	public fn GetReadCount() int { return reads }
-	override fn IsReady() bool { return true }
-	override fn GetAvailableLength() int { return length }
+	public fn Configure(length: int, failAt: int)
+	{
+		this.length = length;
+		this.failAt = failAt;
+		reads = 0
+	}
+	public fn GetReadCount() int
+	{
+		return reads
+	}
+	override fn IsReady() bool
+	{
+		return true
+	}
+	override fn GetAvailableLength() int
+	{
+		return length
+	}
 	override fn TryRead(index: int, value: out byte) PacketDataResult
 	{
 		value = 0x00
 		reads = reads + 1
-		if (index < 0 || index >= length || index == failAt) { return PacketDataResult.Invalid }
+
+		if (index < 0 || index >= length || index == failAt) {
+			return PacketDataResult.Invalid
+		}
+
 		value = (index + 128) as byte
 		return PacketDataResult.Success
 	}
@@ -156,15 +211,29 @@ component FrameLinkTest
 		region.TryClose()
 		rx.BeginReset()
 		rx.CompleteReset()
-		if (data.IsReady()) { data.TryRelease() }
-		else { data.TryClear() }
+
+		if (data.IsReady()) {
+			data.TryRelease()
+		}
+		else {
+			data.TryClear()
+		}
+
 		faulty.Configure(60, -1)
 	}
 	fn Prepare(length: int)
 	{
-		if (data.IsReady()) { data.TryRelease() }
-		else { data.TryClear() }
-		for (var i = 0; i < length; i++) { assert data.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success }
+		if (data.IsReady()) {
+			data.TryRelease()
+		}
+		else {
+			data.TryClear()
+		}
+
+		for (var i = 0; i < length; i++) {
+			assert data.TryWrite(i, (128 + i) as byte) == PacketDataResult.Success
+		}
+
 		assert data.TryPublish() == PacketDataResult.Success
 	}
 
@@ -217,6 +286,7 @@ component FrameLinkTest
 		assert value == 0x42
 		assert rx.TryRead(1, value) == PacketDataResult.Invalid
 		assert rx.TryRelease() == FrameLinkResult.Success
+
 		// A known empty capture must be distinguishable from unknown wire length.
 		assert rx.Publish(true, 0) == FrameLinkResult.Success
 		assert rx.TryAcquire() == FrameLinkResult.Success
@@ -312,23 +382,34 @@ component FrameLinkTest
 		assert tx.GetCapturedLength() == 0
 		checks.Pending()
 		tx.SetReady(true)
-		for (var i = 0; i < 64; i++) { tx.Advance() }
+
+		for (var i = 0; i < 64; i++) {
+			tx.Advance()
+		}
+
 		assert tx.GetCapturedLength() == 64
+
 		// Reading the last byte does not yet publish a terminal result.
 		checks.Pending()
 		tx.Advance()
 		checks.Completed(FrameTransmitOutcome.Delivered)
+
 		for (var i = 0; i < 64; i++) {
 			assert tx.TryReadCaptured(i, value) == PacketDataResult.Success
 			assert value == (128 + i) as byte
 		}
+
 		assert tx.TryReadCaptured(64, value) == PacketDataResult.Invalid
 		assert tx.TryReadCaptured(-1, value) == PacketDataResult.Invalid
 		assert data.TryRelease() == PacketDataResult.Success
 		this.Prepare(60)
 		assert tx.TrySubmit() == FrameLinkResult.Accepted
 		assert tx.GetCapturedLength() == 0
-		for (var i = 0; i < 61; i++) { tx.Advance() }
+
+		for (var i = 0; i < 61; i++) {
+			tx.Advance()
+		}
+
 		checks.Completed(FrameTransmitOutcome.Delivered)
 		assert data.TryRelease() == PacketDataResult.Success
 	}
@@ -381,7 +462,11 @@ component FrameLinkTest
 		assert faulty.GetReadCount() == 3
 		faulty.Configure(60, -1)
 		assert fixedTx.TrySubmit() == FrameLinkResult.Accepted
-		for (var i = 0; i < 61; i++) { fixedTx.Advance() }
+
+		for (var i = 0; i < 61; i++) {
+			fixedTx.Advance()
+		}
+
 		fixedChecks.Completed(FrameTransmitOutcome.Delivered)
 		assert faulty.GetReadCount() == 60
 	}
@@ -410,7 +495,11 @@ component FrameLinkTest
 		this.Prepare(60)
 		tx.SetReady(true)
 		assert tx.TrySubmit() == FrameLinkResult.Accepted
-		for (var i = 0; i < 61; i++) { tx.Advance() }
+
+		for (var i = 0; i < 61; i++) {
+			tx.Advance()
+		}
+
 		// Reset also discards a terminal result rather than replaying delivery.
 		tx.BeginReset()
 		tx.CompleteReset()
@@ -424,29 +513,44 @@ component FrameLinkTest
 		var outcome: FrameTransmitOutcome = FrameTransmitOutcome.DeviceFailure
 		var value: byte = 0x00
 		assert service.TryStart() == FrameLinkResult.NotReady
-		for (var i = 0; i < 60; i++) { assert forwardRx.InjectByte(i, (i + 128) as byte) == FrameLinkResult.Success }
+
+		for (var i = 0; i < 60; i++) {
+			assert forwardRx.InjectByte(i, (i + 128) as byte) == FrameLinkResult.Success
+		}
+
 		assert forwardRx.Publish(true, 60) == FrameLinkResult.Success
 		assert service.TryStart() == FrameLinkResult.Accepted
 		assert service.TryStart() == FrameLinkResult.Busy
 		assert service.TryFinish(outcome) == FrameLinkResult.NotReady
 		assert forwardRx.IsReady() == true
-		for (var i = 0; i < 61; i++) { forwardTx.Advance() }
+
+		for (var i = 0; i < 61; i++) {
+			forwardTx.Advance()
+		}
+
 		assert service.TryFinish(outcome) == FrameLinkResult.Success
 		assert outcome == FrameTransmitOutcome.Delivered
 		assert forwardRx.IsReady() == false
 		assert forwardRx.HasReceiveFrame() == false
+
 		for (var i = 0; i < 60; i++) {
 			assert forwardTx.TryReadCaptured(i, value) == PacketDataResult.Success
 			assert value == (i + 128) as byte
 		}
+
 		assert service.TryFinish(outcome) == FrameLinkResult.NotReady
+
 		// Rejected submission releases the service's RX acquisition for reuse.
 		assert forwardRx.InjectByte(0, 0xFF) == FrameLinkResult.Success
 		assert forwardRx.Publish(true, 60) == FrameLinkResult.Success
 		assert service.TryStart() == FrameLinkResult.Invalid
 		assert forwardRx.HasReceiveFrame() == false
 		assert forwardTx.IsSourceBorrowed() == false
-		for (var i = 0; i < 60; i++) { assert forwardRx.InjectByte(i, 0x00) == FrameLinkResult.Success }
+
+		for (var i = 0; i < 60; i++) {
+			assert forwardRx.InjectByte(i, 0x00) == FrameLinkResult.Success
+		}
+
 		assert forwardRx.Publish(true, 60) == FrameLinkResult.Success
 		forwardTx.SetReady(false)
 		assert service.TryStart() == FrameLinkResult.NotReady

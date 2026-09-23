@@ -44,7 +44,11 @@ component FrameCapacityTest
 		assert this.ioSmall.TryBeginTxFrame(5) == true
 		assert this.ioLarge.TryBeginTxFrame(512) == true
 		assert this.ioLarge.TryBeginTxFrame(513) == false
-		for (var i = 0; i < 64; i++) { this.ioSmall.LoadRxByte(i, i as byte) }
+
+		for (var i = 0; i < 64; i++) {
+			this.ioSmall.LoadRxByte(i, i as byte)
+		}
+
 		this.ioSmall.SubmitRxFrame()
 		assert this.ioSmall.IsFrameAvailable() == true
 		assert this.ioSmall.GetRxByte(63) == 0x3F

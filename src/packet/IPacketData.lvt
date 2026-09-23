@@ -1,6 +1,8 @@
 namespace Livt.Net
 
-/** Result of a checked packet-data operation. Failed read output is not data. */
+/**
+ * Result of a checked packet-data operation. Failed read output is not data.
+ */
 enum PacketDataResult
 {
 	Success
@@ -17,7 +19,22 @@ enum PacketDataResult
  */
 interface IPacketData
 {
+	/**
+	 * Reports a published, readable prefix; this snapshot does not reserve or borrow it.
+	 */
 	fn IsReady() bool
+
+	/**
+	 * Returns the currently readable prefix length in bytes, or zero when unavailable.
+	 * This is a captured/prepared bound, not a protocol-declared or wire length.
+	 */
 	fn GetAvailableLength() int
+
+	/**
+	 * Performs a scheduled read at a zero-based byte index within the available
+	 * prefix. Success makes value valid; failure output is not data. NotReady
+	 * means unavailable and Invalid means outside the bound. The owner must keep
+	 * the source stable until this call and all dependent reads have finished.
+	 */
 	fn TryRead(index: int, value: out byte) PacketDataResult
 }

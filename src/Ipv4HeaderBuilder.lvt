@@ -9,8 +9,10 @@ namespace Livt.Net
 component Ipv4HeaderBuilder<FRAME_CAPACITY: int = 128>
 {
 	static assert FRAME_CAPACITY >= 34, "Frame capacity must hold the required protocol header"
+
 	// Number of bytes in the fixed IPv4 header.
 	public const HEADER_LENGTH: int = 20
+
 	// Offset of the source IPv4 address in the received Ethernet frame.
 	public const REQUEST_SOURCE_IPV4_OFFSET: int = 26
 
@@ -28,7 +30,10 @@ component Ipv4HeaderBuilder<FRAME_CAPACITY: int = 128>
 		identificationLow: byte,
 		localIp: byte[4]) byte
 	{
-		if (index < 0) { return 0x00 }
+		if (index < 0) {
+			return 0x00
+		}
+
 		if (index == 0) {
 			return 0x45
 		}
@@ -56,12 +61,29 @@ component Ipv4HeaderBuilder<FRAME_CAPACITY: int = 128>
 		}
 
 		// Flags: DF=1, frag-offset=0; TTL=64; proto=TCP; checksum placeholder
-		if (index == 6) { return 0x40 }
-		if (index == 7) { return 0x00 }
-		if (index == 8) { return 0x40 }
-		if (index == 9) { return 0x06 }
-		if (index == 10) { return 0x00 }
-		if (index == 11) { return 0x00 }
+		if (index == 6) {
+			return 0x40
+		}
+
+		if (index == 7) {
+			return 0x00
+		}
+
+		if (index == 8) {
+			return 0x40
+		}
+
+		if (index == 9) {
+			return 0x06
+		}
+
+		if (index == 10) {
+			return 0x00
+		}
+
+		if (index == 11) {
+			return 0x00
+		}
 
 		if (index < 16) {
 			var localIpIndex = index - 12

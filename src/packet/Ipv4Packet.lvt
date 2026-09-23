@@ -7,23 +7,50 @@ namespace Livt.Net
  */
 component Ipv4Packet<P: IPacketData & IIpv4Payload> : IPacketData, IEthernetPayload
 {
+	// Borrowed prepared payload; must remain stable until emission finishes.
 	payload: P
+
+	// Owned IPv4 header and prepared total length.
 	header: byte[20]
 	length: int
 	ready: bool
 
-	new(payload: P) { this.payload = payload }
+	/**
+	 * Borrows the fixed payload; starts unprepared and performs no payload reads.
+	 */
+	new(payload: P)
+	{
+		this.payload = payload
+	}
 
-	public fn Invalidate() { ready = false; length = 0 }
+	/**
+	 * Discards prepared metadata without changing the payload. Finish all dependent
+	 * reads and transmit borrows before invalidating.
+	 */
+	public fn Invalidate()
+	{
+		ready = false;
+		length = 0
+	}
 
-	/** All address and identification arrays use network byte order. */
+	/**
+	 * All address and identification arrays use network byte order.
+	 */
 	public fn TryPrepare(sourceIp: byte[4], destinationIp: byte[4], identification: byte[2]) PacketDataResult
 	{
 		this.Invalidate()
-		if (!payload.IsReady()) { return PacketDataResult.NotReady }
+
+		if (!payload.IsReady()) {
+			return PacketDataResult.NotReady
+		}
+
 		var size = payload.GetAvailableLength()
 		var protocol = payload.GetProtocol()
-		if (size <= 0 || size > 65515 || protocol < 0 || protocol > 255) { return PacketDataResult.Invalid }
+
+		if (size <= 0 || size > 65515 || protocol < 0 || protocol > 255) {
+			return PacketDataResult.Invalid
+		}
+
 		var totalLength = size + 20
 		header[0] = 0x45
 		header[1] = 0x00
@@ -37,14 +64,18 @@ component Ipv4Packet<P: IPacketData & IIpv4Payload> : IPacketData, IEthernetPayl
 		header[9] = protocol as byte
 		header[10] = 0x00
 		header[11] = 0x00
+
 		for (var i = 0; i < 4; i++) {
 			header[12 + i] = sourceIp[i]
 			header[16 + i] = destinationIp[i]
 		}
+
 		var sum = 0
+
 		for (var i = 0; i < 10; i++) {
 			sum = sum + ChecksumArithmetic.Word(header[i * 2] as int, header[i * 2 + 1] as int)
 		}
+
 		var checksum = ChecksumArithmetic.Finish(sum)
 		header[10] = (checksum / 256) as byte
 		header[11] = (checksum % 256) as byte
@@ -53,19 +84,57 @@ component Ipv4Packet<P: IPacketData & IIpv4Payload> : IPacketData, IEthernetPayl
 		return PacketDataResult.Success
 	}
 
-	override fn GetEtherType() int { return 0x0800 }
-	override fn IsReady() bool { return ready }
+	/**
+	 * Returns the Ethernet II EtherType identifying this payload, independent of readiness.
+	 */
+	override fn GetEtherType() int
+	{
+		return 0x0800
+	}
+
+	/**
+	 * Reports prepared metadata; the owner must still keep all borrowed payloads stable.
+	 */
+	override fn IsReady() bool
+	{
+		return ready
+	}
+
+	/**
+	 * Returns the prepared packet length in bytes, or zero while unprepared.
+	 */
 	override fn GetAvailableLength() int
 	{
-		if (!ready) { return 0 }
+		if (!ready) {
+			return 0
+		}
+
 		return length
 	}
+
+	/**
+	 * Reads a packet-relative byte; returns NotReady while unprepared and Invalid
+	 * outside the prepared length. Delegated payload errors propagate; the output
+	 * is data only on Success. Keep the prepared graph stable throughout the call.
+	 * Bytes 0..19 are the IPv4 header; remaining bytes delegate to the payload.
+	 */
 	override fn TryRead(index: int, value: out byte) PacketDataResult
 	{
 		value = 0x00
-		if (!ready) { return PacketDataResult.NotReady }
-		if (index < 0 || index >= length) { return PacketDataResult.Invalid }
-		if (index < 20) { value = header[index]; return PacketDataResult.Success }
+
+		if (!ready) {
+			return PacketDataResult.NotReady
+		}
+
+		if (index < 0 || index >= length) {
+			return PacketDataResult.Invalid
+		}
+
+		if (index < 20) {
+			value = header[index];
+			return PacketDataResult.Success
+		}
+
 		return payload.TryRead(index - 20, value)
 	}
 }

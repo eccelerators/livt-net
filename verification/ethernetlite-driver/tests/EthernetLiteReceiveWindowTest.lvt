@@ -1,0 +1,46 @@
+namespace Livt.Net.Tests
+
+using Livt.Net.Drivers.EthernetLite
+
+/**
+ * Independent CRC vectors cover FCS termination in every word lane.
+ */
+@Test
+component EthernetLiteReceiveWindowTest
+{
+	window: EthernetLiteReceiveWindow<128>
+
+	/** Creates a reusable scan subject. */
+	new() { this.window = new EthernetLiteReceiveWindow<128>() }
+
+	/** Checks a precomputed IEEE CRC32 in little-endian Ethernet octet order. */
+	fn Check(length: int, fcs: byte[4])
+	{
+		this.window.Reset()
+		for (var i = 0; i < length; i++) { this.window.AddByte(i as byte) }
+		assert !this.window.IsFinished()
+		for (var i = 0; i < 4; i++) { this.window.AddByte(fcs[i]) }
+		assert this.window.IsFinished()
+		assert this.window.GetLength() == length
+		this.window.AddByte(0xEE)
+		assert this.window.GetLength() == length
+	}
+
+	/** Checks all alignment cases and a capture truncated before the actual FCS. */
+	@Test
+	fn ExcludesFcsAndRetainedTailAtEveryWordAlignment()
+	{
+		var a: byte[4] = [0xEE, 0x7F, 0xEC, 0xB0]
+		var b: byte[4] = [0x0A, 0xB0, 0x6F, 0xBA]
+		var c: byte[4] = [0x32, 0x25, 0x05, 0x6A]
+		var d: byte[4] = [0x83, 0xA6, 0xDE, 0xDB]
+		this.Check(60, a)
+		this.Check(61, b)
+		this.Check(62, c)
+		this.Check(63, d)
+		this.window.Reset()
+		for (var i = 0; i < 132; i++) { this.window.AddByte(i as byte) }
+		assert this.window.IsFinished()
+		assert this.window.GetLength() == 128
+	}
+}

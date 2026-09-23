@@ -12,9 +12,9 @@ ipv4: Ipv4PacketParser<EthernetFrameParser<RamPacketData<256>>>
 
 new()
 {
-    source = new RamPacketData<256>()
-    ethernet = new EthernetFrameParser<RamPacketData<256>>(source)
-    ipv4 = new Ipv4PacketParser<EthernetFrameParser<RamPacketData<256>>>(ethernet)
+	source = new RamPacketData<256>()
+	ethernet = new EthernetFrameParser<RamPacketData<256>>(source)
+	ipv4 = new Ipv4PacketParser<EthernetFrameParser<RamPacketData<256>>>(ethernet)
 }
 ```
 

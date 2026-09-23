@@ -9,17 +9,24 @@ namespace Livt.Net
 component TcpSynAckFrameComposer<FRAME_CAPACITY: int = 128>
 {
 	static assert FRAME_CAPACITY >= 54, "Frame capacity must hold the required protocol header"
+
 	// Number of bytes in the composed SYN-ACK frame, padded to Ethernet minimum.
 	public const FRAME_LENGTH: int = 60
+
 	// IPv4 total length for a bare TCP SYN-ACK (20 IP + 20 TCP = 40).
 	public const IPV4_TOTAL_LENGTH: int = 40
+
 	// TCP SYN-ACK flags byte.
 	public const TCP_FLAGS_SYN_ACK: byte = 0x12
 
+	// Owned byte builders for each response layer.
 	ethernet: EthernetFrameBuilder<FRAME_CAPACITY>
 	ipv4: Ipv4HeaderBuilder<FRAME_CAPACITY>
 	tcp: TcpSegmentBuilder<FRAME_CAPACITY>
 
+	/**
+	 * Creates the owned Ethernet, IPv4 and TCP byte builders; no frame is emitted.
+	 */
 	new()
 	{
 		this.ethernet = new EthernetFrameBuilder<FRAME_CAPACITY>()
@@ -45,14 +52,23 @@ component TcpSynAckFrameComposer<FRAME_CAPACITY: int = 128>
 		window: byte[2],
 		tcpChecksum: byte[2]) logic[8]
 	{
-		if (index < 0) { return 0x00 }
+		if (index < 0) {
+			return 0x00
+		}
+
 		if (index < 14) {
 			return this.ethernet.GetReplyHeaderByte(request, index, localMac, 0x08, 0x00)
 		}
 
 		if (index < 34) {
-			if (index == 24) { return ipv4Checksum[0] }
-			if (index == 25) { return ipv4Checksum[1] }
+			if (index == 24) {
+				return ipv4Checksum[0]
+			}
+
+			if (index == 25) {
+				return ipv4Checksum[1]
+			}
+
 			return this.ipv4.GetResponseHeaderByte(request, index - 14, IPV4_TOTAL_LENGTH, 0x00, 0x02, localIp)
 		}
 

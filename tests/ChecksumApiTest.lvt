@@ -2,7 +2,9 @@ namespace Livt.Net.Tests
 
 using Livt.Net
 
-/** Literal expectations computed independently from complete network-order packets. */
+/**
+ * Literal expectations computed independently from complete network-order packets.
+ */
 @Test
 component ChecksumApiTest
 {
@@ -86,7 +88,11 @@ component ChecksumApiTest
 		var window: byte[2] = [0x81, 0x23]
 		stream.Reset()
 		var payload: byte[3] = [0x80, 0xFF, 0x01]
-		for (var i = 0; i < 3; i++) { stream.AddByte(payload[i]) }
+
+		for (var i = 0; i < 3; i++) {
+			stream.AddByte(payload[i])
+		}
+
 		var wordSum = stream.GetWordSum()
 		assert wordSum == 33279
 		assert tcp.CalculatePayloadChecksumFromBytes(local, remote, port, remotePort, sequence, acknowledgment, 0x12, window, 23, wordSum) == 438
@@ -105,7 +111,11 @@ component ChecksumApiTest
 		var window: byte[2] = [0x81, 0x23]
 		stream.Reset()
 		var payload: byte[4] = [0xFF, 0xFF, 0xFF, 0xFF]
-		for (var i = 0; i < 4; i++) { stream.AddByte(payload[i]) }
+
+		for (var i = 0; i < 4; i++) {
+			stream.AddByte(payload[i])
+		}
+
 		var wordSum = stream.GetWordSum()
 		assert wordSum == 131070
 		assert tcp.CalculatePayloadChecksumFromBytes(local, remote, port, remotePort, sequence, acknowledgment, 0x12, window, 24, wordSum) == 33716
@@ -122,6 +132,7 @@ component ChecksumApiTest
 		var sequence: byte[4] = [0xFF, 0xFF, 0xFF, 0xFF]
 		var acknowledgment: byte[4] = [0xFF, 0xFF, 0xFF, 0xFF]
 		var window: byte[2] = [0xFF, 0xFF]
+
 		// Sum of 65495 bytes of 0xFF, with the final odd byte padded by zero.
 		var wordSum = 2146139925
 		assert tcp.CalculatePayloadChecksumFromBytes(local, remote, port, remotePort, sequence, acknowledgment, 0xFF, window, 65515, wordSum) == 45069

@@ -1,13 +1,23 @@
 namespace Livt.Net
 
-/** Capability identifying an Ethernet II payload's EtherType. */
+/**
+ * Capability identifying an Ethernet II payload's EtherType.
+ */
 interface IEthernetPayload
 {
+	/**
+	 * Returns the Ethernet II EtherType identifying this payload, independent of readiness.
+	 */
 	fn GetEtherType() int
 }
 
-/** Capability identifying an IPv4 payload's protocol number. */
+/**
+ * Capability identifying an IPv4 payload's protocol number.
+ */
 interface IIpv4Payload
 {
+	/**
+	 * Returns the IPv4 protocol number identifying this payload, independent of readiness.
+	 */
 	fn GetProtocol() int
 }

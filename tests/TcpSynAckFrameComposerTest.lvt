@@ -22,14 +22,17 @@ component TcpSynAckFrameComposerTest
 		this.rxFrame[9] = 0x30
 		this.rxFrame[10] = 0x40
 		this.rxFrame[11] = 0x50
+
 		// Client IP at bytes 26..29 (used for reply dst IP)
 		this.rxFrame[26] = 0x0A
 		this.rxFrame[27] = 0x00
 		this.rxFrame[28] = 0x00
 		this.rxFrame[29] = 0x02
+
 		// Client port at bytes 34..35 (used for reply dst port)
 		this.rxFrame[34] = 0xC0
 		this.rxFrame[35] = 0x01
+
 		// Local port at bytes 36..37 (used for reply src port)
 		this.rxFrame[36] = 0x00
 		this.rxFrame[37] = 0x50

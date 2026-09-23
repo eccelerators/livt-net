@@ -26,8 +26,12 @@ component IcmpCapacityChecks<CAPACITY: int>
 	{
 		responder.Invalidate()
 
-		if (data.IsReady()) { data.TryRelease() }
-		else { data.TryClear() }
+		if (data.IsReady()) {
+			data.TryRelease()
+		}
+		else {
+			data.TryClear()
+		}
 
 		var ip: byte[4] = [0x0A, 0x00, 0x00, 0x01]
 		var mac: byte[6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01]

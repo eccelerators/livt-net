@@ -24,8 +24,7 @@ component ChecksumWordSumTest
 		// Expected: sum of all 32 words = 717318.
 		var sum: int = 0
 
-		for (var i = 0; i < 32; i++)
-		{
+		for (var i = 0; i < 32; i++) {
 			var hi: int = INDEX_CONTENT[i * 2]
 			var lo: int = INDEX_CONTENT[i * 2 + 1]
 			sum = sum + hi * 256 + lo
