@@ -7,6 +7,10 @@ using Livt.Net
  */
 component IcmpCapacityChecks<CAPACITY: int>
 {
+	// Shared request parsers; source remains owned by this fixture.
+	ethernet: EthernetFrameParser<ArrayPacketData<CAPACITY>>
+	ipv4: Ipv4PacketParser<EthernetFrameParser<ArrayPacketData<CAPACITY>>>
+
 	data: ArrayPacketData<CAPACITY>
 	responder: IcmpEchoResponder<ArrayPacketData<CAPACITY>, CAPACITY>
 
@@ -16,7 +20,9 @@ component IcmpCapacityChecks<CAPACITY: int>
 	new()
 	{
 		data = new ArrayPacketData<CAPACITY>()
-		responder = new IcmpEchoResponder<ArrayPacketData<CAPACITY>, CAPACITY>(data)
+		this.ethernet = new EthernetFrameParser<ArrayPacketData<CAPACITY>>(data)
+		this.ipv4 = new Ipv4PacketParser<EthernetFrameParser<ArrayPacketData<CAPACITY>>>(this.ethernet)
+		responder = new IcmpEchoResponder<ArrayPacketData<CAPACITY>, CAPACITY>(this.ethernet, this.ipv4)
 	}
 
 	/**

@@ -8,6 +8,10 @@ using Livt.Net
 @Test
 component IcmpEchoResponderTest
 {
+	// Shared request parsers; source remains owned by this fixture.
+	ethernet: EthernetFrameParser<ArrayPacketData<128>>
+	ipv4: Ipv4PacketParser<EthernetFrameParser<ArrayPacketData<128>>>
+
 	data: ArrayPacketData<128>
 	responder: IcmpEchoResponder<ArrayPacketData<128>, 128>
 
@@ -16,7 +20,10 @@ component IcmpEchoResponderTest
 	 */
 	new()
 	{
-		data = new ArrayPacketData<128>(); responder = new IcmpEchoResponder<ArrayPacketData<128>, 128>(data)
+		data = new ArrayPacketData<128>()
+		this.ethernet = new EthernetFrameParser<ArrayPacketData<128>>(data)
+		this.ipv4 = new Ipv4PacketParser<EthernetFrameParser<ArrayPacketData<128>>>(this.ethernet)
+		responder = new IcmpEchoResponder<ArrayPacketData<128>, 128>(this.ethernet, this.ipv4)
 	}
 
 	/**

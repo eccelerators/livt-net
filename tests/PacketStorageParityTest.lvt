@@ -1,0 +1,82 @@
+namespace Livt.Net.Tests
+using Livt.Net
+
+/** Compares production-size storage through the same publication contract. */
+@Test
+component PacketStorageParityTest
+{
+	// Independent stores receiving identical data and operations.
+	array: ArrayPacketData<128>
+	ram: RamPacketData<128>
+
+	/** Creates empty stores in the test clock/reset domain. */
+	new()
+	{
+		this.array = new ArrayPacketData<128>()
+		this.ram = new RamPacketData<128>()
+	}
+
+	/** Exercises every address, overwrites, high-bit bytes and shorter reuse. */
+	@Test
+	fn PreservesAllBytesAndPublicationBounds()
+	{
+		if (this.array.IsReady()) {
+			this.array.TryRelease()
+		} else {
+			this.array.TryClear()
+		}
+
+		if (this.ram.IsReady()) {
+			this.ram.TryRelease()
+		} else {
+			this.ram.TryClear()
+		}
+
+		for (var i = 0; i < 128; i++) {
+			var expected = ((i * 37 + 128) % 256) as byte
+			assert this.array.TryWrite(i, expected) == PacketDataResult.Success
+			assert this.ram.TryWrite(i, expected) == PacketDataResult.Success
+		}
+
+		assert this.array.TryWrite(127, 0xFF) == PacketDataResult.Success
+		assert this.ram.TryWrite(127, 0xFF) == PacketDataResult.Success
+		assert this.array.TryWrite(128, 0xEE) == PacketDataResult.Invalid
+		assert this.ram.TryWrite(128, 0xEE) == PacketDataResult.Invalid
+		assert this.array.TryPublish() == PacketDataResult.Success
+		assert this.ram.TryPublish() == PacketDataResult.Success
+		assert this.array.GetAvailableLength() == 128
+		assert this.ram.GetAvailableLength() == 128
+		assert this.array.TryWrite(0, 0x00) == PacketDataResult.Busy
+		assert this.ram.TryWrite(0, 0x00) == PacketDataResult.Busy
+		var a: byte = 0x00
+		var b: byte = 0x00
+
+		for (var i = 127; i >= 0; i--) {
+			var expected = ((i * 37 + 128) % 256) as byte
+
+			if (i == 127) {
+				expected = 0xFF
+			}
+
+			assert this.array.TryRead(i, a) == PacketDataResult.Success
+			assert this.ram.TryRead(i, b) == PacketDataResult.Success
+			assert a == expected
+			assert b == expected
+		}
+
+		assert this.array.TryRelease() == PacketDataResult.Success
+		assert this.ram.TryRelease() == PacketDataResult.Success
+		assert this.array.TryWrite(0, 0x42) == PacketDataResult.Success
+		assert this.ram.TryWrite(0, 0x42) == PacketDataResult.Success
+		assert this.array.TryPublish() == PacketDataResult.Success
+		assert this.ram.TryPublish() == PacketDataResult.Success
+		assert this.array.TryRead(1, a) == PacketDataResult.Invalid
+		assert this.ram.TryRead(1, b) == PacketDataResult.Invalid
+		assert a == 0x00
+		assert b == 0x00
+		assert this.array.TryRead(0, a) == PacketDataResult.Success
+		assert this.ram.TryRead(0, b) == PacketDataResult.Success
+		assert a == 0x42
+		assert b == 0x42
+	}
+}

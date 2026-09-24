@@ -5,7 +5,7 @@ namespace Livt.Net
  */
 component TcpConnectionRecognizer<S: IPacketData> : IPacketData
 {
-	// Owned nested parsers borrowing the request source.
+	// Borrowed shared parser pair and owned TCP descendant.
 	ethernet: EthernetFrameParser<S>
 	ipv4: Ipv4PacketParser<EthernetFrameParser<S>>
 	tcp: TcpHeaderParser<Ipv4PacketParser<EthernetFrameParser<S>>>
@@ -14,12 +14,13 @@ component TcpConnectionRecognizer<S: IPacketData> : IPacketData
 	status: PacketParseResult
 
 	/**
-	 * Binds the captured frame provider; payload reads remain borrowed.
+	 * Borrows the shared Ethernet/IPv4 pair; creates only the TCP descendant.
+	 * One serialized owner must invalidate this descendant before reusing either parser.
 	 */
-	new(source: S)
+	new(ethernet: EthernetFrameParser<S>, ipv4: Ipv4PacketParser<EthernetFrameParser<S>>)
 	{
-		ethernet = new EthernetFrameParser<S>(source)
-		ipv4 = new Ipv4PacketParser<EthernetFrameParser<S>>(ethernet)
+		this.ethernet = ethernet
+		this.ipv4 = ipv4
 		tcp = new TcpHeaderParser<Ipv4PacketParser<EthernetFrameParser<S>>>(ipv4)
 	}
 

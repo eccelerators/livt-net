@@ -1,0 +1,44 @@
+namespace Probe
+using Livt.Net
+/** Equal-capacity externally controlled packet-storage synthesis probe. */
+component PacketStorageProbe
+{
+ command: logic[3]
+ index: logic[7]
+ inputByte: byte
+ outputByte: byte
+ success: logic
+ completed: logic
+ storage: ArrayPacketData<128>
+ new(command: in logic[3], index: in logic[7], inputByte: in byte,
+  outputByte: out byte, success: out logic, completed: out logic)
+ {
+  this.command = command
+  this.index = index
+  this.inputByte = inputByte
+  outputByte = this.outputByte
+  success = this.success
+  completed = this.completed
+  this.storage = new ArrayPacketData<128>()
+ }
+ process Main()
+ {
+  var result = PacketDataResult.Invalid
+  if (this.command == 0b000) {
+   result = storage.TryWrite(this.index as int, this.inputByte)
+  } elif (this.command == 0b001) {
+   result = storage.TryPublish()
+  } elif (this.command == 0b010) {
+   var value: byte = 0x00
+   result = storage.TryRead(this.index as int, value)
+   this.outputByte = value
+  } elif (this.command == 0b011) {
+   result = storage.TryRelease()
+  } else {
+   result = storage.TryClear()
+  }
+  this.success = 0b0
+  if (result == PacketDataResult.Success) { this.success = 0b1 }
+  this.completed = !this.completed
+ }
+}

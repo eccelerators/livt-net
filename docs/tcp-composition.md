@@ -52,7 +52,10 @@ providers generate header-only segments such as SYN-ACK. Preparation reads the
 complete payload once, propagates read failures and computes the checksum from
 actual bytes (including odd final octets). No supplied checksum or assumed body
 sum is trusted. The maximum permitted input keeps the unfolded checksum sum
-within a signed int.
+within a signed int. The pseudo-header, zero-checksum TCP header and payload
+are accumulated by scheduled `InternetChecksum.AddByte` calls. Preparation
+spreads the arithmetic across cycles and then patches the two checksum bytes;
+it does not place the complete TCP sum in one combinational expression.
 
 `TryPrepare` invalidates prior segment metadata before checking the new input.
 Unprepared reads return NotReady; out-of-range reads return Invalid. Successful

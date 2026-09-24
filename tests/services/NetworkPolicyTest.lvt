@@ -8,6 +8,10 @@ using Livt.Net
 @Test
 component NetworkPolicyTest
 {
+	// Shared request parsers; source remains owned by this fixture.
+	ethernet: EthernetFrameParser<TestFrameReceiver<128>>
+	ipv4: Ipv4PacketParser<EthernetFrameParser<TestFrameReceiver<128>>>
+
 	receiver: TestFrameReceiver<128>
 	policy: TrustedPeer
 	arp: ArpService<TestFrameReceiver<128>, TrustedPeer>
@@ -25,8 +29,10 @@ component NetworkPolicyTest
 		var mac: byte[6] = [0x00,0x00,0x5E,0x00,0xFA,0xCE]
 		var ip: byte[4] = [10,0,0,1]
 		this.policy = new TrustedPeer()
-		this.arp = new ArpService<TestFrameReceiver<128>, TrustedPeer>(this.receiver, this.policy, mac, ip)
-		this.icmp = new IcmpEchoService<TestFrameReceiver<128>, TrustedPeer>(this.receiver, this.policy, mac, ip)
+		this.ethernet = new EthernetFrameParser<TestFrameReceiver<128>>(this.receiver)
+		this.ipv4 = new Ipv4PacketParser<EthernetFrameParser<TestFrameReceiver<128>>>(this.ethernet)
+		this.arp = new ArpService<TestFrameReceiver<128>, TrustedPeer>(this.receiver, this.ethernet, this.policy, mac, ip)
+		this.icmp = new IcmpEchoService<TestFrameReceiver<128>, TrustedPeer>(this.receiver, this.ethernet, this.ipv4, this.policy, mac, ip)
 		this.service = new ServiceChain<ArpService<TestFrameReceiver<128>, TrustedPeer>, IcmpEchoService<TestFrameReceiver<128>, TrustedPeer>>(this.arp, this.icmp)
 		this.transmitter = new TestFrameTransmitter<ServiceChain<ArpService<TestFrameReceiver<128>, TrustedPeer>, IcmpEchoService<TestFrameReceiver<128>, TrustedPeer>>>(this.service)
 		this.endpoint = new FrameService<TestFrameReceiver<128>, ServiceChain<ArpService<TestFrameReceiver<128>, TrustedPeer>, IcmpEchoService<TestFrameReceiver<128>, TrustedPeer>>, TestFrameTransmitter<ServiceChain<ArpService<TestFrameReceiver<128>, TrustedPeer>, IcmpEchoService<TestFrameReceiver<128>, TrustedPeer>>>>(this.receiver, this.service, this.transmitter)

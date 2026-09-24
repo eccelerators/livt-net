@@ -7,7 +7,7 @@ namespace Livt.Net
  */
 component ArpService<S: IPacketData, A: IFrameAcceptance> : IResponseService
 {
-	// Borrowed request/policy; owned recognition and response components.
+	// Borrowed source, policy and shared parsers; the response graph is owned.
 	source: S
 	acceptance: A
 	ethernet: EthernetFrameParser<S>
@@ -19,16 +19,18 @@ component ArpService<S: IPacketData, A: IFrameAcceptance> : IResponseService
 	ready: bool
 
 	/**
-	 * Binds the fixed request and policy, and creates an initially unpublished graph.
+	 * Borrows source, policy and shared parsers; creates an unpublished response.
+	 * Parsers must bind this source in the same clock/reset domain. Serialize
+	 * all parser users and close their descendants before handling a request.
 	 */
-	new(source: S, acceptance: A, localMac: byte[6], localIp: byte[4])
+	new(source: S, ethernet: EthernetFrameParser<S>, acceptance: A, localMac: byte[6], localIp: byte[4])
 	{
 		this.source = source
 		this.acceptance = acceptance
 		this.localMac = localMac
 		this.localIp = localIp
-		this.ethernet = new EthernetFrameParser<S>(source)
-		this.response = new ArpResponder<S>(source)
+		this.ethernet = ethernet
+		this.response = new ArpResponder<S>(ethernet)
 	}
 
 	/**
@@ -58,13 +60,13 @@ component ArpService<S: IPacketData, A: IFrameAcceptance> : IResponseService
 		}
 
 		var peer = this.ethernet.GetSourceMac()
-		this.ethernet.Invalidate()
 
 		if (!this.acceptance.Accept(peer, IEthernetPayload.ETHER_TYPE_ARP)) {
+			this.ethernet.Invalidate()
 			return ServiceResult.Ignored
 		}
 
-		var result = this.response.TryPrepare(this.localMac, this.localIp)
+		var result = this.response.TryPrepareParsed(this.localMac, this.localIp)
 
 		if (result != PacketDataResult.Success) {
 			this.response.Invalidate()

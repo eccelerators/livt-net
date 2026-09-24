@@ -1,0 +1,114 @@
+namespace Livt.Net.Tests
+using Livt.Net
+
+/** Shared parsers read each header once within admission/response preparation. */
+@Test
+component SharedParserTest
+{
+	// One RAM capture and one parser pair borrowed by both serialized services.
+	data: RamPacketData<128>
+	capture: CountedCapture<RamPacketData<128>>
+	ethernet: EthernetFrameParser<CountedCapture<RamPacketData<128>>>
+	ipv4: Ipv4PacketParser<EthernetFrameParser<CountedCapture<RamPacketData<128>>>>
+	policy: AcceptAllFrames
+	arp: ArpService<CountedCapture<RamPacketData<128>>, AcceptAllFrames>
+	icmp: IcmpEchoService<CountedCapture<RamPacketData<128>>, AcceptAllFrames>
+
+	/** Constructs one shared request graph and independent response owners. */
+	new()
+	{
+		this.data = new RamPacketData<128>()
+		this.capture = new CountedCapture<RamPacketData<128>>(this.data)
+		this.ethernet = new EthernetFrameParser<CountedCapture<RamPacketData<128>>>(this.capture)
+		this.ipv4 = new Ipv4PacketParser<EthernetFrameParser<CountedCapture<RamPacketData<128>>>>(this.ethernet)
+		this.policy = new AcceptAllFrames()
+		var mac: byte[6] = [0x00, 0x00, 0x5E, 0x00, 0xFA, 0xCE]
+		var ip: byte[4] = [10, 0, 0, 1]
+		this.arp = new ArpService<CountedCapture<RamPacketData<128>>, AcceptAllFrames>(this.capture, this.ethernet, this.policy, mac, ip)
+		this.icmp = new IcmpEchoService<CountedCapture<RamPacketData<128>>, AcceptAllFrames>(this.capture, this.ethernet, this.ipv4, this.policy, mac, ip)
+	}
+
+	/** Ends all prior borrows before publishing the next independent vector. */
+	fn Load(frame: byte[60], failureIndex: int)
+	{
+		if (this.arp.IsReady()) {
+			this.arp.TryReleaseResponse()
+		}
+
+		if (this.icmp.IsReady()) {
+			this.icmp.TryReleaseResponse()
+		}
+
+		this.ipv4.Invalidate()
+		this.ethernet.Invalidate()
+
+		if (this.data.IsReady()) {
+			this.data.TryRelease()
+		} else {
+			this.data.TryClear()
+		}
+
+		for (var i = 0; i < 60; i++) {
+			assert this.data.TryWrite(i, frame[i]) == PacketDataResult.Success
+		}
+
+		assert this.data.TryPublish() == PacketDataResult.Success
+		this.capture.Reset(failureIndex)
+	}
+
+	/** Checks full vectors after RX release, without re-reading Ethernet/IPv4. */
+	@Test
+	fn ReadsEachHeaderOnceAndRetainsIndependentResponses()
+	{
+		this.Load(ServicePackets.ARP, -1)
+		assert this.arp.TryHandle() == ServiceResult.Prepared
+		assert this.capture.GetReadCount() == 42
+		assert this.data.TryRelease() == PacketDataResult.Success
+		assert this.arp.TryHandle() == ServiceResult.Busy
+		var arpExpected = ServicePackets.ARP_REPLY
+		var value: byte = 0xEE
+
+		for (var i = 0; i < 60; i++) {
+			assert this.arp.TryRead(i, value) == PacketDataResult.Success
+			assert value == arpExpected[i]
+		}
+
+		assert this.capture.GetReadCount() == 42
+		this.Load(ServicePackets.ICMP, -1)
+		assert this.icmp.TryHandle() == ServiceResult.Prepared
+		assert this.capture.GetReadCount() == 46
+		assert this.data.TryRelease() == PacketDataResult.Success
+		assert this.data.TryWrite(0, 0xFF) == PacketDataResult.Success
+		assert this.icmp.TryHandle() == ServiceResult.Busy
+		var icmpExpected = ServicePackets.ICMP_REPLY
+
+		for (var i = 0; i < 60; i++) {
+			assert this.icmp.TryRead(i, value) == PacketDataResult.Success
+			assert value == icmpExpected[i]
+		}
+
+		assert this.capture.GetReadCount() == 46
+		assert this.icmp.TryReleaseResponse() == PacketDataResult.Success
+	}
+
+	/** A failed shared parse or snapshot cannot expose the preceding response. */
+	@Test
+	fn RecoversAfterHeaderAndPayloadReadFailures()
+	{
+		this.Load(ServicePackets.ARP, 20)
+		assert this.arp.TryHandle() == ServiceResult.Ignored
+		assert !this.arp.IsReady()
+		this.Load(ServicePackets.ICMP, 43)
+		assert this.icmp.TryHandle() == ServiceResult.Ignored
+		assert !this.icmp.IsReady()
+		var value: byte = 0xEE
+		assert this.icmp.TryRead(0, value) == PacketDataResult.NotReady
+		assert value == 0x00
+		this.Load(ServicePackets.ICMP, -1)
+		assert this.icmp.TryHandle() == ServiceResult.Prepared
+		assert this.capture.GetReadCount() == 46
+		assert this.icmp.TryRead(43, value) == PacketDataResult.Success
+		assert value == 0x80
+		assert this.icmp.TryReleaseResponse() == PacketDataResult.Success
+	}
+}

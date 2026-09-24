@@ -9,30 +9,30 @@ component IcmpEchoResponder<S: IPacketData, FRAME_CAPACITY: int = 128> : IPacket
 {
 	static assert FRAME_CAPACITY >= 42, "Frame capacity must hold the required protocol header"
 
-	// Owned parsers borrowing the request source in protocol order.
+	// Borrowed shared parsers; consumers must serialize their use.
 	ethernet: EthernetFrameParser<S>
 	ipv4: Ipv4PacketParser<EthernetFrameParser<S>>
 
-	// Owned snapshot of echo data, retained throughout reply emission.
-	data: ArrayPacketData<FRAME_CAPACITY>
+	// Owned RAM snapshot of echo data, retained throughout reply emission.
+	data: RamPacketData<FRAME_CAPACITY>
 
 	// Owned nested reply envelopes borrowing the snapshot and each other.
-	reply: IcmpEchoReply<ArrayPacketData<FRAME_CAPACITY>>
-	ip: IcmpEchoReplyPacket<ArrayPacketData<FRAME_CAPACITY>>
-	frame: IcmpEchoReplyFrame<ArrayPacketData<FRAME_CAPACITY>, FRAME_CAPACITY>
+	reply: IcmpEchoReply<RamPacketData<FRAME_CAPACITY>>
+	ip: IcmpEchoReplyPacket<RamPacketData<FRAME_CAPACITY>>
+	frame: IcmpEchoReplyFrame<RamPacketData<FRAME_CAPACITY>, FRAME_CAPACITY>
 
 	/**
-	 * Borrows the request source and creates owned parsers, echo storage and reply
-	 * envelopes. No source reads occur until preparation.
+	 * Borrows the shared Ethernet/IPv4 pair and owns RAM echo storage and reply
+	 * envelopes. Parsers must describe the same capture and have one serialized owner.
 	 */
-	new(source: S)
+	new(ethernet: EthernetFrameParser<S>, ipv4: Ipv4PacketParser<EthernetFrameParser<S>>)
 	{
-		ethernet = new EthernetFrameParser<S>(source)
-		ipv4 = new Ipv4PacketParser<EthernetFrameParser<S>>(ethernet)
-		data = new ArrayPacketData<FRAME_CAPACITY>()
-		reply = new IcmpEchoReply<ArrayPacketData<FRAME_CAPACITY>>(data)
-		ip = new IcmpEchoReplyPacket<ArrayPacketData<FRAME_CAPACITY>>(reply)
-		frame = new IcmpEchoReplyFrame<ArrayPacketData<FRAME_CAPACITY>, FRAME_CAPACITY>(ip)
+		this.ethernet = ethernet
+		this.ipv4 = ipv4
+		data = new RamPacketData<FRAME_CAPACITY>()
+		reply = new IcmpEchoReply<RamPacketData<FRAME_CAPACITY>>(data)
+		ip = new IcmpEchoReplyPacket<RamPacketData<FRAME_CAPACITY>>(reply)
+		frame = new IcmpEchoReplyFrame<RamPacketData<FRAME_CAPACITY>, FRAME_CAPACITY>(ip)
 	}
 
 	/**
@@ -43,6 +43,12 @@ component IcmpEchoResponder<S: IPacketData, FRAME_CAPACITY: int = 128> : IPacket
 	{
 		ipv4.Invalidate()
 		ethernet.Invalidate()
+		this.ClearResponse()
+	}
+
+	/** Releases only owned response state; preserves the shared request views. */
+	fn ClearResponse()
+	{
 		frame.Invalidate()
 		ip.Invalidate()
 		reply.Invalidate()
@@ -68,6 +74,22 @@ component IcmpEchoResponder<S: IPacketData, FRAME_CAPACITY: int = 128> : IPacket
 		}
 
 		if (ipv4.TryParse() != PacketParseResult.Success) {
+			return PacketDataResult.Invalid
+		}
+
+		return this.TryPrepareParsed(localMac, localIp)
+	}
+
+	/**
+	 * Snapshots a complete echo request from shared, already validated parsers.
+	 * Requires exclusive parser use. HeaderOnly input is rejected as before.
+	 */
+	public fn TryPrepareParsed(localMac: byte[6], localIp: byte[4]) PacketDataResult
+	{
+		this.ClearResponse()
+
+		if (!ethernet.IsReady() || ethernet.GetEtherType() != IEthernetPayload.ETHER_TYPE_IPV4
+			|| ipv4.GetStatus() != PacketParseResult.Success) {
 			return PacketDataResult.Invalid
 		}
 

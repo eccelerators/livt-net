@@ -8,6 +8,10 @@ using Livt.Net
 @Test
 component NetworkServiceTest
 {
+	// Shared request parsers; source remains owned by this fixture.
+	ethernet: EthernetFrameParser<TestFrameReceiver<128>>
+	ipv4: Ipv4PacketParser<EthernetFrameParser<TestFrameReceiver<128>>>
+
 	receiver: TestFrameReceiver<128>
 	service: NetworkService<TestFrameReceiver<128>>
 	transmitter: TestFrameTransmitter<NetworkService<TestFrameReceiver<128>>>
@@ -21,7 +25,9 @@ component NetworkServiceTest
 		this.receiver = new TestFrameReceiver<128>()
 		var mac: byte[6] = [0x00,0x00,0x5E,0x00,0xFA,0xCE]
 		var ip: byte[4] = [10,0,0,1]
-		this.service = new NetworkService<TestFrameReceiver<128>>(this.receiver, mac, ip)
+		this.ethernet = new EthernetFrameParser<TestFrameReceiver<128>>(this.receiver)
+		this.ipv4 = new Ipv4PacketParser<EthernetFrameParser<TestFrameReceiver<128>>>(this.ethernet)
+		this.service = new NetworkService<TestFrameReceiver<128>>(this.receiver, this.ethernet, this.ipv4, mac, ip)
 		this.transmitter = new TestFrameTransmitter<NetworkService<TestFrameReceiver<128>>>(this.service)
 		this.endpoint = new FrameService<TestFrameReceiver<128>, NetworkService<TestFrameReceiver<128>>, TestFrameTransmitter<NetworkService<TestFrameReceiver<128>>>>(this.receiver, this.service, this.transmitter)
 	}

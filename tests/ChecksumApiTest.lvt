@@ -18,6 +18,22 @@ component ChecksumApiTest
 		stream = new InternetChecksum()
 	}
 
+	/** Checks the full documented non-negative sum range through a scheduled argument. */
+	@Test
+	fn FoldsNonNegativeIntBoundaries()
+	{
+		this.CheckFold(0, 0, 65535)
+		this.CheckFold(65535, 65535, 0)
+		this.CheckFold(65536, 1, 65534)
+		this.CheckFold(2147483647, 98302, 32768)
+	}
+
+	fn CheckFold(value: int, expectedFold: int, expectedChecksum: int)
+	{
+		assert ChecksumArithmetic.Fold(value) == expectedFold
+		assert ChecksumArithmetic.Finish(value) == expectedChecksum
+	}
+
 	/**
 	 * Compares the supplied network-order inputs with an independent expected checksum or sum.
 	 */

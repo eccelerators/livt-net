@@ -96,10 +96,21 @@ Header caching avoids repeated provider reads; it does not promise equal latency
 to direct array indexing. RAM latency is supplied by the provider. No synthesis,
 area, timing or throughput claim is made.
 
-`ArpResponder<S>` and `IcmpEchoResponder<S, CAPACITY>` bind an Ethernet-frame
-provider and offer `TryPrepare(localMac, localIp)`. They snapshot the necessary
+`ArpResponder<S>(ethernet)` and `IcmpEchoResponder<S, CAPACITY>(ethernet, ipv4)`
+borrow shared parsers over an Ethernet-frame provider and offer `TryPrepare(localMac, localIp)`. They snapshot the necessary
 request data into their reply graph. After any preparation attempt, call
 Invalidate before releasing their input if the attempt failed; on success their
 input views are already closed. Keep a successful reply stable until emission
 finishes. Old array-based parser/responder overloads and ShouldRespond were
 removed; recognition-only callers use the parsers and endpoint policy explicitly.
+
+`TcpConnectionRecognizer<S>(ethernet, ipv4)` likewise borrows the shared pair
+and owns only its TCP parser. Finish payload reads and invalidate TCP before
+another consumer reparses Ethernet/IPv4. `FrameClassification<S>(ethernet, ipv4)`
+uses the same pair for diagnostics under this serialized ownership contract.
+
+Services may call `TryPrepareParsed(mac, ip)` on ARP/ICMP responders after admission
+has validated the shared views. This skips rereading the enclosing headers but
+still validates the protocol request and snapshots response data. `TryPrepare`
+remains the entry point when parsing has not been performed. An unsuccessful
+preparation must be invalidated before releasing its request source.

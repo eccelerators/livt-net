@@ -1,0 +1,56 @@
+namespace Livt.Net.Tests
+using Livt.Net
+
+/** Counts scheduled source reads and injects failures without changing publication. */
+component CountedCapture<S: IPacketData> : IPacketData
+{
+	// Borrowed capture; counters belong to this fixture.
+	source: S
+	reads: int
+	failureIndex: int
+
+	/** Binds stable test storage. */
+	new(source: S)
+	{
+		this.source = source
+		this.failureIndex = -1
+	}
+
+	/** Starts read counting and optionally fails one byte index. */
+	public fn Reset(failureIndex: int)
+	{
+		this.reads = 0
+		this.failureIndex = failureIndex
+	}
+
+	/** Returns attempted reads, including a failing read. */
+	public fn GetReadCount() int
+	{
+		return this.reads
+	}
+
+	/** Forwards publication without owning it. */
+	override fn IsReady() bool
+	{
+		return this.source.IsReady()
+	}
+
+	/** Forwards the current capture bound. */
+	override fn GetAvailableLength() int
+	{
+		return this.source.GetAvailableLength()
+	}
+
+	/** Counts one access and either forwards it or injects NotReady. */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		this.reads = this.reads + 1
+		value = 0x00
+
+		if (index == this.failureIndex) {
+			return PacketDataResult.NotReady
+		}
+
+		return this.source.TryRead(index, value)
+	}
+}

@@ -1,0 +1,22 @@
+[project]
+name = "PacketStorageProbe"
+version = "0.1.0"
+path = "src"
+outdir = "out"
+[dependencies]
+"Livt.IO" = "1.2.0-dev"
+[vendor.vivado]
+part = "xc7a100tcsg324-1"
+[vendor.vivado.ip]
+component = "PacketStorageProbe"
+vendor = "eccelerators.com"
+library = "measurement"
+name = "packetstorageprobe"
+version = "1.0"
+include_tests = false
+
+wrapper = "auto"
+top = "packetstorageprobe_wrapper"
+display_name = "PacketStorageProbe"
+description = "Vivado IP generated from a Livt project"
+taxonomy = "/UserIP"

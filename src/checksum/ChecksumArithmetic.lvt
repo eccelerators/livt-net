@@ -10,7 +10,10 @@ class ChecksumArithmetic
 	 */
 	public static inline fn Fold[](value: int) int
 	{
-		return (value % 65536) + (value / 65536)
+		// The input contract excludes negatives; unsigned power-of-two operations
+		// avoid signed quotient/remainder correction hardware.
+		var unsignedValue = value as uint
+		return ((unsignedValue % 65536) + (unsignedValue / 65536)) as int
 	}
 
 	/**

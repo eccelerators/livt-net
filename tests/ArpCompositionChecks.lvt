@@ -8,6 +8,9 @@ using Livt.Net
 @Test
 component ArpCompositionChecks<CAPACITY: int>
 {
+	// Shared request parsers; source remains owned by this fixture.
+	ethernet: EthernetFrameParser<ArrayPacketData<CAPACITY>>
+
 	data: ArrayPacketData<CAPACITY>
 	responder: ArpResponder<ArrayPacketData<CAPACITY>>
 
@@ -17,7 +20,8 @@ component ArpCompositionChecks<CAPACITY: int>
 	new()
 	{
 		data = new ArrayPacketData<CAPACITY>();
-		responder = new ArpResponder<ArrayPacketData<CAPACITY>>(data)
+		this.ethernet = new EthernetFrameParser<ArrayPacketData<CAPACITY>>(data)
+		responder = new ArpResponder<ArrayPacketData<CAPACITY>>(this.ethernet)
 	}
 
 	/**

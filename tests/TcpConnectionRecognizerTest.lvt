@@ -8,6 +8,10 @@ using Livt.Net
 @Test
 component TcpConnectionRecognizerTest
 {
+	// Shared request parsers; source remains owned by this fixture.
+	ethernet: EthernetFrameParser<PacketRegion<ArrayPacketData<128>>>
+	ipv4: Ipv4PacketParser<EthernetFrameParser<PacketRegion<ArrayPacketData<128>>>>
+
 	data: ArrayPacketData<128>
 	region: PacketRegion<ArrayPacketData<128>>
 	parser: TcpConnectionRecognizer<PacketRegion<ArrayPacketData<128>>>
@@ -19,7 +23,9 @@ component TcpConnectionRecognizerTest
 	{
 		data = new ArrayPacketData<128>()
 		region = new PacketRegion<ArrayPacketData<128>>(data)
-		parser = new TcpConnectionRecognizer<PacketRegion<ArrayPacketData<128>>>(region)
+		this.ethernet = new EthernetFrameParser<PacketRegion<ArrayPacketData<128>>>(region)
+		this.ipv4 = new Ipv4PacketParser<EthernetFrameParser<PacketRegion<ArrayPacketData<128>>>>(this.ethernet)
+		parser = new TcpConnectionRecognizer<PacketRegion<ArrayPacketData<128>>>(this.ethernet, this.ipv4)
 	}
 
 	/**

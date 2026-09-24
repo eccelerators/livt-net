@@ -18,16 +18,18 @@ component NetworkService<S: IPacketData, CAPACITY: int = 128> : IResponseService
 	localIp: byte[4]
 
 	/**
-	 * Creates the common local endpoint; no request reads occur at construction.
+	 * Borrows the source and its Ethernet/IPv4 parser pair; owns service responses.
+	 * The parsers must bind the same source and clock/reset domain. Serialize
+	 * all users and invalidate external descendants before TryHandle/ClearDiagnostics.
 	 */
-	new(source: S, localMac: byte[6], localIp: byte[4])
+	new(source: S, ethernet: EthernetFrameParser<S>, ipv4: Ipv4PacketParser<EthernetFrameParser<S>>, localMac: byte[6], localIp: byte[4])
 	{
 		this.localIp = localIp
 		this.acceptance = new AcceptAllFrames()
-		this.arp = new ArpService<S, AcceptAllFrames>(source, this.acceptance, localMac, localIp)
-		this.icmp = new IcmpEchoService<S, AcceptAllFrames, CAPACITY>(source, this.acceptance, localMac, localIp)
+		this.arp = new ArpService<S, AcceptAllFrames>(source, ethernet, this.acceptance, localMac, localIp)
+		this.icmp = new IcmpEchoService<S, AcceptAllFrames, CAPACITY>(source, ethernet, ipv4, this.acceptance, localMac, localIp)
 		this.services = new ServiceChain<ArpService<S, AcceptAllFrames>, IcmpEchoService<S, AcceptAllFrames, CAPACITY>>(this.arp, this.icmp)
-		this.classification = new FrameClassification<S>(source)
+		this.classification = new FrameClassification<S>(ethernet, ipv4)
 	}
 
 	/**

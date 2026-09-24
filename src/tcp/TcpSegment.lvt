@@ -52,6 +52,29 @@ component TcpSegment<P: IPacketData> : IPacketData, IIpv4Payload
 
 		this.calculator.Reset()
 
+		// Accumulate the pseudo-header and zero-checksum TCP header across
+		// scheduled calls instead of one long combinational checksum expression.
+		for (var i = 0; i < 4; i++) {
+			this.calculator.AddByte(sourceIp[i])
+		}
+
+		for (var i = 0; i < 4; i++) {
+			this.calculator.AddByte(destinationIp[i])
+		}
+
+		this.calculator.AddByte(0x00)
+		this.calculator.AddByte(IIpv4Payload.PROTOCOL_TCP)
+		this.calculator.AddByte(NetworkOrder.HighByte(20 + size))
+		this.calculator.AddByte(NetworkOrder.LowByte(20 + size))
+		var checksumBytes: byte[2] = [0x00, 0x00]
+
+		for (var i = 0; i < 20; i++) {
+			var octet = TcpSegmentBuilder.GetByte(i, sourcePort, destinationPort,
+				sequence, acknowledgment, flags, window, checksumBytes)
+			this.header[i] = octet
+			this.calculator.AddByte(octet)
+		}
+
 		for (var i = 0; i < size; i++) {
 			var value: byte = 0x00
 			var result = this.payload.TryRead(i, value)
@@ -63,17 +86,11 @@ component TcpSegment<P: IPacketData> : IPacketData, IIpv4Payload
 			this.calculator.AddByte(value)
 		}
 
-		var payloadSum = this.calculator.GetWordSum()
-		var checksum = TcpChecksum.CalculatePayloadChecksum(sourceIp, destinationIp,
-			sourcePort, destinationPort, sequence, acknowledgment, flags, window,
-			20 + size, payloadSum)
-		var checksumBytes: byte[2] = [NetworkOrder.HighByte(checksum), NetworkOrder.LowByte(checksum)]
-
-		for (var i = 0; i < 20; i++) {
-			var octet = TcpSegmentBuilder.GetByte(i, sourcePort, destinationPort,
-				sequence, acknowledgment, flags, window, checksumBytes)
-			this.header[i] = octet
-		}
+		var checksum = this.calculator.GetChecksum()
+		var checksumHigh = NetworkOrder.HighByte(checksum)
+		var checksumLow = NetworkOrder.LowByte(checksum)
+		this.header[16] = checksumHigh
+		this.header[17] = checksumLow
 
 		this.length = 20 + size
 		this.ready = true

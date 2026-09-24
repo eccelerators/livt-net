@@ -5,7 +5,7 @@ namespace Livt.Net
  */
 component ArpResponder<S: IPacketData> : IPacketData
 {
-	// Owned parsers borrowing the request source in protocol order.
+	// Borrowed shared parsers; consumers must serialize their use.
 	ethernet: EthernetFrameParser<S>
 	parser: ArpPacketParser<EthernetFrameParser<S>>
 
@@ -14,11 +14,12 @@ component ArpResponder<S: IPacketData> : IPacketData
 	frame: ArpReplyFrame
 
 	/**
-	 * Wires recognition and reply composition without reading the source.
+	 * Borrows the shared Ethernet parser and owns ARP parsing and reply composition.
+	 * The supplied parser must use the same source and clock/reset domain as its owner.
 	 */
-	new(source: S)
+	new(ethernet: EthernetFrameParser<S>)
 	{
-		ethernet = new EthernetFrameParser<S>(source)
+		this.ethernet = ethernet
 		parser = new ArpPacketParser<EthernetFrameParser<S>>(ethernet)
 		reply = new ArpReply()
 		frame = new ArpReplyFrame(reply)
@@ -42,6 +43,18 @@ component ArpResponder<S: IPacketData> : IPacketData
 	{
 		this.Invalidate()
 		ethernet.TryParse()
+		return this.TryPrepareParsed(localMac, localIp)
+	}
+
+	/**
+	 * Consumes the shared validated Ethernet view without rereading its header.
+	 * Requires exclusive use of the parser; closes request views on completion.
+	 */
+	public fn TryPrepareParsed(localMac: byte[6], localIp: byte[4]) PacketDataResult
+	{
+		frame.Invalidate()
+		reply.Invalidate()
+		parser.Invalidate()
 
 		if (!ethernet.IsReady() || ethernet.GetEtherType() != IEthernetPayload.ETHER_TYPE_ARP) {
 			return PacketDataResult.Invalid

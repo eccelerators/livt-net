@@ -19,7 +19,7 @@ enum NetworkProtocol
  */
 component FrameClassification<S: IPacketData>
 {
-	// Owned parsers borrowing the same request source.
+	// Borrowed parser pair shared with serialized protocol services.
 	ethernet: EthernetFrameParser<S>
 	ipv4: Ipv4PacketParser<EthernetFrameParser<S>>
 
@@ -28,12 +28,13 @@ component FrameClassification<S: IPacketData>
 	local: bool
 
 	/**
-	 * Creates parsers without reading the fixed request source.
+	 * Borrows a shared Ethernet/IPv4 pair without reading the fixed request source.
+	 * Inspect requires exclusive use; close other descendants before calling it.
 	 */
-	new(source: S)
+	new(ethernet: EthernetFrameParser<S>, ipv4: Ipv4PacketParser<EthernetFrameParser<S>>)
 	{
-		this.ethernet = new EthernetFrameParser<S>(source)
-		this.ipv4 = new Ipv4PacketParser<EthernetFrameParser<S>>(this.ethernet)
+		this.ethernet = ethernet
+		this.ipv4 = ipv4
 	}
 
 	/**

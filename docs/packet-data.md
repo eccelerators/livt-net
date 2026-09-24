@@ -86,3 +86,18 @@ sums can be combined.
 
 Prepared Ethernet, IPv4, ICMP and ARP components also implement `IPacketData`.
 See [packet composition](packet-composition.md) for construction and preparation.
+
+## Choosing physical storage
+
+`ArrayPacketData` keeps the simple array-backed implementation; it does not imply
+RAM inference. Scheduled indexed array writes can require whole-array staging
+registers. Prefer `RamPacketData` for larger retained packet captures/snapshots
+when hardware measurements justify it. Its checked publication API is the same,
+but reads/writes are scheduled RAM transactions, not combinational array access.
+
+The Web endpoint shares one receive RAM between protocol consumers; ICMP keeps a
+separate RAM snapshot to permit early RX release. Small protocol header caches
+remain register arrays: a measured 20-byte RAM-cache alternative used more total
+LUTs. See the [reproducible storage probes](../verification/storage-probes/README.md)
+for the workload, results and their limits. Sharing a physical source still requires
+one serialized lifecycle owner; publication does not count outstanding borrows.

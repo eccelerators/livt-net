@@ -7,7 +7,7 @@ namespace Livt.Net
  */
 component IcmpEchoService<S: IPacketData, A: IFrameAcceptance, CAPACITY: int = 128> : IResponseService
 {
-	// Borrowed request/policy; owned recognition and response components.
+	// Borrowed source, policy and shared parsers; the response graph is owned.
 	source: S
 	acceptance: A
 	ethernet: EthernetFrameParser<S>
@@ -20,17 +20,19 @@ component IcmpEchoService<S: IPacketData, A: IFrameAcceptance, CAPACITY: int = 1
 	ready: bool
 
 	/**
-	 * Binds the fixed request and policy, and creates an initially unpublished graph.
+	 * Borrows source, policy and shared parsers; creates an unpublished response.
+	 * Parsers must bind this source in the same clock/reset domain. Serialize
+	 * all parser users and close their descendants before handling a request.
 	 */
-	new(source: S, acceptance: A, localMac: byte[6], localIp: byte[4])
+	new(source: S, ethernet: EthernetFrameParser<S>, ipv4: Ipv4PacketParser<EthernetFrameParser<S>>, acceptance: A, localMac: byte[6], localIp: byte[4])
 	{
 		this.source = source
 		this.acceptance = acceptance
 		this.localMac = localMac
 		this.localIp = localIp
-		this.ethernet = new EthernetFrameParser<S>(source)
-		this.ipv4 = new Ipv4PacketParser<EthernetFrameParser<S>>(this.ethernet)
-		this.response = new IcmpEchoResponder<S, CAPACITY>(source)
+		this.ethernet = ethernet
+		this.ipv4 = ipv4
+		this.response = new IcmpEchoResponder<S, CAPACITY>(ethernet, ipv4)
 	}
 
 	/**
@@ -62,21 +64,22 @@ component IcmpEchoService<S: IPacketData, A: IFrameAcceptance, CAPACITY: int = 1
 		this.ipv4.TryParse()
 		var protocol = this.ipv4.GetProtocol()
 		var supported = this.ipv4.IsReady()
-		this.ipv4.Invalidate()
 
 		if (!supported || protocol != IIpv4Payload.PROTOCOL_ICMP) {
+			this.ipv4.Invalidate()
 			this.ethernet.Invalidate()
 			return ServiceResult.Ignored
 		}
 
 		var peer = this.ethernet.GetSourceMac()
-		this.ethernet.Invalidate()
 
 		if (!this.acceptance.Accept(peer, IEthernetPayload.ETHER_TYPE_IPV4)) {
+			this.ipv4.Invalidate()
+			this.ethernet.Invalidate()
 			return ServiceResult.Ignored
 		}
 
-		var result = this.response.TryPrepare(this.localMac, this.localIp)
+		var result = this.response.TryPrepareParsed(this.localMac, this.localIp)
 
 		if (result != PacketDataResult.Success) {
 			this.response.Invalidate()

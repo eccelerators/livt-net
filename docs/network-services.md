@@ -13,6 +13,8 @@ This construction is also exercised by `NetworkServiceTest`:
 
 ```livt
 receiver: TestFrameReceiver<128>
+ethernet: EthernetFrameParser<TestFrameReceiver<128>>
+ipv4: Ipv4PacketParser<EthernetFrameParser<TestFrameReceiver<128>>>
 service: NetworkService<TestFrameReceiver<128>>
 transmitter: TestFrameTransmitter<NetworkService<TestFrameReceiver<128>>>
 endpoint: FrameService<TestFrameReceiver<128>, NetworkService<TestFrameReceiver<128>>,
@@ -23,7 +25,10 @@ new()
     this.receiver = new TestFrameReceiver<128>()
     var mac: byte[6] = [0x00, 0x00, 0x5E, 0x00, 0xFA, 0xCE]
     var ip: byte[4] = [10, 0, 0, 1]
-    this.service = new NetworkService<TestFrameReceiver<128>>(this.receiver, mac, ip)
+    this.ethernet = new EthernetFrameParser<TestFrameReceiver<128>>(this.receiver)
+    this.ipv4 = new Ipv4PacketParser<EthernetFrameParser<TestFrameReceiver<128>>>(this.ethernet)
+    this.service = new NetworkService<TestFrameReceiver<128>>(
+        this.receiver, this.ethernet, this.ipv4, mac, ip)
     this.transmitter = new TestFrameTransmitter<NetworkService<TestFrameReceiver<128>>>(this.service)
     this.endpoint = new FrameService<TestFrameReceiver<128>, NetworkService<TestFrameReceiver<128>>,
         TestFrameTransmitter<NetworkService<TestFrameReceiver<128>>>>(
@@ -90,6 +95,22 @@ that own a response buffer or a different protocol application. Publish the
 bound source, call `TryBegin()`, keep it unchanged while polling, and release it
 only after `Completed`. Then acknowledge the retained completion. This is how
 the Web application retains its HTTP response RAM. It has no background process.
+
+## Shared request parsing
+
+The composition root owns one Ethernet/IPv4 parser pair over the request provider.
+`NetworkService` borrows that pair for classification and protocol services.
+`ArpService(source, ethernet, policy, mac, ip)` and
+`IcmpEchoService(source, ethernet, ipv4, policy, mac, ip)` lend their validated
+views to response preparation, avoiding another header read or parser instance.
+All supplied parsers must bind the same capture and share a clock/reset domain.
+Serialize their use; invalidate external descendants (such as TCP parsing) before
+handling another request or clearing diagnostics. These are fixed hardware
+bindings, not dynamically selected parser objects.
+
+`IcmpEchoResponder` retains echo bytes in `RamPacketData<CAPACITY>` so successful
+responses remain independent of RX. The common Web endpoint uses one receive RAM
+for HTTP and these services; it no longer duplicates every frame into two arrays.
 
 ## Custom policies and handlers
 
