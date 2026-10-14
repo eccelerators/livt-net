@@ -3,16 +3,22 @@ namespace Livt.Net
 /**
  * Fixed 20-byte IPv4 header, DF, TTL=64, with a typed protocol payload.
  * Prepare the child first and keep it unchanged until emission finishes.
- * Only the header is stored here; payload bytes are delegated to the child.
+ * Only variable header fields are stored; payload reads delegate to the child.
  */
 component Ipv4Packet<P: IPacketData & IIpv4Payload> : IPacketData, IEthernetPayload
 {
 	// Borrowed prepared payload; must remain stable until emission finishes.
 	payload: P
 
-	// Owned IPv4 header and prepared total length.
-	header: byte[20]
-	length: int
+	// Owned network-order words; constants are selected during emission.
+	length: logic[16]
+	identificationWord: logic[16]
+	protocolByte: byte
+	checksumWord: logic[16]
+	sourceHigh: logic[16]
+	sourceLow: logic[16]
+	destinationHigh: logic[16]
+	destinationLow: logic[16]
 	ready: bool
 
 	/**
@@ -52,34 +58,18 @@ component Ipv4Packet<P: IPacketData & IIpv4Payload> : IPacketData, IEthernetPayl
 		}
 
 		var totalLength = size + 20
-		header[0] = 0x45
-		header[1] = 0x00
-		header[2] = (totalLength / 256) as byte
-		header[3] = (totalLength % 256) as byte
-		header[4] = identification[0]
-		header[5] = identification[1]
-		header[6] = 0x40
-		header[7] = 0x00
-		header[8] = 0x40
-		header[9] = protocol as byte
-		header[10] = 0x00
-		header[11] = 0x00
+		// Validate in the public integer domain before narrowing stored fields.
+		length = totalLength as logic[16]
+		identificationWord = NetworkOrder.Word(identification[0], identification[1]) as logic[16]
+		protocolByte = protocol as byte
+		sourceHigh = NetworkOrder.Word(sourceIp[0], sourceIp[1]) as logic[16]
+		sourceLow = NetworkOrder.Word(sourceIp[2], sourceIp[3]) as logic[16]
+		destinationHigh = NetworkOrder.Word(destinationIp[0], destinationIp[1]) as logic[16]
+		destinationLow = NetworkOrder.Word(destinationIp[2], destinationIp[3]) as logic[16]
 
-		for (var i = 0; i < 4; i++) {
-			header[12 + i] = sourceIp[i]
-			header[16 + i] = destinationIp[i]
-		}
-
-		var sum = 0
-
-		for (var i = 0; i < 10; i++) {
-			sum = sum + NetworkOrder.Word(header[i * 2], header[i * 2 + 1])
-		}
-
-		var checksum = ChecksumArithmetic.Finish(sum)
-		header[10] = (checksum / 256) as byte
-		header[11] = (checksum % 256) as byte
-		length = totalLength
+		// Sum the fixed header words directly, without constructing/rereading bytes.
+		checksumWord = Ipv4HeaderChecksum.Calculate(totalLength, identification,
+			sourceIp, destinationIp, protocol as byte) as logic[16]
 		ready = true
 		return PacketDataResult.Success
 	}
@@ -109,7 +99,7 @@ component Ipv4Packet<P: IPacketData & IIpv4Payload> : IPacketData, IEthernetPayl
 			return 0
 		}
 
-		return length
+		return (length as uint) as int
 	}
 
 	/**
@@ -126,15 +116,38 @@ component Ipv4Packet<P: IPacketData & IIpv4Payload> : IPacketData, IEthernetPayl
 			return PacketDataResult.NotReady
 		}
 
-		if (index < 0 || index >= length) {
+		if (index < 0 || index >= ((length as uint) as int)) {
 			return PacketDataResult.Invalid
 		}
 
 		if (index < 20) {
-			value = header[index];
+			value = this.Ipv4HeaderByte(index, length, identificationWord, protocolByte, checksumWord, sourceHigh, sourceLow, destinationHigh, destinationLow)
 			return PacketDataResult.Success
 		}
 
 		return payload.TryRead(index - 20, value)
+	}
+
+	/** Pure selector over the prepared snapshot. */
+	inline fn Ipv4HeaderByte[](index: int, snapshotlength: logic[16], snapshotidentificationWord: logic[16], snapshotprotocolByte: byte, snapshotchecksumWord: logic[16], snapshotsourceHigh: logic[16], snapshotsourceLow: logic[16], snapshotdestinationHigh: logic[16], snapshotdestinationLow: logic[16]) byte
+	{
+		if (index == 0) { return 0x45 }
+		elif (index == 2) { return (snapshotlength >> 8) as byte }
+		elif (index == 3) { return snapshotlength as byte }
+		elif (index == 4) { return (snapshotidentificationWord >> 8) as byte }
+		elif (index == 5) { return snapshotidentificationWord as byte }
+		elif (index == 6 || index == 8) { return 0x40 }
+		elif (index == 9) { return snapshotprotocolByte }
+		elif (index == 10) { return (snapshotchecksumWord >> 8) as byte }
+		elif (index == 11) { return snapshotchecksumWord as byte }
+		elif (index == 12) { return (snapshotsourceHigh >> 8) as byte }
+		elif (index == 13) { return snapshotsourceHigh as byte }
+		elif (index == 14) { return (snapshotsourceLow >> 8) as byte }
+		elif (index == 15) { return snapshotsourceLow as byte }
+		elif (index == 16) { return (snapshotdestinationHigh >> 8) as byte }
+		elif (index == 17) { return snapshotdestinationHigh as byte }
+		elif (index == 18) { return (snapshotdestinationLow >> 8) as byte }
+		elif (index == 19) { return snapshotdestinationLow as byte }
+		return 0x00
 	}
 }

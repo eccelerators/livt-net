@@ -1,0 +1,111 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+using Livt.IO
+
+/** Controllable complete-frame IO capability, independent of the Net adapter. */
+component EthernetIoReceiveFixture : IEthernetReceiver
+{
+	failRead: bool
+	readError: bool
+	storage: TestFrameReceiver<128>
+
+	new()
+	{
+		this.storage = new TestFrameReceiver<128>()
+	}
+
+	public fn Inject(frame: byte[60])
+	{
+		for (var i = 0; i < 60; i++) {
+			assert storage.InjectByte(i, frame[i]) == FrameLinkResult.Success
+		}
+
+		assert storage.Publish(true, 60) == FrameLinkResult.Success
+	}
+
+	public fn SetReadFailure(value: bool)
+	{
+		failRead = value
+	}
+
+	public fn Fail()
+	{
+		storage.FailReceive()
+	}
+
+	override fn GetReceiveCapacity() int
+	{
+		return 128
+	}
+
+	override fn HasReceiveFrame() bool
+	{
+		return storage.HasReceiveFrame()
+	}
+
+	override fn TryAcquire() EthernetResult
+	{
+		var r = storage.TryAcquire()
+
+		if (r == FrameLinkResult.Success) { return EthernetResult.Success }
+
+		if (r == FrameLinkResult.Busy) { return EthernetResult.Busy }
+
+		if (r == FrameLinkResult.DeviceFailure) { return EthernetResult.DeviceFailure }
+
+		return EthernetResult.NotReady
+	}
+
+	override fn GetReceiveLength() int
+	{
+		return storage.GetAvailableLength()
+	}
+
+	override fn TryRead(index: int, value: out byte) EthernetResult
+	{
+		value = 0
+
+		if (failRead) {
+			readError = true;
+			return EthernetResult.DeviceFailure
+		}
+
+		var r = storage.TryRead(index, value)
+
+		if (r == PacketDataResult.Success) { return EthernetResult.Success }
+
+		if (r == PacketDataResult.Invalid) { return EthernetResult.Invalid }
+
+		return EthernetResult.NotReady
+	}
+
+	override fn TryRelease() EthernetResult
+	{
+		if (storage.TryRelease() == FrameLinkResult.Success) { return EthernetResult.Success }
+
+		return EthernetResult.Invalid
+	}
+
+	override fn HasReceiveError() bool
+	{
+		return readError || storage.HasReceiveError()
+	}
+
+	override fn TryAcknowledgeReceiveError() EthernetResult
+	{
+		if (readError) {
+			readError = false;
+			return EthernetResult.Success
+		}
+
+		if (storage.TryAcknowledgeReceiveError() == FrameLinkResult.Success) { return EthernetResult.Success }
+
+		return EthernetResult.NotReady
+	}
+
+	override fn GetDiscardCount(reason: EthernetReceiveDiscard) uint
+	{
+		return 0
+	}
+}

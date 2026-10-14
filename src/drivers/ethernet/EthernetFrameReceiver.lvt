@@ -1,0 +1,111 @@
+namespace Livt.Net.Drivers.Ethernet
+
+using Livt.Net
+using Livt.IO
+
+/**
+ * Borrows one IO MAC receive capability; no second frame copy is needed.
+ * All dependent views must finish before release. Reset the entire graph together.
+ */
+component EthernetFrameReceiver : IFrameReceiver
+{
+	device: IEthernetReceiver
+	acquired: bool
+	length: int
+
+	new(device: IEthernetReceiver)
+	{
+		this.device = device
+	}
+
+	override fn GetReceiveCapacity() int
+	{
+		return device.GetReceiveCapacity()
+	}
+
+	override fn HasReceiveFrame() bool
+	{
+		return device.HasReceiveFrame()
+	}
+
+	override fn IsReady() bool
+	{
+		return acquired
+	}
+
+	override fn GetAvailableLength() int
+	{
+		if (acquired) { return length }; return 0
+	}
+
+	override fn HasKnownWireLength() bool
+	{
+		return acquired
+	}
+
+	override fn GetWireLength() int
+	{
+		if (acquired) { return length }; return 0
+	}
+
+	override fn HasReceiveError() bool
+	{
+		return device.HasReceiveError()
+	}
+
+	override fn TryAcknowledgeReceiveError() FrameLinkResult
+	{
+		return EthernetLinkResults.Map(device.TryAcknowledgeReceiveError())
+	}
+
+	override fn TryAcquire() FrameLinkResult
+	{
+		if (acquired) { return FrameLinkResult.Busy }
+
+		var result = device.TryAcquire()
+
+		if (result == EthernetResult.Success) {
+			length = device.GetReceiveLength()
+			acquired = true
+		}
+
+		return EthernetLinkResults.Map(result)
+	}
+
+	override fn TryRelease() FrameLinkResult
+	{
+		if (!acquired) { return FrameLinkResult.Invalid }
+
+		var result = device.TryRelease()
+
+		if (result == EthernetResult.Success) {
+			acquired = false;
+			length = 0
+		}
+
+		return EthernetLinkResults.Map(result)
+	}
+
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0
+
+		if (!acquired) { return PacketDataResult.NotReady }
+
+		if (index < 0 || index >= length) { return PacketDataResult.Invalid }
+
+		var octet: byte = 0
+		var result = device.TryRead(index, octet)
+
+		if (result == EthernetResult.Success) {
+			value = octet;
+			return PacketDataResult.Success
+		}
+
+		if (result == EthernetResult.Busy) { return PacketDataResult.Busy }
+
+		if (result == EthernetResult.Invalid || result == EthernetResult.DeviceFailure) { return PacketDataResult.Invalid }
+
+		return PacketDataResult.NotReady
+	}
+}

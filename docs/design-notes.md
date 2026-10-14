@@ -18,7 +18,7 @@ Application packages should own:
 
 - application payload content and data stores
 - application protocol policy
-- board-specific wiring
+- platform-specific wiring
 - LEDs, buttons, and showcase behavior
 - deployment-specific MAC, IP, and port choices
 
@@ -50,9 +50,8 @@ This shape keeps responsibilities small and makes byte offsets visible.
 Frame payload values use `byte` where possible. Hardware buses and AXI signals
 use `logic` or `logic[N]`. Boolean classifiers return `bool`.
 
-Some public byte-returning APIs still use `logic[8]` where they feed directly
-into existing hardware-oriented paths. Treat those as part of the current
-published surface until a planned API cleanup can safely change call sites.
+Hardware-facing byte APIs may use `logic[8]` when they connect directly to logic
+vectors. Packet and protocol APIs use `byte`; convert explicitly at the boundary.
 
 ## Current Limits
 
@@ -62,17 +61,11 @@ The default package configuration uses:
 - 128-byte endpoint/request frames
 - 20-byte IPv4 headers
 - 20-byte TCP headers
-
-
-
-Future releases may introduce domain folders, clearer app-package separation,
-UDP, and streaming response adapters.
-
 ## Compile-time specialization
 
 Frame consumers use defaulted integer value parameters; child parsers and
 builders receive the same capacity. Static assertions enforce the minimum required
-header capacity (verified with compiler #492). Classifier length defaults use the
+header capacity. Classifier length defaults use the
 receiver's `FRAME_CAPACITY`; explicit lengths retain their bounds checks.
 Network payload types remain `byte`;
 only hardware boundaries use logic vectors. No runtime size selection is added.
@@ -80,8 +73,9 @@ only hardware boundaries use logic vectors. No runtime size selection is added.
 Frame I/O owns concrete Auto-style `Ram<byte, RX_STORAGE_CAPACITY>` and
 `Ram<byte, TX_STORAGE_CAPACITY>` instances. Scheduled memory
 access remains the application contract. Configuration does not imply one-cycle
-methods, physical RAM mapping, or measured FPGA timing. Backend injection and
-streaming are separate extensions, subject to measured need.
+methods, physical RAM mapping, or portable timing. ICMP snapshot storage is a
+constructible generic with a RAM default; streaming remains a separate API shape
+for consumers that require sustained throughput.
 
 Use a single application process that serializes frame lifecycle calls. Checked TX methods
 accept contiguous writes and overwrites within the initialized prefix; they

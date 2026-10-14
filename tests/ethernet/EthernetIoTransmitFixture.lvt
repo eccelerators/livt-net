@@ -1,0 +1,125 @@
+namespace Livt.Net.Tests
+
+using Livt.IO
+
+/** Independent IO slot; explicit completion holds the real adapter's borrow. */
+component EthernetIoTransmitFixture : IEthernetTransmitter
+{
+	bytes: byte[128]
+	count: int
+	length: int
+	phase: int
+	ready: bool
+	failAppend: bool
+	failCommit: bool
+	terminal: EthernetTransmitOutcome
+
+	new()
+	{
+		ready = true
+	}
+
+	public fn SetReady(value: bool)
+	{
+		ready = value
+	}
+
+	public fn SetFailures(append: bool, commit: bool)
+	{
+		failAppend = append;
+		failCommit = commit
+	}
+
+	public fn IsCommitted() bool
+	{
+		return phase == 2
+	}
+
+	public fn IsFree() bool
+	{
+		return phase == 0
+	}
+
+	public fn GetCount() int
+	{
+		return count
+	}
+
+	public fn Read(index: int) byte
+	{
+		return bytes[index]
+	}
+
+	public fn Complete(value: EthernetTransmitOutcome)
+	{
+		assert phase == 2;
+		terminal = value;
+		phase = 3
+	}
+
+	override fn GetTransmitCapacity() int
+	{
+		return 128
+	}
+
+	override fn TryBegin(size: int) EthernetResult
+	{
+		if (phase != 0) { return EthernetResult.Busy }
+
+		if (!ready) { return EthernetResult.NotReady }
+
+		if (size < 14 || size > 128) { return EthernetResult.Invalid }
+
+		length = size;
+		count = 0;
+		phase = 1;
+		return EthernetResult.Success
+	}
+
+	override fn TryAppend(value: byte) EthernetResult
+	{
+		if (failAppend) { return EthernetResult.DeviceFailure }
+
+		if (phase != 1 || count >= length) { return EthernetResult.Invalid }
+
+		bytes[count] = value;
+		count++;
+		return EthernetResult.Success
+	}
+
+	override fn TryCommit() EthernetResult
+	{
+		if (failCommit) { return EthernetResult.NotReady }
+
+		if (phase != 1 || count != length) { return EthernetResult.Invalid }
+
+		phase = 2;
+		return EthernetResult.Accepted
+	}
+
+	override fn TryDiscard() EthernetResult
+	{
+		if (phase != 1) { return EthernetResult.Invalid }
+
+		phase = 0;
+		return EthernetResult.Success
+	}
+
+	override fn TryGetCompletion(outcome: out EthernetTransmitOutcome) EthernetResult
+	{
+		outcome = EthernetTransmitOutcome.None
+
+		if (phase != 3) { return EthernetResult.NotReady }
+
+		outcome = terminal;
+		return EthernetResult.Success
+	}
+
+	override fn TryAcknowledgeCompletion() EthernetResult
+	{
+		if (phase != 3) { return EthernetResult.NotReady }
+
+		phase = 0;
+		return EthernetResult.Success
+	}
+}

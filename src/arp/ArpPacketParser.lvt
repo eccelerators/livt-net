@@ -120,17 +120,11 @@ component ArpPacketParser<S: IPacketData> : IPacketData
 	 */
 	public fn GetSenderMac() byte[6]
 	{
-		var value: byte[6]
-
-		for (var i = 0; i < 6; i++) {
-			value[i] = 0x00
-
-			if (this.IsReady()) {
-				value[i] = header.GetByte(8 + i)
-			}
-		}
-
-		return value
+		if (!this.IsReady()) { return [0x00, 0x00, 0x00, 0x00, 0x00, 0x00] }
+		var word0 = header.GetWord(8)
+		var word1 = header.GetWord(10)
+		var word2 = header.GetWord(12)
+		return [NetworkOrder.HighByte(word0), NetworkOrder.LowByte(word0), NetworkOrder.HighByte(word1), NetworkOrder.LowByte(word1), NetworkOrder.HighByte(word2), NetworkOrder.LowByte(word2)]
 	}
 
 	/**
@@ -138,17 +132,10 @@ component ArpPacketParser<S: IPacketData> : IPacketData
 	 */
 	public fn GetSenderIpv4() byte[4]
 	{
-		var value: byte[4]
-
-		for (var i = 0; i < 4; i++) {
-			value[i] = 0x00
-
-			if (this.IsReady()) {
-				value[i] = header.GetByte(14 + i)
-			}
-		}
-
-		return value
+		if (!this.IsReady()) { return [0x00, 0x00, 0x00, 0x00] }
+		var word0 = header.GetWord(14)
+		var word1 = header.GetWord(16)
+		return [NetworkOrder.HighByte(word0), NetworkOrder.LowByte(word0), NetworkOrder.HighByte(word1), NetworkOrder.LowByte(word1)]
 	}
 
 	/**
@@ -156,17 +143,11 @@ component ArpPacketParser<S: IPacketData> : IPacketData
 	 */
 	public fn GetTargetMac() byte[6]
 	{
-		var value: byte[6]
-
-		for (var i = 0; i < 6; i++) {
-			value[i] = 0x00
-
-			if (this.IsReady()) {
-				value[i] = header.GetByte(18 + i)
-			}
-		}
-
-		return value
+		if (!this.IsReady()) { return [0x00, 0x00, 0x00, 0x00, 0x00, 0x00] }
+		var word0 = header.GetWord(18)
+		var word1 = header.GetWord(20)
+		var word2 = header.GetWord(22)
+		return [NetworkOrder.HighByte(word0), NetworkOrder.LowByte(word0), NetworkOrder.HighByte(word1), NetworkOrder.LowByte(word1), NetworkOrder.HighByte(word2), NetworkOrder.LowByte(word2)]
 	}
 
 	/**
@@ -174,16 +155,9 @@ component ArpPacketParser<S: IPacketData> : IPacketData
 	 */
 	public fn GetTargetIpv4() byte[4]
 	{
-		var value: byte[4]
-
-		for (var i = 0; i < 4; i++) {
-			value[i] = 0x00
-
-			if (this.IsReady()) {
-				value[i] = header.GetByte(24 + i)
-			}
-		}
-
-		return value
+		if (!this.IsReady()) { return [0x00, 0x00, 0x00, 0x00] }
+		var word0 = header.GetWord(24)
+		var word1 = header.GetWord(26)
+		return [NetworkOrder.HighByte(word0), NetworkOrder.LowByte(word0), NetworkOrder.HighByte(word1), NetworkOrder.LowByte(word1)]
 	}
 }

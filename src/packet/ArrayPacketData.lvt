@@ -6,7 +6,7 @@ namespace Livt.Net
  * Release only after all readers/regions have finished. Storage is not erased.
  * Scheduled calls have no fixed-cycle or combinational-access guarantee.
  */
-component ArrayPacketData<CAPACITY: int = 128> : IPacketData
+component ArrayPacketData<CAPACITY: int = 128> : IWritablePacketData<PacketDataGeometry<CAPACITY>>
 {
 	static assert CAPACITY > 0, "Packet capacity must be positive"
 
@@ -14,7 +14,8 @@ component ArrayPacketData<CAPACITY: int = 128> : IPacketData
 	data: byte[CAPACITY]
 
 	// Prefix length and publication state; releasing does not erase storage.
-	written: int
+	const LENGTH_BITS: int = Bits.RequiredFor(CAPACITY)
+	written: logic[LENGTH_BITS]
 	published: bool
 
 	/**
@@ -29,7 +30,7 @@ component ArrayPacketData<CAPACITY: int = 128> : IPacketData
 	/**
 	 * Returns the fixed storage capacity in bytes; this does not reserve space.
 	 */
-	public fn GetCapacity() int
+	override fn GetCapacity() int
 	{
 		return CAPACITY
 	}
@@ -37,9 +38,9 @@ component ArrayPacketData<CAPACITY: int = 128> : IPacketData
 	/**
 	 * Returns the contiguous initialized prefix length, including unpublished bytes.
 	 */
-	public fn GetWrittenLength() int
+	override fn GetWrittenLength() int
 	{
-		return written
+		return (written as uint) as int
 	}
 
 	/**
@@ -59,26 +60,26 @@ component ArrayPacketData<CAPACITY: int = 128> : IPacketData
 			return 0
 		}
 
-		return written
+		return (written as uint) as int
 	}
 
 	/**
 	 * Append the next byte or overwrite an initialized byte; holes are invalid.
 	 */
-	public fn TryWrite(index: int, value: byte) PacketDataResult
+	override fn TryWrite(index: int, value: byte) PacketDataResult
 	{
 		if (published) {
 			return PacketDataResult.Busy
 		}
 
-		if (index < 0 || index >= CAPACITY || index > written) {
+		if (index < 0 || index >= CAPACITY || index > ((written as uint) as int)) {
 			return PacketDataResult.Invalid
 		}
 
 		data[index] = value
 
-		if (index == written) {
-			written = written + 1
+		if (index == ((written as uint) as int)) {
+			written++
 		}
 
 		return PacketDataResult.Success
@@ -87,7 +88,7 @@ component ArrayPacketData<CAPACITY: int = 128> : IPacketData
 	/**
 	 * An empty prefix is valid packet data, though not a valid Ethernet TX.
 	 */
-	public fn TryPublish() PacketDataResult
+	override fn TryPublish() PacketDataResult
 	{
 		if (published) {
 			return PacketDataResult.Busy
@@ -110,7 +111,7 @@ component ArrayPacketData<CAPACITY: int = 128> : IPacketData
 			return PacketDataResult.NotReady
 		}
 
-		if (index < 0 || index >= written) {
+		if (index < 0 || index >= ((written as uint) as int)) {
 			return PacketDataResult.Invalid
 		}
 
@@ -122,7 +123,7 @@ component ArrayPacketData<CAPACITY: int = 128> : IPacketData
 	 * Releases a published prefix and resets its initialized length without erasing
 	 * storage. Returns Invalid if unpublished. Finish all dependent reads first.
 	 */
-	public fn TryRelease() PacketDataResult
+	override fn TryRelease() PacketDataResult
 	{
 		if (!published) {
 			return PacketDataResult.Invalid
@@ -136,7 +137,7 @@ component ArrayPacketData<CAPACITY: int = 128> : IPacketData
 	/**
 	 * Abandon unpublished preparation; cannot discard a published source.
 	 */
-	public fn TryClear() PacketDataResult
+	override fn TryClear() PacketDataResult
 	{
 		if (published) {
 			return PacketDataResult.Busy

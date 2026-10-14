@@ -1,0 +1,186 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+using Livt.IO
+using Livt.Net.Drivers.Ethernet
+
+@Test
+component EthernetFrameServiceTest
+{
+	input: EthernetIoReceiveFixture
+	output: EthernetIoTransmitFixture
+	receiver: EthernetFrameReceiver
+	ethernet: EthernetFrameParser<EthernetFrameReceiver>
+	ipv4: Ipv4PacketParser<EthernetFrameParser<EthernetFrameReceiver>>
+	service: NetworkService<EthernetFrameReceiver>
+	source: CountedCapture<NetworkService<EthernetFrameReceiver>>
+	transmitter: EthernetFrameTransmitter<CountedCapture<NetworkService<EthernetFrameReceiver>>>
+	endpoint: FrameService<EthernetFrameReceiver, NetworkService<EthernetFrameReceiver>, EthernetFrameTransmitter<CountedCapture<NetworkService<EthernetFrameReceiver>>>>
+
+	new()
+	{
+		input = new EthernetIoReceiveFixture()
+		output = new EthernetIoTransmitFixture()
+		receiver = new EthernetFrameReceiver(input)
+		ethernet = new EthernetFrameParser<EthernetFrameReceiver>(receiver)
+		ipv4 = new Ipv4PacketParser<EthernetFrameParser<EthernetFrameReceiver>>(ethernet)
+		service = new NetworkService<EthernetFrameReceiver>(receiver, ethernet, ipv4, [0, 0, 0x5E, 0, 0xFA, 0xCE], [10, 0, 0, 1])
+		source = new CountedCapture<NetworkService<EthernetFrameReceiver>>(service)
+		transmitter = new EthernetFrameTransmitter<CountedCapture<NetworkService<EthernetFrameReceiver>>>(output, source)
+		endpoint = new FrameService<EthernetFrameReceiver, NetworkService<EthernetFrameReceiver>, EthernetFrameTransmitter<CountedCapture<NetworkService<EthernetFrameReceiver>>>>(receiver, service, transmitter)
+	}
+
+	fn WaitCommitted()
+	{
+		var attempts = 0
+
+		while (!output.IsCommitted()) {
+			attempts++;
+			assert attempts < 2000
+		}
+	}
+
+	fn WaitCompleted(expected: FrameTransmitOutcome)
+	{
+		var attempts = 0
+
+		while (endpoint.Poll() != FrameServiceProgress.Completed) {
+			attempts++;
+			assert attempts < 2000
+		}
+
+		assert !transmitter.IsSourceBorrowed()
+		assert !service.IsReady()
+		var outcome = FrameTransmitOutcome.Cancelled
+		assert endpoint.TryGetCompletion(outcome) == FrameLinkResult.Success
+		assert outcome == expected
+		assert endpoint.TryGetCompletion(outcome) == FrameLinkResult.Success
+		assert outcome == expected
+		assert endpoint.TryAcknowledgeCompletion() == FrameLinkResult.Success
+		assert output.IsFree()
+	}
+
+	fn Prepare(frame: byte[60])
+	{
+		input.Inject(frame)
+		assert endpoint.Poll() == FrameServiceProgress.Pending
+		assert !receiver.IsReady()
+		assert !input.HasReceiveFrame()
+		assert service.IsReady()
+	}
+
+	fn CheckBytes(expected: byte[60])
+	{
+		assert output.GetCount() == 60
+
+		for (var i = 0; i < 60; i++) {
+			assert output.Read(i) == expected[i]
+		}
+	}
+
+	@Test fn ArpAndIcmpUseExistingServicesAndRetainBorrowUntilWireCompletion()
+	{
+		assert transmitter.GetMinimumFrameLength() == 60
+		assert transmitter.GetMaximumFrameLength() == 128
+		assert !transmitter.SupportsCancellation()
+		output.SetReady(false)
+		Prepare(ServicePackets.ARP)
+		assert endpoint.Poll() == FrameServiceProgress.Pending
+		assert !transmitter.IsSourceBorrowed()
+		assert service.IsReady()
+		output.SetReady(true)
+		assert endpoint.Poll() == FrameServiceProgress.Pending
+		WaitCommitted()
+		CheckBytes(ServicePackets.ARP_REPLY)
+		assert transmitter.IsSourceBorrowed()
+		assert transmitter.TrySubmit() == FrameLinkResult.Busy
+		assert endpoint.TryCancel() == FrameLinkResult.Unsupported
+		assert service.IsReady()
+		input.Inject(ServicePackets.ICMP)
+		assert endpoint.Poll() == FrameServiceProgress.Pending
+		assert input.HasReceiveFrame()
+		assert !receiver.IsReady()
+		output.Complete(EthernetTransmitOutcome.Sent)
+		WaitCompleted(FrameTransmitOutcome.Delivered)
+		assert endpoint.Poll() == FrameServiceProgress.Pending
+		assert endpoint.Poll() == FrameServiceProgress.Pending
+		WaitCommitted();
+		CheckBytes(ServicePackets.ICMP_REPLY)
+		output.Complete(EthernetTransmitOutcome.Sent)
+		WaitCompleted(FrameTransmitOutcome.Delivered)
+	}
+
+	@Test fn SourceAndDeviceFailuresReleaseOnlyAfterCopyStopsAndPermitRecovery()
+	{
+		source.Reset(10)
+		Prepare(ServicePackets.ICMP)
+		assert endpoint.Poll() == FrameServiceProgress.Pending
+		WaitCompleted(FrameTransmitOutcome.DeviceFailure)
+		assert source.GetReadCount() == 11
+		assert output.GetCount() == 10
+		source.Reset(-1)
+		output.SetFailures(true, false)
+		Prepare(ServicePackets.ARP);
+		endpoint.Poll()
+		WaitCompleted(FrameTransmitOutcome.DeviceFailure)
+		assert source.GetReadCount() == 1
+		output.SetFailures(false, true)
+		Prepare(ServicePackets.ARP);
+		endpoint.Poll()
+		WaitCompleted(FrameTransmitOutcome.DeviceFailure)
+		output.SetFailures(false, false)
+		Prepare(ServicePackets.ICMP);
+		endpoint.Poll();
+		WaitCommitted()
+		output.Complete(EthernetTransmitOutcome.LinkLost)
+		WaitCompleted(FrameTransmitOutcome.DeviceFailure)
+		Prepare(ServicePackets.ARP);
+		endpoint.Poll();
+		WaitCommitted()
+		output.Complete(EthernetTransmitOutcome.DeviceFailure)
+		WaitCompleted(FrameTransmitOutcome.DeviceFailure)
+		Prepare(ServicePackets.ARP);
+		endpoint.Poll();
+		WaitCommitted()
+		CheckBytes(ServicePackets.ARP_REPLY)
+		output.Complete(EthernetTransmitOutcome.Sent)
+		WaitCompleted(FrameTransmitOutcome.Delivered)
+	}
+
+	@Test fn ExactReceiveMetadataBoundsAndErrors()
+	{
+		var value: byte = 0xEE
+		assert !receiver.HasKnownWireLength()
+		assert receiver.GetWireLength() == 0
+		assert receiver.TryRead(0, value) == PacketDataResult.NotReady
+		assert value == 0
+		assert receiver.TryRelease() == FrameLinkResult.Invalid
+		input.Inject(ServicePackets.ARP)
+		assert !receiver.IsReady()
+		assert receiver.TryAcquire() == FrameLinkResult.Success
+		assert receiver.TryAcquire() == FrameLinkResult.Busy
+		assert receiver.HasKnownWireLength()
+		assert receiver.GetWireLength() == 60
+		assert receiver.GetAvailableLength() == 60
+		assert receiver.TryRead(-1, value) == PacketDataResult.Invalid
+		assert receiver.TryRead(60, value) == PacketDataResult.Invalid
+		assert value == 0
+		assert receiver.TryRead(59, value) == PacketDataResult.Success
+		input.SetReadFailure(true)
+		assert receiver.TryRead(0, value) == PacketDataResult.Invalid
+		assert value == 0
+		assert receiver.HasReceiveError()
+		assert receiver.TryAcknowledgeReceiveError() == FrameLinkResult.Success
+		input.SetReadFailure(false)
+		assert receiver.TryRead(0, value) == PacketDataResult.Success
+		assert receiver.TryRelease() == FrameLinkResult.Success
+		assert !receiver.HasKnownWireLength()
+		input.Fail()
+		assert receiver.HasReceiveError()
+		assert receiver.TryAcquire() == FrameLinkResult.DeviceFailure
+		assert endpoint.Poll() == FrameServiceProgress.ReceiveFailure
+		assert receiver.TryAcknowledgeReceiveError() == FrameLinkResult.Success
+		assert !receiver.HasReceiveError()
+		assert receiver.TryAcknowledgeReceiveError() == FrameLinkResult.NotReady
+	}
+}

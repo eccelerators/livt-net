@@ -13,9 +13,17 @@ component EthernetFrame<P: IPacketData & IEthernetPayload, MAX_PAYLOAD_LENGTH: i
 	payload: P
 
 	// Owned Ethernet header and prepared payload/frame lengths.
-	header: byte[14]
-	payloadLength: int
-	length: int
+	const PAYLOAD_BITS: int = Bits.RequiredFor(MAX_PAYLOAD_LENGTH)
+	const FRAME_BITS: int = Bits.RequiredFor(MAX_PAYLOAD_LENGTH + 60)
+	payloadLength: logic[PAYLOAD_BITS]
+	length: logic[FRAME_BITS]
+	source0: logic[16]
+	source1: logic[16]
+	source2: logic[16]
+	destination0: logic[16]
+	destination1: logic[16]
+	destination2: logic[16]
+	typeWord: logic[16]
 	ready: bool
 
 	/**
@@ -58,19 +66,17 @@ component EthernetFrame<P: IPacketData & IEthernetPayload, MAX_PAYLOAD_LENGTH: i
 			return PacketDataResult.Invalid
 		}
 
-		for (var i = 0; i < 6; i++) {
-			header[i] = destinationMac[i]
-			header[6 + i] = sourceMac[i]
-		}
-
-		header[12] = (etherType / 256) as byte
-		header[13] = (etherType % 256) as byte
-		payloadLength = size
-		length = 14 + size
-
-		if (length < 60) {
-			length = 60
-		}
+		source0 = NetworkOrder.Word(sourceMac[0], sourceMac[1]) as logic[16]
+		source1 = NetworkOrder.Word(sourceMac[2], sourceMac[3]) as logic[16]
+		source2 = NetworkOrder.Word(sourceMac[4], sourceMac[5]) as logic[16]
+		destination0 = NetworkOrder.Word(destinationMac[0], destinationMac[1]) as logic[16]
+		destination1 = NetworkOrder.Word(destinationMac[2], destinationMac[3]) as logic[16]
+		destination2 = NetworkOrder.Word(destinationMac[4], destinationMac[5]) as logic[16]
+		typeWord = etherType as logic[16]
+		payloadLength = size as logic[PAYLOAD_BITS]
+		var frameLength = 14 + size
+		if (frameLength < 60) { frameLength = 60 }
+		length = frameLength as logic[FRAME_BITS]
 
 		ready = true
 		return PacketDataResult.Success
@@ -93,7 +99,7 @@ component EthernetFrame<P: IPacketData & IEthernetPayload, MAX_PAYLOAD_LENGTH: i
 			return 0
 		}
 
-		return length
+		return (length as uint) as int
 	}
 
 	/**
@@ -111,19 +117,39 @@ component EthernetFrame<P: IPacketData & IEthernetPayload, MAX_PAYLOAD_LENGTH: i
 			return PacketDataResult.NotReady
 		}
 
-		if (index < 0 || index >= length) {
+		if (index < 0 || index >= ((length as uint) as int)) {
 			return PacketDataResult.Invalid
 		}
 
 		if (index < 14) {
-			value = header[index];
+			value = this.EthernetHeaderByte(index, source0, source1, source2, destination0, destination1, destination2, typeWord);
 			return PacketDataResult.Success
 		}
 
-		if (index < 14 + payloadLength) {
+		if (index < 14 + ((payloadLength as uint) as int)) {
 			return payload.TryRead(index - 14, value)
 		}
 
 		return PacketDataResult.Success
+	}
+
+	/** Pure byte selection; no additional scheduled transaction. */
+	inline fn EthernetHeaderByte[](index: int, snapshotsource0: logic[16], snapshotsource1: logic[16], snapshotsource2: logic[16], snapshotdestination0: logic[16], snapshotdestination1: logic[16], snapshotdestination2: logic[16], snapshottypeWord: logic[16]) byte
+	{
+		if (index == 0) { return (snapshotdestination0 >> 8) as byte }
+		if (index == 1) { return snapshotdestination0 as byte }
+		if (index == 2) { return (snapshotdestination1 >> 8) as byte }
+		if (index == 3) { return snapshotdestination1 as byte }
+		if (index == 4) { return (snapshotdestination2 >> 8) as byte }
+		if (index == 5) { return snapshotdestination2 as byte }
+		if (index == 6) { return (snapshotsource0 >> 8) as byte }
+		if (index == 7) { return snapshotsource0 as byte }
+		if (index == 8) { return (snapshotsource1 >> 8) as byte }
+		if (index == 9) { return snapshotsource1 as byte }
+		if (index == 10) { return (snapshotsource2 >> 8) as byte }
+		if (index == 11) { return snapshotsource2 as byte }
+		if (index == 12) { return (snapshottypeWord >> 8) as byte }
+		if (index == 13) { return snapshottypeWord as byte }
+		return 0x00
 	}
 }

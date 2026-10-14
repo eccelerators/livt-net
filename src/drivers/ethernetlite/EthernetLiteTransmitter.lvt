@@ -18,10 +18,12 @@ component EthernetLiteTransmitter<S: IPacketData, MAX_LENGTH: int = 1514> : IFra
 {
 	static assert MAX_LENGTH >= 60 && MAX_LENGTH <= 1514, "TX length must fit a standard EthernetLite frame"
 
+	const LENGTH_BITS: int = Bits.RequiredFor(MAX_LENGTH)
+
 	// Prepared source remains owned by its caller and stable during a borrow.
 	source: S
 	phase: EthernetLiteTransmitState
-	length: int
+	length: logic[LENGTH_BITS]
 	ready: bool
 	failed: bool
 	outcome: FrameTransmitOutcome
@@ -97,7 +99,7 @@ component EthernetLiteTransmitter<S: IPacketData, MAX_LENGTH: int = 1514> : IFra
 			return FrameLinkResult.Unsupported
 		}
 
-		this.length = size
+		this.length = size as logic[LENGTH_BITS]
 		this.phase = EthernetLiteTransmitState.Borrowed
 		return FrameLinkResult.Accepted
 	}
@@ -157,7 +159,7 @@ component EthernetLiteTransmitter<S: IPacketData, MAX_LENGTH: int = 1514> : IFra
 	 */
 	public fn GetPendingLength() int
 	{
-		return this.length
+		return (this.length as uint) as int
 	}
 
 	/**
@@ -171,7 +173,7 @@ component EthernetLiteTransmitter<S: IPacketData, MAX_LENGTH: int = 1514> : IFra
 			return PacketDataResult.NotReady
 		}
 
-		if (index < 0 || index >= this.length) {
+		if (index < 0 || index >= ((this.length as uint) as int)) {
 			return PacketDataResult.Invalid
 		}
 

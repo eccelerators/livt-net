@@ -1,44 +1,50 @@
 namespace Livt.Net
 
 /**
- * Checked request recognition and prepared reply composition. One serialized
- * owner must finish all reads/TX borrows before preparing or invalidating again.
- * Preparation snapshots request metadata and echo data; emission does not read the request.
+ * Checked request recognition and compact prepared reply composition. One
+ * serialized owner must finish all reads/TX borrows before preparing or
+ * invalidating again. Preparation snapshots request metadata and echo data;
+ * emission does not read the request.
  */
-component IcmpEchoResponder<S: IPacketData, FRAME_CAPACITY: int = 128> : IPacketData
+component IcmpEchoResponder<
+	S: IPacketData,
+	FRAME_CAPACITY: int = 128,
+	B: IWritablePacketData<PacketDataGeometry<FRAME_CAPACITY>> & new() = RamPacketData<FRAME_CAPACITY>
+> : IPacketData
 {
-	static assert FRAME_CAPACITY >= 42, "Frame capacity must hold the required protocol header"
+	static assert FRAME_CAPACITY >= 42 && FRAME_CAPACITY <= 65535, "Invalid ICMP frame capacity"
 
-	// Borrowed shared parsers; consumers must serialize their use.
 	ethernet: EthernetFrameParser<S>
 	ipv4: Ipv4PacketParser<EthernetFrameParser<S>>
+	data: B
 
-	// Owned RAM snapshot of echo data, retained throughout reply emission.
-	data: RamPacketData<FRAME_CAPACITY>
+	source0: logic[16]
+	source1: logic[16]
+	source2: logic[16]
+	destination0: logic[16]
+	destination1: logic[16]
+	destination2: logic[16]
+	ipv4Length: logic[16]
+	identificationWord: logic[16]
+	sourceIpHigh: logic[16]
+	sourceIpLow: logic[16]
+	destinationIpHigh: logic[16]
+	destinationIpLow: logic[16]
+	icmpChecksum: logic[16]
+	icmpIdentifier: logic[16]
+	icmpSequence: logic[16]
+	dataLength: logic[16]
+	frameLength: logic[16]
+	ipv4Checksum: logic[16]
+	ready: bool
 
-	// Owned nested reply envelopes borrowing the snapshot and each other.
-	reply: IcmpEchoReply<RamPacketData<FRAME_CAPACITY>>
-	ip: IcmpEchoReplyPacket<RamPacketData<FRAME_CAPACITY>>
-	frame: IcmpEchoReplyFrame<RamPacketData<FRAME_CAPACITY>, FRAME_CAPACITY>
-
-	/**
-	 * Borrows the shared Ethernet/IPv4 pair and owns RAM echo storage and reply
-	 * envelopes. Parsers must describe the same capture and have one serialized owner.
-	 */
 	new(ethernet: EthernetFrameParser<S>, ipv4: Ipv4PacketParser<EthernetFrameParser<S>>)
 	{
 		this.ethernet = ethernet
 		this.ipv4 = ipv4
-		data = new RamPacketData<FRAME_CAPACITY>()
-		reply = new IcmpEchoReply<RamPacketData<FRAME_CAPACITY>>(data)
-		ip = new IcmpEchoReplyPacket<RamPacketData<FRAME_CAPACITY>>(reply)
-		frame = new IcmpEchoReplyFrame<RamPacketData<FRAME_CAPACITY>, FRAME_CAPACITY>(ip)
+		data = new B()
 	}
 
-	/**
-	 * Discards parser and reply metadata and releases the echo snapshot.
-	 * Call only after all response readers and transmit borrows have finished.
-	 */
 	public fn Invalidate()
 	{
 		ipv4.Invalidate()
@@ -46,12 +52,11 @@ component IcmpEchoResponder<S: IPacketData, FRAME_CAPACITY: int = 128> : IPacket
 		this.ClearResponse()
 	}
 
-	/** Releases only owned response state; preserves the shared request views. */
 	fn ClearResponse()
 	{
-		frame.Invalidate()
-		ip.Invalidate()
-		reply.Invalidate()
+		ready = false
+		frameLength = 0
+		dataLength = 0
 
 		if (data.IsReady()) {
 			data.TryRelease()
@@ -61,9 +66,6 @@ component IcmpEchoResponder<S: IPacketData, FRAME_CAPACITY: int = 128> : IPacket
 		}
 	}
 
-	/**
-	 * Snapshots a complete captured echo request; receive checksums remain unchecked.
-	 */
 	public fn TryPrepare(localMac: byte[6], localIp: byte[4]) PacketDataResult
 	{
 		this.Invalidate()
@@ -80,10 +82,7 @@ component IcmpEchoResponder<S: IPacketData, FRAME_CAPACITY: int = 128> : IPacket
 		return this.TryPrepareParsed(localMac, localIp)
 	}
 
-	/**
-	 * Snapshots a complete echo request from shared, already validated parsers.
-	 * Requires exclusive parser use. HeaderOnly input is rejected as before.
-	 */
+	/** Accumulates the ICMP checksum while copying into the response snapshot. */
 	public fn TryPrepareParsed(localMac: byte[6], localIp: byte[4]) PacketDataResult
 	{
 		this.ClearResponse()
@@ -99,13 +98,11 @@ component IcmpEchoResponder<S: IPacketData, FRAME_CAPACITY: int = 128> : IPacket
 
 		var destination = ipv4.GetDestinationIpv4()
 
-		for (var i = 0; i < 4; i++) {
-			if (destination[i] != localIp[i]) {
-				return PacketDataResult.Invalid
-			}
+		if (destination[0] != localIp[0] || destination[1] != localIp[1] || destination[2] != localIp[2] || destination[3] != localIp[3]) {
+			return PacketDataResult.Invalid
 		}
 
-		var echo: byte[8]
+		var echo: logic[64] = 0
 
 		for (var i = 0; i < 8; i++) {
 			var value: byte = 0x00
@@ -114,20 +111,29 @@ component IcmpEchoResponder<S: IPacketData, FRAME_CAPACITY: int = 128> : IPacket
 				return PacketDataResult.Invalid
 			}
 
-			echo[i] = value
+			echo = (echo << 8) | ((value as uint) as logic[64])
 		}
 
-		if (echo[0] != 8 || echo[1] != 0) {
+		if (((echo >> 48) as logic[16]) != 0x0800) {
 			return PacketDataResult.Invalid
 		}
 
 		var peerMac = ethernet.GetSourceMac()
 		var peerIp = ipv4.GetSourceIpv4()
 		var id = ipv4.GetIdentification()
-		var identification: byte[2] = [(id / 256) as byte, (id % 256) as byte]
-		var identifier: byte[2] = [echo[4], echo[5]]
-		var sequence: byte[2] = [echo[6], echo[7]]
+		var identification: byte[2] = [NetworkOrder.HighByte(id), NetworkOrder.LowByte(id)]
+		var identifier: byte[2] = [(echo >> 24) as byte, (echo >> 16) as byte]
+		var sequence: byte[2] = [(echo >> 8) as byte, echo as byte]
 		var length = ipv4.GetAvailableLength() - 8
+
+		if (length < 0 || length > FRAME_CAPACITY - 28) {
+			this.Invalidate()
+			return PacketDataResult.Invalid
+		}
+
+		var sum = NetworkOrder.Word(identifier[0], identifier[1]) + NetworkOrder.Word(sequence[0], sequence[1])
+		var pending: byte = 0x00
+		var highByte = true
 
 		for (var i = 0; i < length; i++) {
 			var value: byte = 0x00
@@ -136,50 +142,132 @@ component IcmpEchoResponder<S: IPacketData, FRAME_CAPACITY: int = 128> : IPacket
 				this.Invalidate()
 				return PacketDataResult.Invalid
 			}
+
+			if (highByte) {
+				pending = value
+				highByte = false
+			}
+			else {
+				sum = sum + NetworkOrder.Word(pending, value)
+				highByte = true
+			}
+		}
+
+		if (!highByte) {
+			sum = sum + NetworkOrder.Word(pending, 0x00)
 		}
 
 		ipv4.Invalidate()
 		ethernet.Invalidate()
-		data.TryPublish()
-		var result = reply.TryPrepare(identifier, sequence)
+		var published = data.TryPublish()
 
-		if (result == PacketDataResult.Success) {
-			result = ip.TryPrepare(localIp, peerIp, identification)
-		}
-
-		if (result == PacketDataResult.Success) {
-			result = frame.TryPrepare(localMac, peerMac)
-		}
-
-		if (result != PacketDataResult.Success) {
+		if (published != PacketDataResult.Success) {
 			this.Invalidate()
+			return published
 		}
 
-		return result
+		source0 = NetworkOrder.Word(localMac[0], localMac[1]) as logic[16]
+		source1 = NetworkOrder.Word(localMac[2], localMac[3]) as logic[16]
+		source2 = NetworkOrder.Word(localMac[4], localMac[5]) as logic[16]
+		destination0 = NetworkOrder.Word(peerMac[0], peerMac[1]) as logic[16]
+		destination1 = NetworkOrder.Word(peerMac[2], peerMac[3]) as logic[16]
+		destination2 = NetworkOrder.Word(peerMac[4], peerMac[5]) as logic[16]
+		ipv4Length = (28 + length) as logic[16]
+		identificationWord = NetworkOrder.Word(identification[0], identification[1]) as logic[16]
+		sourceIpHigh = NetworkOrder.Word(localIp[0], localIp[1]) as logic[16]
+		sourceIpLow = NetworkOrder.Word(localIp[2], localIp[3]) as logic[16]
+		destinationIpHigh = NetworkOrder.Word(peerIp[0], peerIp[1]) as logic[16]
+		destinationIpLow = NetworkOrder.Word(peerIp[2], peerIp[3]) as logic[16]
+		ipv4Checksum = Ipv4HeaderChecksum.Calculate(28 + length, identification,
+			localIp, peerIp, IIpv4Payload.PROTOCOL_ICMP) as logic[16]
+		icmpChecksum = ChecksumArithmetic.Finish(sum) as logic[16]
+		icmpIdentifier = NetworkOrder.Word(identifier[0], identifier[1]) as logic[16]
+		icmpSequence = NetworkOrder.Word(sequence[0], sequence[1]) as logic[16]
+		dataLength = length as logic[16]
+		var completeLength = 42 + length
+		if (completeLength < 60) { completeLength = 60 }
+		frameLength = completeLength as logic[16]
+		ready = true
+		return PacketDataResult.Success
 	}
 
-	/**
-	 * Reports whether the composed reply is prepared.
-	 */
 	override fn IsReady() bool
 	{
-		return frame.IsReady()
+		return ready && data.IsReady()
 	}
 
-	/**
-	 * Returns the prepared Ethernet frame length including padding, or zero when unavailable.
-	 */
 	override fn GetAvailableLength() int
 	{
-		return frame.GetAvailableLength()
+		if (!this.IsReady()) { return 0 }
+		return (frameLength as uint) as int
 	}
 
-	/**
-	 * Reads a frame-relative byte from the prepared reply. Propagates the envelope
-	 * result; output is valid only on Success. Finish all reads before invalidation.
-	 */
+	/** Reads fixed headers directly and delegates only echo-data bytes to the selected backend. */
 	override fn TryRead(index: int, value: out byte) PacketDataResult
 	{
-		return frame.TryRead(index, value)
+		value = 0x00
+
+		if (!this.IsReady()) { return PacketDataResult.NotReady }
+		if (index < 0 || index >= ((frameLength as uint) as int)) { return PacketDataResult.Invalid }
+
+		if (index < 42) {
+			value = this.HeaderByte(index, source0, source1, source2, destination0, destination1, destination2,
+				ipv4Length, identificationWord, sourceIpHigh, sourceIpLow, destinationIpHigh, destinationIpLow,
+				ipv4Checksum, icmpChecksum, icmpIdentifier, icmpSequence)
+			return PacketDataResult.Success
+		}
+
+		if (index < 42 + ((dataLength as uint) as int)) {
+			return data.TryRead(index - 42, value)
+		}
+
+		return PacketDataResult.Success
+	}
+
+	/** Pure selector over compact response metadata; constants remain unstored. */
+	inline fn HeaderByte[](index: int, snapshotsource0: logic[16], snapshotsource1: logic[16], snapshotsource2: logic[16],
+		snapshotdestination0: logic[16], snapshotdestination1: logic[16], snapshotdestination2: logic[16],
+		snapshotipv4Length: logic[16], snapshotidentificationWord: logic[16], snapshotsourceIpHigh: logic[16],
+		snapshotsourceIpLow: logic[16], snapshotdestinationIpHigh: logic[16], snapshotdestinationIpLow: logic[16],
+		snapshotipv4Checksum: logic[16], snapshoticmpChecksum: logic[16], snapshoticmpIdentifier: logic[16],
+		snapshoticmpSequence: logic[16]) byte
+	{
+		if (index == 0) { return (snapshotdestination0 >> 8) as byte }
+		if (index == 1) { return snapshotdestination0 as byte }
+		if (index == 2) { return (snapshotdestination1 >> 8) as byte }
+		if (index == 3) { return snapshotdestination1 as byte }
+		if (index == 4) { return (snapshotdestination2 >> 8) as byte }
+		if (index == 5) { return snapshotdestination2 as byte }
+		if (index == 6) { return (snapshotsource0 >> 8) as byte }
+		if (index == 7) { return snapshotsource0 as byte }
+		if (index == 8) { return (snapshotsource1 >> 8) as byte }
+		if (index == 9) { return snapshotsource1 as byte }
+		if (index == 10) { return (snapshotsource2 >> 8) as byte }
+		if (index == 11) { return snapshotsource2 as byte }
+		if (index == 12) { return 0x08 }
+		if (index == 14) { return 0x45 }
+		if (index == 16) { return (snapshotipv4Length >> 8) as byte }
+		if (index == 17) { return snapshotipv4Length as byte }
+		if (index == 18) { return (snapshotidentificationWord >> 8) as byte }
+		if (index == 19) { return snapshotidentificationWord as byte }
+		if (index == 20 || index == 22) { return 0x40 }
+		if (index == 23) { return 0x01 }
+		if (index == 24) { return (snapshotipv4Checksum >> 8) as byte }
+		if (index == 25) { return snapshotipv4Checksum as byte }
+		if (index == 26) { return (snapshotsourceIpHigh >> 8) as byte }
+		if (index == 27) { return snapshotsourceIpHigh as byte }
+		if (index == 28) { return (snapshotsourceIpLow >> 8) as byte }
+		if (index == 29) { return snapshotsourceIpLow as byte }
+		if (index == 30) { return (snapshotdestinationIpHigh >> 8) as byte }
+		if (index == 31) { return snapshotdestinationIpHigh as byte }
+		if (index == 32) { return (snapshotdestinationIpLow >> 8) as byte }
+		if (index == 33) { return snapshotdestinationIpLow as byte }
+		if (index == 36) { return (snapshoticmpChecksum >> 8) as byte }
+		if (index == 37) { return snapshoticmpChecksum as byte }
+		if (index == 38) { return (snapshoticmpIdentifier >> 8) as byte }
+		if (index == 39) { return snapshoticmpIdentifier as byte }
+		if (index == 40) { return (snapshoticmpSequence >> 8) as byte }
+		if (index == 41) { return snapshoticmpSequence as byte }
+		return 0x00
 	}
 }

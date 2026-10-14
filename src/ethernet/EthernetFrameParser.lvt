@@ -125,17 +125,11 @@ component EthernetFrameParser<S: IPacketData> : IPacketData
 	 */
 	public fn GetSourceMac() byte[6]
 	{
-		var value: byte[6]
-
-		for (var i = 0; i < 6; i++) {
-			value[i] = 0x00
-
-			if (this.IsReady()) {
-				value[i] = header.GetByte(6 + i)
-			}
-		}
-
-		return value
+		if (!this.IsReady()) { return [0x00, 0x00, 0x00, 0x00, 0x00, 0x00] }
+		var word0 = header.GetWord(6)
+		var word1 = header.GetWord(8)
+		var word2 = header.GetWord(10)
+		return [NetworkOrder.HighByte(word0), NetworkOrder.LowByte(word0), NetworkOrder.HighByte(word1), NetworkOrder.LowByte(word1), NetworkOrder.HighByte(word2), NetworkOrder.LowByte(word2)]
 	}
 
 	/**
@@ -143,16 +137,10 @@ component EthernetFrameParser<S: IPacketData> : IPacketData
 	 */
 	public fn GetDestinationMac() byte[6]
 	{
-		var value: byte[6]
-
-		for (var i = 0; i < 6; i++) {
-			value[i] = 0x00
-
-			if (this.IsReady()) {
-				value[i] = header.GetByte(0 + i)
-			}
-		}
-
-		return value
+		if (!this.IsReady()) { return [0x00, 0x00, 0x00, 0x00, 0x00, 0x00] }
+		var word0 = header.GetWord(0)
+		var word1 = header.GetWord(2)
+		var word2 = header.GetWord(4)
+		return [NetworkOrder.HighByte(word0), NetworkOrder.LowByte(word0), NetworkOrder.HighByte(word1), NetworkOrder.LowByte(word1), NetworkOrder.HighByte(word2), NetworkOrder.LowByte(word2)]
 	}
 }

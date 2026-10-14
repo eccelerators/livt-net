@@ -17,10 +17,10 @@ borrows the publication until `TryGetCompletion()` reports a terminal result.
 Acknowledge completion before another submission. Preserve source and dependent
 RX views through that lifetime; rejected submissions never acquire a borrow.
 
-See [EthernetLite construction](ethernetlite.md) for the concrete board adapter.
+See [EthernetLite construction](ethernetlite.md) for the concrete device adapter.
 Application protocol code uses [frame capabilities](frame-link.md), without AXI
-or device-specific methods. `EthernetFrameIo` has been replaced without legacy
-wrappers. Prepared TX bytes must include minimum-frame Ethernet padding.
+or device-specific methods. Prepared TX bytes must include minimum-frame
+Ethernet padding.
 
 ## Receive and release
 
@@ -55,8 +55,8 @@ int (0..2147483647). Empty payloads use length 20 and sum zero.
 feed `byte` values through `AddByte()`. Use `NetworkOrder.HighByte`/`LowByte` to
 serialize a 16-bit checksum and `NetworkOrder.Word` to decode two octets.
 The helpers do not add input packet validation. See
-[package structure and migration](package-structure.md) for removed APIs and
-pure header encoders.
+[package structure and helper APIs](package-structure.md) for the pure header
+encoders.
 
 ## Packet data providers
 

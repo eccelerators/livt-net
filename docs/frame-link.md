@@ -9,6 +9,8 @@ can overlap when storage is independent.
 `TestFrameTransmitter<P: IPacketData, MAX_LENGTH = 1514, CANCELLABLE = true>` are
 deterministic test implementations. The production EthernetLite implementation
 uses the same capabilities; see [device construction and limits](ethernetlite.md).
+The [Livt.IO MAC adapters](ethernet.md) provide another production backend with
+exact RX length and terminal TX wire completion, using the same service lifecycle.
 
 ## Construction
 
@@ -143,4 +145,4 @@ sources before completing the barrier; resetting only a provider is invalid.
 Livt tests verify these explicit barrier transitions, initial state and reuse.
 They do not claim mid-cycle physical reset, hardware timing or bus-reset coverage.
 The driver must verify hardware-specific reset behavior during its implementation.
-No streaming handshake, synthesis or board run is part of this contract.
+No streaming handshake, synthesis, or physical integration is part of this contract.

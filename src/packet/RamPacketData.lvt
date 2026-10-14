@@ -8,15 +8,18 @@ using Livt.IO
  * Release only after all readers/regions have finished. Storage is not erased.
  * Scheduled calls have no fixed-cycle or combinational-access guarantee.
  */
-component RamPacketData<CAPACITY: int = 128> : IPacketData
+component RamPacketData<CAPACITY: int = 128> : IWritablePacketData<PacketDataGeometry<CAPACITY>>
 {
 	static assert CAPACITY > 0, "Packet capacity must be positive"
 
 	// Owned RAM; only the contiguous initialized prefix may be published.
-	data: Ram<byte, CAPACITY>
+	const ADDRESS_BITS: int = Bits.RequiredFor(CAPACITY - 1)
+	storage: SynchronousRam<byte, logic[ADDRESS_BITS], CAPACITY>
+	data: IRam<byte>
 
 	// Prefix length and publication state; releasing does not erase storage.
-	written: int
+	const LENGTH_BITS: int = Bits.RequiredFor(CAPACITY)
+	written: logic[LENGTH_BITS]
 	published: bool
 
 	/**
@@ -24,7 +27,8 @@ component RamPacketData<CAPACITY: int = 128> : IPacketData
 	 */
 	new()
 	{
-		this.data = new Ram<byte, CAPACITY>()
+		this.storage = new SynchronousRam<byte, logic[ADDRESS_BITS], CAPACITY>()
+		this.data = new RamAccess<byte, logic[ADDRESS_BITS], CAPACITY, SynchronousRam<byte, logic[ADDRESS_BITS], CAPACITY>>(this.storage)
 		written = 0
 		published = false
 	}
@@ -32,7 +36,7 @@ component RamPacketData<CAPACITY: int = 128> : IPacketData
 	/**
 	 * Returns the fixed storage capacity in bytes; this does not reserve space.
 	 */
-	public fn GetCapacity() int
+	override fn GetCapacity() int
 	{
 		return CAPACITY
 	}
@@ -40,9 +44,9 @@ component RamPacketData<CAPACITY: int = 128> : IPacketData
 	/**
 	 * Returns the contiguous initialized prefix length, including unpublished bytes.
 	 */
-	public fn GetWrittenLength() int
+	override fn GetWrittenLength() int
 	{
-		return written
+		return (written as uint) as int
 	}
 
 	/**
@@ -62,26 +66,26 @@ component RamPacketData<CAPACITY: int = 128> : IPacketData
 			return 0
 		}
 
-		return written
+		return (written as uint) as int
 	}
 
 	/**
 	 * Append the next byte or overwrite an initialized byte; holes are invalid.
 	 */
-	public fn TryWrite(index: int, value: byte) PacketDataResult
+	override fn TryWrite(index: int, value: byte) PacketDataResult
 	{
 		if (published) {
 			return PacketDataResult.Busy
 		}
 
-		if (index < 0 || index >= CAPACITY || index > written) {
+		if (index < 0 || index >= CAPACITY || index > ((written as uint) as int)) {
 			return PacketDataResult.Invalid
 		}
 
 		data.Write(index, value)
 
-		if (index == written) {
-			written = written + 1
+		if (index == ((written as uint) as int)) {
+			written++
 		}
 
 		return PacketDataResult.Success
@@ -90,7 +94,7 @@ component RamPacketData<CAPACITY: int = 128> : IPacketData
 	/**
 	 * An empty prefix is valid packet data, though not a valid Ethernet TX.
 	 */
-	public fn TryPublish() PacketDataResult
+	override fn TryPublish() PacketDataResult
 	{
 		if (published) {
 			return PacketDataResult.Busy
@@ -113,7 +117,7 @@ component RamPacketData<CAPACITY: int = 128> : IPacketData
 			return PacketDataResult.NotReady
 		}
 
-		if (index < 0 || index >= written) {
+		if (index < 0 || index >= ((written as uint) as int)) {
 			return PacketDataResult.Invalid
 		}
 
@@ -126,7 +130,7 @@ component RamPacketData<CAPACITY: int = 128> : IPacketData
 	 * Releases a published prefix and resets its initialized length without erasing
 	 * storage. Returns Invalid if unpublished. Finish all dependent reads first.
 	 */
-	public fn TryRelease() PacketDataResult
+	override fn TryRelease() PacketDataResult
 	{
 		if (!published) {
 			return PacketDataResult.Invalid
@@ -140,7 +144,7 @@ component RamPacketData<CAPACITY: int = 128> : IPacketData
 	/**
 	 * Abandon unpublished preparation; cannot discard a published source.
 	 */
-	public fn TryClear() PacketDataResult
+	override fn TryClear() PacketDataResult
 	{
 		if (published) {
 			return PacketDataResult.Busy

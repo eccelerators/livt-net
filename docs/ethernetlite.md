@@ -2,7 +2,6 @@
 
 The concrete device types live in `Livt.Net.Drivers.EthernetLite`. Protocol code
 uses `IFrameReceiver`, `IFrameTransmitter` and `IPacketData` from `Livt.Net`.
-`EthernetFrameIo` and its raw byte injection/TX staging API have been removed.
 
 ## Construction and ownership
 
@@ -37,10 +36,10 @@ component EthernetPort
 metadata and borrows the prepared source. It does not allocate another TX copy.
 `EthernetLiteDriver<B: IEthernetLiteRegisterAccess, S, RX_CAPACITY = 128,
 MAX_TX_LENGTH = 1514>` owns register sequencing and borrows word access plus both
-frame capabilities. `EthernetLiteBus` adapts the board signal interface to the
-shared `EthernetLiteTransactions` core. Its live pins are wired in context-free
-processes; the Livt fixture drives those same pins with independent channel stalls.
-Storage sizes and source types must agree at construction.
+frame capabilities. `EthernetLiteBus` adapts the external AXI signal interface
+to the shared `EthernetLiteTransactions` core. Its live pins are wired in
+context-free processes; the Livt fixture drives those same pins with independent
+channel stalls. Storage sizes and source types must agree at construction.
 
 Only the driver may call the concrete capture/pending-read/completion methods.
 The application uses the public frame capabilities, owns prepared source mutation
@@ -80,9 +79,9 @@ both MAC-programming command bits to clear before enabling admission. Pending TX
 waits for the device's idle status before writing any data.
 
 Frames must contain 60..MAX_LENGTH initialized bytes, including Ethernet padding,
-with MAX_LENGTH at most 1514. Oversized nonstandard frames formerly admitted by
-the raw buffer API are rejected. Final unused AXI word lanes are zero without
-reading beyond the source publication. Register writes stay outside the data.
+with MAX_LENGTH at most 1514. Frames outside that range are rejected. Final unused
+AXI word lanes are zero without reading beyond the source publication. Register
+writes stay outside the data.
 
 The source stays borrowed until a latched terminal result. Delivered means the
 TX start-command write received AXI OKAY; it does not mean physical transmission,
@@ -110,6 +109,6 @@ Resetting only one participant during an outstanding transaction is unsupported.
 
 Verification uses Livt tests with a device register model, independent channel
 stalls, error responses, CRC vectors, retained storage and capability-only
-application tests. Simulation does not establish resource use, timing or board
-readiness. Historical native harness evidence applies to the former driver,
-not this implementation. No synthesis or native harness is required here.
+application tests. Simulation does not establish resource use, routed timing,
+or physical integration. Resource or timing changes require synthesis of a
+representative composition with the intended clock, reset, and device constraints.

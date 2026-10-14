@@ -1,0 +1,93 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+using Livt.IO
+using Livt.Net.Drivers.Ethernet
+
+@Test
+component EthernetFrameContractTest
+{
+	source: PacketMetadataStub
+	device: EthernetIoTransmitFixture
+	transmitter: EthernetFrameTransmitter<PacketMetadataStub>
+	checks: TransmitContractChecks<EthernetFrameTransmitter<PacketMetadataStub>>
+
+	new()
+	{
+		source = new PacketMetadataStub()
+		device = new EthernetIoTransmitFixture()
+		transmitter = new EthernetFrameTransmitter<PacketMetadataStub>(device, source)
+		checks = new TransmitContractChecks<EthernetFrameTransmitter<PacketMetadataStub>>(transmitter)
+	}
+
+	fn Configure(length: int, ready: bool)
+	{
+		source.Configure(length, 0x0800, 1, ready, -1)
+	}
+
+	@Test fn AdmissionBoundsAndCompletionOwnership()
+	{
+		var outcome = FrameTransmitOutcome.Delivered
+		assert transmitter.TryCancel() == FrameLinkResult.Invalid
+		assert transmitter.TryAcknowledgeCompletion() == FrameLinkResult.NotReady
+		Configure(60, false)
+		assert transmitter.TrySubmit() == FrameLinkResult.Invalid
+		Configure(0, true)
+		assert transmitter.TrySubmit() == FrameLinkResult.Invalid
+		Configure(59, true)
+		assert transmitter.TrySubmit() == FrameLinkResult.Unsupported
+		Configure(129, true)
+		assert transmitter.TrySubmit() == FrameLinkResult.Unsupported
+		assert device.IsFree()
+		assert !transmitter.IsSourceBorrowed()
+		Configure(128, true)
+		device.SetReady(false)
+		assert transmitter.TrySubmit() == FrameLinkResult.NotReady
+		assert !transmitter.IsSourceBorrowed()
+		device.SetReady(true)
+		assert transmitter.TrySubmit() == FrameLinkResult.Accepted
+		checks.Pending()
+		assert transmitter.TryCancel() == FrameLinkResult.Unsupported
+		var attempts = 0
+
+		while (!device.IsCommitted()) {
+			attempts++;
+			assert attempts < 3000
+		}
+
+		assert device.GetCount() == 128
+		assert device.Read(127) == 0xA5
+		checks.Pending()
+		device.Complete(EthernetTransmitOutcome.Sent)
+		attempts = 0
+
+		while (transmitter.TryGetCompletion(outcome) != FrameLinkResult.Success) {
+			attempts++;
+			assert attempts < 3000
+		}
+
+		checks.Completed(FrameTransmitOutcome.Delivered)
+		assert device.IsFree()
+		// Rejected arguments cannot replace a retained result.
+		Configure(60, true)
+		assert transmitter.TrySubmit() == FrameLinkResult.Accepted
+		attempts = 0
+
+		while (!device.IsCommitted()) {
+			attempts++;
+			assert attempts < 3000
+		}
+
+		device.Complete(EthernetTransmitOutcome.LinkLost)
+		attempts = 0
+
+		while (transmitter.IsSourceBorrowed()) {
+			attempts++;
+			assert attempts < 3000
+		}
+
+		Configure(0, false)
+		assert transmitter.TrySubmit() == FrameLinkResult.Busy
+		checks.Completed(FrameTransmitOutcome.DeviceFailure)
+	}
+}

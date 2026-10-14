@@ -95,11 +95,8 @@ component TcpConnectionRecognizer<S: IPacketData> : IPacketData
 
 		var destination = ipv4.GetDestinationIpv4()
 
-		for (var i = 0; i < 4; i++) {
-
-			if (destination[i] != localIp[i]) {
-				return false
-			}
+		if (destination[0] != localIp[0] || destination[1] != localIp[1] || destination[2] != localIp[2] || destination[3] != localIp[3]) {
+			return false
 		}
 
 		return tcp.GetDestinationPort() == localPort
@@ -146,11 +143,7 @@ component TcpConnectionRecognizer<S: IPacketData> : IPacketData
 	 */
 	public fn GetSourceIpv4() byte[4]
 	{
-		var empty: byte[4]
-
-		for (var i = 0; i < 4; i++) {
-			empty[i] = 0x00
-		}
+		var empty: byte[4] = [0x00, 0x00, 0x00, 0x00]
 
 		if (!this.IsReady()) {
 			return empty

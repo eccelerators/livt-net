@@ -1,0 +1,157 @@
+namespace Livt.Net.Drivers.Ethernet
+
+using Livt.Net
+using Livt.IO
+
+enum EthernetFrameTransmitState
+{
+	Idle;
+	Copying;
+	Terminal
+}
+
+/**
+ * Copies a statically bound prepared source into the IO MAC's exclusive TX slot.
+ * The borrow covers copying and wire completion. One serialized application owner;
+ * this adapter is the only owner of the underlying IO transmitter capability.
+ */
+component EthernetFrameTransmitter<S: IPacketData> : IFrameTransmitter
+{
+	source: S
+	device: IEthernetTransmitter
+	phase: EthernetFrameTransmitState
+	length: int
+	outcome: FrameTransmitOutcome
+	deviceCompletion: bool
+
+	new(device: IEthernetTransmitter, source: S)
+	{
+		this.device = device;
+		this.source = source
+	}
+
+	override fn GetMinimumFrameLength() int
+	{
+		return 60
+	}
+
+	override fn GetMaximumFrameLength() int
+	{
+		return device.GetTransmitCapacity()
+	}
+
+	override fn SupportsCancellation() bool
+	{
+		return false
+	}
+
+	override fn IsSourceBorrowed() bool
+	{
+		return phase == EthernetFrameTransmitState.Copying
+	}
+
+	override fn TryCancel() FrameLinkResult
+	{
+		if (phase != EthernetFrameTransmitState.Copying) { return FrameLinkResult.Invalid }
+
+		return FrameLinkResult.Unsupported
+	}
+
+	override fn TrySubmit() FrameLinkResult
+	{
+		if (phase != EthernetFrameTransmitState.Idle) { return FrameLinkResult.Busy }
+
+		if (!source.IsReady()) { return FrameLinkResult.Invalid }
+
+		var size = source.GetAvailableLength()
+
+		if (size <= 0) { return FrameLinkResult.Invalid }
+
+		if (size < 60 || size > device.GetTransmitCapacity()) { return FrameLinkResult.Unsupported }
+
+		var result = device.TryBegin(size)
+
+		if (result != EthernetResult.Success) { return EthernetLinkResults.Map(result) }
+
+		length = size
+		deviceCompletion = false
+		phase = EthernetFrameTransmitState.Copying
+		return FrameLinkResult.Accepted
+	}
+
+	override fn TryGetCompletion(result: out FrameTransmitOutcome) FrameLinkResult
+	{
+		result = FrameTransmitOutcome.DeviceFailure
+
+		if (phase != EthernetFrameTransmitState.Terminal) { return FrameLinkResult.NotReady }
+
+		result = outcome
+		return FrameLinkResult.Success
+	}
+
+	override fn TryAcknowledgeCompletion() FrameLinkResult
+	{
+		if (phase != EthernetFrameTransmitState.Terminal) { return FrameLinkResult.NotReady }
+
+		if (deviceCompletion) {
+			var result = device.TryAcknowledgeCompletion()
+
+			if (result != EthernetResult.Success) { return EthernetLinkResults.Map(result) }
+		}
+
+		deviceCompletion = false
+		phase = EthernetFrameTransmitState.Idle
+		return FrameLinkResult.Success
+	}
+
+	process Transfer()
+	{
+		while (true) {
+			while (phase != EthernetFrameTransmitState.Copying) {}
+
+			var failed = false
+
+			for (var index = 0; index < length; index++) {
+				var value: byte = 0
+
+				if (source.TryRead(index, value) != PacketDataResult.Success) {
+					failed = true;
+					break
+				}
+
+				if (device.TryAppend(value) != EthernetResult.Success) {
+					failed = true;
+					break
+				}
+			}
+
+			if (!failed) {
+				if (device.TryCommit() != EthernetResult.Accepted) { failed = true }
+			}
+
+			outcome = FrameTransmitOutcome.DeviceFailure
+
+			if (failed) {
+				// No commit was accepted: discard fill before ending the source borrow.
+				device.TryDiscard()
+			} else {
+				var terminal: EthernetTransmitOutcome = EthernetTransmitOutcome.None
+				var result = device.TryGetCompletion(terminal)
+
+				while (result == EthernetResult.NotReady) {
+					result = device.TryGetCompletion(terminal)
+				}
+
+				if (result == EthernetResult.Success) {
+					deviceCompletion = true
+
+					if (terminal == EthernetTransmitOutcome.Sent) { outcome = FrameTransmitOutcome.Delivered }
+				}
+			}
+
+			phase = EthernetFrameTransmitState.Terminal
+			// Do not revisit a completed transfer while the application acknowledges it.
+			while (phase == EthernetFrameTransmitState.Terminal) {}
+		}
+	}
+}

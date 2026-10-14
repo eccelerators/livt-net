@@ -31,19 +31,25 @@ class TcpChecksum
 		sequence: byte[4], acknowledgment: byte[4], flags: byte, window: byte[2],
 		tcpLength: int, payloadWordSum: int) int
 	{
-		var sum = NetworkOrder.Word(sourceIp[0], sourceIp[1])
-		sum = sum + NetworkOrder.Word(sourceIp[2], sourceIp[3])
-		sum = sum + NetworkOrder.Word(destinationIp[0], destinationIp[1])
-		sum = sum + NetworkOrder.Word(destinationIp[2], destinationIp[3])
-		sum = sum + NetworkOrder.ByteValue(IIpv4Payload.PROTOCOL_TCP) + tcpLength
-		sum = sum + NetworkOrder.Word(sourcePort[0], sourcePort[1])
-		sum = sum + NetworkOrder.Word(destinationPort[0], destinationPort[1])
-		sum = sum + NetworkOrder.Word(sequence[0], sequence[1])
-		sum = sum + NetworkOrder.Word(sequence[2], sequence[3])
-		sum = sum + NetworkOrder.Word(acknowledgment[0], acknowledgment[1])
-		sum = sum + NetworkOrder.Word(acknowledgment[2], acknowledgment[3])
-		sum = sum + 0x5000 + NetworkOrder.ByteValue(flags)
-		sum = sum + NetworkOrder.Word(window[0], window[1]) + payloadWordSum
+		// Balanced groups avoid a long serial carry chain through every header word.
+		var sourceSum = NetworkOrder.Word(sourceIp[0], sourceIp[1])
+			+ NetworkOrder.Word(sourceIp[2], sourceIp[3])
+		var destinationSum = NetworkOrder.Word(destinationIp[0], destinationIp[1])
+			+ NetworkOrder.Word(destinationIp[2], destinationIp[3])
+		var sequenceSum = NetworkOrder.Word(sequence[0], sequence[1])
+			+ NetworkOrder.Word(sequence[2], sequence[3])
+		var acknowledgmentSum = NetworkOrder.Word(acknowledgment[0], acknowledgment[1])
+			+ NetworkOrder.Word(acknowledgment[2], acknowledgment[3])
+		var portSum = NetworkOrder.Word(sourcePort[0], sourcePort[1])
+			+ NetworkOrder.Word(destinationPort[0], destinationPort[1])
+		var controlSum = 0x5000 + NetworkOrder.ByteValue(flags)
+			+ NetworkOrder.Word(window[0], window[1])
+		var pseudoSum = NetworkOrder.ByteValue(IIpv4Payload.PROTOCOL_TCP) + tcpLength
+		var addressSum = sourceSum + destinationSum
+		var positionSum = sequenceSum + acknowledgmentSum
+		var transportSum = portSum + controlSum
+		var headerSum = (addressSum + positionSum) + (transportSum + pseudoSum)
+		var sum = headerSum + payloadWordSum
 		return ChecksumArithmetic.Finish(sum)
 	}
 }

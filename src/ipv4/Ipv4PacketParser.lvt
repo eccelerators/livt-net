@@ -47,8 +47,8 @@ component Ipv4PacketParser<S: IPacketData> : IPacketData
 		}
 
 		var versionAndLength = header.GetByte(0)
-		var version = (versionAndLength as int) / 16
-		var ihl = (versionAndLength as int) % 16
+		var version = ((versionAndLength as uint) >> 4) as int
+		var ihl = ((versionAndLength as uint) & (0x0F as uint)) as int
 		var total = header.GetWord(2)
 
 		if (version != 4) {
@@ -56,7 +56,7 @@ component Ipv4PacketParser<S: IPacketData> : IPacketData
 			return status
 		}
 
-		if (ihl < 5 || total < ihl * 4) {
+		if (ihl < 5 || total < (ihl << 2)) {
 			status = PacketParseResult.Invalid
 			return status
 		}
@@ -186,17 +186,11 @@ component Ipv4PacketParser<S: IPacketData> : IPacketData
 	 */
 	public fn GetSourceIpv4() byte[4]
 	{
-		var value: byte[4]
+		if (!this.IsReady()) { return [0x00, 0x00, 0x00, 0x00] }
 
-		for (var i = 0; i < 4; i++) {
-			value[i] = 0x00
-
-			if (this.IsReady()) {
-				value[i] = header.GetByte(12 + i)
-			}
-		}
-
-		return value
+		var word0 = header.GetWord(12)
+		var word1 = header.GetWord(14)
+		return [NetworkOrder.HighByte(word0), NetworkOrder.LowByte(word0), NetworkOrder.HighByte(word1), NetworkOrder.LowByte(word1)]
 	}
 
 	/**
@@ -204,17 +198,11 @@ component Ipv4PacketParser<S: IPacketData> : IPacketData
 	 */
 	public fn GetDestinationIpv4() byte[4]
 	{
-		var value: byte[4]
+		if (!this.IsReady()) { return [0x00, 0x00, 0x00, 0x00] }
 
-		for (var i = 0; i < 4; i++) {
-			value[i] = 0x00
-
-			if (this.IsReady()) {
-				value[i] = header.GetByte(16 + i)
-			}
-		}
-
-		return value
+		var word0 = header.GetWord(16)
+		var word1 = header.GetWord(18)
+		return [NetworkOrder.HighByte(word0), NetworkOrder.LowByte(word0), NetworkOrder.HighByte(word1), NetworkOrder.LowByte(word1)]
 	}
 
 	/**
@@ -233,8 +221,8 @@ component Ipv4PacketParser<S: IPacketData> : IPacketData
 			sum = sum + header.GetWord(i)
 		}
 
-		sum = sum % 65536 + sum / 65536
-		sum = sum % 65536 + sum / 65536
+		sum = ChecksumArithmetic.Fold(sum)
+		sum = ChecksumArithmetic.Fold(sum)
 		return sum == 65535
 	}
 }

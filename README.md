@@ -41,15 +41,15 @@ Protocol and frame-capability components live in `Livt.Net`. The concrete
 EthernetLite implementation lives in `Livt.Net.Drivers.EthernetLite`; application
 protocol code need not import it. Tests use `Livt.Net.Tests`. Source folders group
 protocol responsibilities without imposing extra imports; see
-[package structure and helper migration](docs/package-structure.md).
+[package structure and helper APIs](docs/package-structure.md).
 
 | Area | Components |
 |---|---|
-| Packet data | `IPacketData`, `ArrayPacketData`, `RamPacketData`, `PacketRegion` |
+| Packet data | `IPacketData`, `IWritablePacketData<G>`, `PacketDataGeometry<CAPACITY>`, `ArrayPacketData`, `RamPacketData`, `PacketRegion` |
 | Ethernet | `EthernetFrame`, `EthernetFrameParser`, `EthernetFrameBuilder` |
 | ARP | `ArpPacketParser`, `ArpReply`, `ArpResponder` |
 | IPv4 | `Ipv4Packet`, `Ipv4PacketParser`, `Ipv4HeaderBuilder`, `Ipv4HeaderChecksum` |
-| ICMP | `IcmpEchoReply`, `IcmpEchoResponder` |
+| ICMP | `IcmpEchoReply`, `IcmpEchoResponder<S, FRAME_CAPACITY, B>` |
 | TCP | `TcpHeaderParser`, `TcpConnectionRecognizer`, `TcpSegmentBuilder`, `TcpSegment`, `TcpIpv4Packet`, `TcpIpv4Frame`, `TcpChecksum` |
 | Checksums | `InternetChecksum`, `Ipv4HeaderChecksum`, `TcpChecksum` |
 | Services | `NetworkService`, `ArpService`, `IcmpEchoService`, `ServiceChain`, `FrameService`, `ResponseTransfer` |
@@ -72,7 +72,7 @@ Compose `EthernetFrame<Ipv4Packet<IcmpEchoReply<RamPacketData<128>>>>`
 using checked byte providers. Prepare checksums and headers once, then emit
 through `IPacketData.TryRead`. ARP reuses `EthernetFrame<ArpReply>`.
 See [packet composition](docs/packet-composition.md) for construction, ownership
-and migration from the old responder byte APIs.
+and response preparation.
 
 ### Protocol Helpers
 
@@ -88,6 +88,13 @@ by `TryRead(index, value)` and `GetAvailableLength()`. The common service covers
 [prepared TCP composition](docs/tcp-composition.md), with checksums calculated
 from actual payload bytes before emission.
 
+`IcmpEchoResponder<S, FRAME_CAPACITY, B>` owns its writable snapshot backend.
+`B` defaults to `RamPacketData<FRAME_CAPACITY>` and may be replaced with
+`ArrayPacketData<FRAME_CAPACITY>` or another constructible
+`IWritablePacketData<PacketDataGeometry<FRAME_CAPACITY>>`. Capacity is part of the
+static contract, and backend selection adds no runtime selector. See
+[resource architecture](docs/resource-optimization.md) for storage guidance.
+
 `InternetChecksum` incrementally consumes network-order bytes with `AddByte()`.
 It accepts `byte` octets and returns either the unfolded word sum for the static
 `TcpChecksum` helper or the final
@@ -99,8 +106,10 @@ RFC 1071 checksum, including the required zero padding for odd-length input.
 a prepared source through terminal completion. `TestFrameReceiver` and
 `TestFrameTransmitter` provide deterministic Livt test implementations. See
 [buffered frame links](docs/frame-link.md) for ownership, results and test controls.
-The concrete implementation is in `Livt.Net.Drivers.EthernetLite`; see the
-[driver contract and construction example](docs/ethernetlite.md).
+Production implementations include `Livt.Net.Drivers.EthernetLite` and
+`Livt.Net.Drivers.Ethernet` for the portable Livt.IO MAC. See the
+[EthernetLite driver](docs/ethernetlite.md) and [IO MAC adapters](docs/ethernet.md)
+for construction, backend differences and verification.
 
 ### Endpoint flow
 
@@ -114,6 +123,7 @@ The concrete implementation is in `Livt.Net.Drivers.EthernetLite`; see the
 Responses that still borrow RX postpone step 2 until that dependency ends.
 Neither capture capacity nor a protocol-declared length establishes wire length.
 EthernetLite publishes a conservative FCS-free prefix and reports length unknown.
+The IO MAC adapter exposes a complete FCS-free frame with exact length while acquired.
 
 ### Compile-time configuration
 
@@ -122,19 +132,6 @@ bounded regions. Storage components select capacity, independently of protocol
 layout. The EthernetLite receiver defaults to 128 bytes (supported 60..1514), and
 its transmitter accepts prepared standard frames of 60..1514 bytes by default.
 The final partial AXI word is zero-filled without reading past the source.
-
-## Development API migration
-
-This development line intentionally breaks the earlier raw-array parser, responder
-and EthernetFrameIo APIs. Migrate consumers together; no compatibility wrappers
-are provided. See [consumer migration](docs/consumer-migration.md) for the API map,
-lifecycle rules, dependency setup and verification boundaries.
-
-## Development verification status
-
-Use Livt tests for the driver and consumers. Prior native AXI/board evidence
-belongs to the former implementation and is not verification of the extracted
-driver. Simulation does not establish FPGA timing or board readiness.
 
 ## 🧪 Build and Test
 
@@ -145,18 +142,19 @@ livt test
 The configured test list is defined in [`livt.toml`](livt.toml). Usage examples
 live in [`docs/usage.md`](docs/usage.md). Hardware and protocol notes live in
 [`docs/hardware-notes.md`](docs/hardware-notes.md). Package boundary and design
-notes live in [`docs/design-notes.md`](docs/design-notes.md).
+notes live in [`docs/design-notes.md`](docs/design-notes.md). The package-wide
+resource and scheduling rules are recorded in
+[`docs/resource-optimization.md`](docs/resource-optimization.md).
 
 ## 🛠️ Development Notes
 
 - Keep reusable protocol components in `namespace Livt.Net`.
-- Keep application-specific content, routing policy, and board integration in
+- Keep application-specific content, routing policy, and platform integration in
   application packages.
 - Prefer `byte` for frame bytes and `logic[N]` for hardware signals.
 - Keep parser, recognizer, builder, and responder responsibilities separate.
 - Keep constructors for wiring and endpoint configuration; use explicit calls
   for computed startup work.
-- Document compiler workarounds only when they remain reproducible.
 
 ## 🚧 Outlook
 
@@ -167,6 +165,3 @@ fixed-header request/response contract.
 ## 📄 License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE).
-
-Common ARP and ICMP compositions have [short packet and frame names](docs/common-packets.md),
-with explicit custom providers and the same preparation/ownership contracts.

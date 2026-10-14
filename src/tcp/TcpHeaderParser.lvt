@@ -47,14 +47,14 @@ component TcpHeaderParser<S: IPacketData> : IPacketData
 		}
 
 		var dataOffset = header.GetByte(12)
-		var size = ((dataOffset as int) / 16) * 4
+		var size = (((dataOffset as uint) >> 4) << 2) as int
 
 		if (size < HEADER_LENGTH) {
 			status = PacketParseResult.Invalid
 			return status
 		}
 
-		if ((dataOffset as int) % 16 != 0) {
+		if (((dataOffset as uint) & (0x0F as uint)) != (0 as uint)) {
 			status = PacketParseResult.Unsupported
 			return status
 		}
@@ -174,7 +174,8 @@ component TcpHeaderParser<S: IPacketData> : IPacketData
 			return 0
 		}
 
-		return ((header.GetByte(12) as int) / 16) * 4
+		var offset = header.GetByte(12)
+		return (((offset as uint) >> 4) << 2) as int
 	}
 
 	/**

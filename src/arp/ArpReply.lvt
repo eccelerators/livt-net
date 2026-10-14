@@ -8,7 +8,16 @@ component ArpReply : IPacketData, IEthernetPayload
 	const PREFIX: byte[8] = [0x00, 0x01, 0x08, 0x00, 0x06, 0x04, 0x00, 0x02]
 
 	// Owned sender/target address snapshot, readable only while prepared.
-	addresses: byte[20]
+	address0: logic[16]
+	address1: logic[16]
+	address2: logic[16]
+	address3: logic[16]
+	address4: logic[16]
+	address5: logic[16]
+	address6: logic[16]
+	address7: logic[16]
+	address8: logic[16]
+	address9: logic[16]
 	ready: bool
 
 	/**
@@ -26,15 +35,16 @@ component ArpReply : IPacketData, IEthernetPayload
 	{
 		ready = false
 
-		for (var i = 0; i < 6; i++) {
-			addresses[i] = sourceMac[i]
-			addresses[10 + i] = targetMac[i]
-		}
-
-		for (var i = 0; i < 4; i++) {
-			addresses[6 + i] = sourceIp[i]
-			addresses[16 + i] = targetIp[i]
-		}
+		address0 = NetworkOrder.Word(sourceMac[0], sourceMac[1]) as logic[16]
+		address1 = NetworkOrder.Word(sourceMac[2], sourceMac[3]) as logic[16]
+		address2 = NetworkOrder.Word(sourceMac[4], sourceMac[5]) as logic[16]
+		address3 = NetworkOrder.Word(sourceIp[0], sourceIp[1]) as logic[16]
+		address4 = NetworkOrder.Word(sourceIp[2], sourceIp[3]) as logic[16]
+		address5 = NetworkOrder.Word(targetMac[0], targetMac[1]) as logic[16]
+		address6 = NetworkOrder.Word(targetMac[2], targetMac[3]) as logic[16]
+		address7 = NetworkOrder.Word(targetMac[4], targetMac[5]) as logic[16]
+		address8 = NetworkOrder.Word(targetIp[0], targetIp[1]) as logic[16]
+		address9 = NetworkOrder.Word(targetIp[2], targetIp[3]) as logic[16]
 
 		ready = true
 		return PacketDataResult.Success
@@ -89,7 +99,33 @@ component ArpReply : IPacketData, IEthernetPayload
 			return PacketDataResult.Success
 		}
 
-		value = addresses[index - 8]
+		value = this.ArpHeaderByte(index, address0, address1, address2, address3, address4, address5, address6, address7, address8, address9)
 		return PacketDataResult.Success
+	}
+
+	/** Pure byte selection; no additional scheduled transaction. */
+	inline fn ArpHeaderByte[](index: int, snapshotaddress0: logic[16], snapshotaddress1: logic[16], snapshotaddress2: logic[16], snapshotaddress3: logic[16], snapshotaddress4: logic[16], snapshotaddress5: logic[16], snapshotaddress6: logic[16], snapshotaddress7: logic[16], snapshotaddress8: logic[16], snapshotaddress9: logic[16]) byte
+	{
+		if (index == 8) { return (snapshotaddress0 >> 8) as byte }
+		if (index == 9) { return snapshotaddress0 as byte }
+		if (index == 10) { return (snapshotaddress1 >> 8) as byte }
+		if (index == 11) { return snapshotaddress1 as byte }
+		if (index == 12) { return (snapshotaddress2 >> 8) as byte }
+		if (index == 13) { return snapshotaddress2 as byte }
+		if (index == 14) { return (snapshotaddress3 >> 8) as byte }
+		if (index == 15) { return snapshotaddress3 as byte }
+		if (index == 16) { return (snapshotaddress4 >> 8) as byte }
+		if (index == 17) { return snapshotaddress4 as byte }
+		if (index == 18) { return (snapshotaddress5 >> 8) as byte }
+		if (index == 19) { return snapshotaddress5 as byte }
+		if (index == 20) { return (snapshotaddress6 >> 8) as byte }
+		if (index == 21) { return snapshotaddress6 as byte }
+		if (index == 22) { return (snapshotaddress7 >> 8) as byte }
+		if (index == 23) { return snapshotaddress7 as byte }
+		if (index == 24) { return (snapshotaddress8 >> 8) as byte }
+		if (index == 25) { return snapshotaddress8 as byte }
+		if (index == 26) { return (snapshotaddress9 >> 8) as byte }
+		if (index == 27) { return snapshotaddress9 as byte }
+		return 0x00
 	}
 }

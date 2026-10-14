@@ -18,7 +18,7 @@ class NetworkOrder
 	 */
 	public static inline fn Word[](high: byte, low: byte) int
 	{
-		return NetworkOrder.ByteValue(high) * 256 + NetworkOrder.ByteValue(low)
+		return (((high as uint) << 8) | (low as uint)) as int
 	}
 
 	/**
@@ -26,7 +26,7 @@ class NetworkOrder
 	 */
 	public static inline fn HighByte[](value: int) byte
 	{
-		return (value / 256) as byte
+		return ((value as uint) >> 8) as byte
 	}
 
 	/**
@@ -34,6 +34,6 @@ class NetworkOrder
 	 */
 	public static inline fn LowByte[](value: int) byte
 	{
-		return (value % 256) as byte
+		return ((value as uint) & (0xFF as uint)) as byte
 	}
 }

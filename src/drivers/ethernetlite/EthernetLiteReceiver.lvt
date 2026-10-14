@@ -20,11 +20,15 @@ component EthernetLiteReceiver<CAPACITY: int = 128> : IFrameReceiver
 {
 	static assert CAPACITY >= 60 && CAPACITY <= 1514, "RX capacity must be 60..1514"
 
+	const LENGTH_BITS: int = Bits.RequiredFor(CAPACITY)
+
 	// Storage is mutable only before publication or after release.
-	storage: Ram<byte, CAPACITY>
+	const ADDRESS_BITS: int = Bits.RequiredFor(CAPACITY - 1)
+	memory: SynchronousRam<byte, logic[ADDRESS_BITS], CAPACITY>
+	storage: IRam<byte>
 	phase: EthernetLiteReceiveState
-	written: int
-	length: int
+	written: logic[LENGTH_BITS]
+	length: logic[LENGTH_BITS]
 	failed: bool
 
 	/**
@@ -32,7 +36,8 @@ component EthernetLiteReceiver<CAPACITY: int = 128> : IFrameReceiver
 	 */
 	new()
 	{
-		this.storage = new Ram<byte, CAPACITY>()
+		this.memory = new SynchronousRam<byte, logic[ADDRESS_BITS], CAPACITY>()
+		this.storage = new RamAccess<byte, logic[ADDRESS_BITS], CAPACITY, SynchronousRam<byte, logic[ADDRESS_BITS], CAPACITY>>(this.memory)
 	}
 
 	/**
@@ -68,7 +73,7 @@ component EthernetLiteReceiver<CAPACITY: int = 128> : IFrameReceiver
 			return 0
 		}
 
-		return this.length
+		return (this.length as uint) as int
 	}
 
 	/**
@@ -82,7 +87,7 @@ component EthernetLiteReceiver<CAPACITY: int = 128> : IFrameReceiver
 			return PacketDataResult.NotReady
 		}
 
-		if (index < 0 || index >= this.length) {
+		if (index < 0 || index >= ((this.length as uint) as int)) {
 			return PacketDataResult.Invalid
 		}
 
@@ -184,12 +189,12 @@ component EthernetLiteReceiver<CAPACITY: int = 128> : IFrameReceiver
 	 */
 	public fn TryAppend(value: byte) bool
 	{
-		if (this.phase != EthernetLiteReceiveState.Capturing || this.written >= CAPACITY) {
+		if (this.phase != EthernetLiteReceiveState.Capturing || ((this.written as uint) as int) >= CAPACITY) {
 			return false
 		}
 
-		this.storage.Write(this.written, value)
-		this.written = this.written + 1
+		this.storage.Write((this.written as uint) as int, value)
+		this.written++
 		return true
 	}
 
@@ -198,11 +203,11 @@ component EthernetLiteReceiver<CAPACITY: int = 128> : IFrameReceiver
 	 */
 	public fn TryPublish(length: int) bool
 	{
-		if (this.phase != EthernetLiteReceiveState.Capturing || length < 60 || length > this.written) {
+		if (this.phase != EthernetLiteReceiveState.Capturing || length < 60 || length > ((this.written as uint) as int)) {
 			return false
 		}
 
-		this.length = length
+		this.length = length as logic[LENGTH_BITS]
 		this.phase = EthernetLiteReceiveState.Available
 		return true
 	}

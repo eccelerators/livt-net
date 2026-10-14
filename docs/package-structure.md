@@ -62,30 +62,27 @@ window and checksum. All return `byte`; out-of-header indices return zero.
 Their documented input bounds are preconditions, not packet-validation results.
 Use the checked packet components when preparing a complete published response.
 
-The encoders no longer parse fixed offsets out of request arrays or implicitly
-swap endpoints. Reply direction is explicit at the composition root. TCP/HTTP emission now prepares the shared TCP/IPv4/Ethernet graph from explicit
-metadata and published content. Prepared ARP/ICMP graphs are unchanged. See
+The encoders use explicit metadata and do not parse fixed offsets out of request
+arrays or implicitly swap endpoints. Reply direction is explicit at the
+composition root. TCP/HTTP emission prepares the shared TCP/IPv4/Ethernet graph from explicit
+metadata and published content. ARP/ICMP use the same prepared-graph model. See
 [TCP composition](tcp-composition.md).
 
-## Migration
+## Helper API use
 
-- Replace checksum component fields and constructors with static calls.
 - Use `Ipv4HeaderChecksum.Calculate(totalLength, identification, sourceIp,
   destinationIp, protocol)`; total length is an integer, not split octets.
 - Use `TcpChecksum.CalculateFixedHeaderChecksum` or `CalculatePayloadChecksum`
-  with address, port, sequence and acknowledgment arrays. Scalar-octet and
-  `FromBytes` duplicate APIs are removed.
+  with address, port, sequence and acknowledgment arrays.
 - Use `NetworkOrder.Word(high, low)` to decode a word and `HighByte`/`LowByte`
   to encode a word in 0..65535. `ByteValue` interprets an octet as 0..255.
-  These replace repeated conversion methods on checksum components.
 - Pass actual `byte` data to `InternetChecksum.AddByte`. Convert a hardware logic
   vector explicitly at the boundary.
-- Replace builder instances and `GetReplyHeaderByte`/`GetResponseHeaderByte`
-  calls with the corresponding static `GetByte` and explicit metadata.
+- Call the static builder `GetByte` functions with explicit metadata.
 
-No compatibility wrappers are retained. Static extraction preserves the tested
-packet bytes and checksum values; it does not promise identical cycle counts or
-hardware costs. Verification uses Livt tests, with no synthesis requirement.
+Static extraction has no stored component state. It does not promise a particular
+combinational delay or hardware cost; verify representative compositions when
+changing a helper or its callers.
 
 Common inherited specializations live beside their protocols. See
 [common packet compositions](common-packets.md) for exact expansions, supported

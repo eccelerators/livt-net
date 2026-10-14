@@ -15,13 +15,15 @@ class Ipv4HeaderChecksum
 		totalLength: int, identification: byte[2],
 		sourceIp: byte[4], destinationIp: byte[4], protocol: byte) int
 	{
-		var sum = 0x4500 + totalLength
-		sum = sum + NetworkOrder.Word(identification[0], identification[1])
-		sum = sum + 0x4000 + 0x4000 + NetworkOrder.ByteValue(protocol)
-		sum = sum + NetworkOrder.Word(sourceIp[0], sourceIp[1])
-		sum = sum + NetworkOrder.Word(sourceIp[2], sourceIp[3])
-		sum = sum + NetworkOrder.Word(destinationIp[0], destinationIp[1])
-		sum = sum + NetworkOrder.Word(destinationIp[2], destinationIp[3])
-		return ChecksumArithmetic.Finish(sum)
+		// Keep the adder depth logarithmic so the pure helper remains a short
+		// combinational datapath when used inside a scheduled preparation step.
+		var a = 0x4500 + totalLength
+		var b = NetworkOrder.Word(identification[0], identification[1]) + 0x4000
+		var c = 0x4000 + NetworkOrder.ByteValue(protocol)
+		var d = NetworkOrder.Word(sourceIp[0], sourceIp[1]) + NetworkOrder.Word(sourceIp[2], sourceIp[3])
+		var e = NetworkOrder.Word(destinationIp[0], destinationIp[1]) + NetworkOrder.Word(destinationIp[2], destinationIp[3])
+		var left = a + b
+		var right = c + d + e
+		return ChecksumArithmetic.Finish(left + right)
 	}
 }

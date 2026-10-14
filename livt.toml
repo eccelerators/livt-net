@@ -7,6 +7,9 @@ outdir = "out"
 [tests]
 path = "tests"
 components = [
+	"CompactPacketFieldsTest",
+	"EthernetFrameContractTest",
+	"EthernetFrameServiceTest",
 	"SharedParserTest",
 	"PacketStorageParityTest",
 	"PacketConvenienceTest",
@@ -30,10 +33,12 @@ components = [
 	"FrameCompositionTest",
 	"EthernetFrameParserTest",
 	"IcmpEchoResponderTest",
+	"IcmpStorageBackendTest",
 	"InternetChecksumTest",
 	"Ipv4HeaderBuilderTest",
 	"Ipv4HeaderChecksumTest",
 	"Ipv4PacketParserTest",
+	"Ipv4PacketFieldsTest",
 	"RamIpv4PacketParserTest",
 	"TcpChecksumTest",
 	"TcpConnectionRecognizerTest",

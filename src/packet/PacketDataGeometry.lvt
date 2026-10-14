@@ -1,0 +1,11 @@
+namespace Livt.Net
+
+/**
+ * Compile-time capacity identity for interchangeable writable packet storage.
+ * It has no instance or runtime hardware. Implementations and consumers use the
+ * same specialization so incompatible capacities fail generic bound checking.
+ */
+component PacketDataGeometry<CAPACITY: int>
+{
+	static assert CAPACITY > 0, "Packet capacity must be positive"
+}

@@ -1,0 +1,89 @@
+namespace Livt.Net.Tests
+using Livt.Net
+
+/** Boundary vectors for compact fields and packed header snapshots. */
+@Test
+component CompactPacketFieldsTest
+{
+    payload: PacketMetadataStub
+    large: EthernetFrame<PacketMetadataStub, 65535>
+    small: EthernetFrame<PacketMetadataStub, 1>
+    data: ArrayPacketData<8>
+    header: PacketHeader<ArrayPacketData<8>, 3>
+
+    new()
+    {
+        payload = new PacketMetadataStub()
+        large = new EthernetFrame<PacketMetadataStub, 65535>(payload)
+        small = new EthernetFrame<PacketMetadataStub, 1>(payload)
+        data = new ArrayPacketData<8>()
+        header = new PacketHeader<ArrayPacketData<8>, 3>(data)
+    }
+
+    @Test
+    fn EthernetLengthExtremes()
+    {
+        payload.Configure(65535, 0xFEDC, 0, true, -1)
+        var source: byte[6] = [0x80, 0xFE, 0xAA, 0xBB, 0xCC, 0xDD]
+        var destination: byte[6] = [0xFF, 0x81, 0x82, 0x83, 0x84, 0x85]
+        assert large.TryPrepare(source, destination) == PacketDataResult.Success
+        assert large.GetAvailableLength() == 65549
+        source[0] = 0x00
+        destination[0] = 0x00
+        var expected: byte[14] = [0xFF, 0x81, 0x82, 0x83, 0x84, 0x85, 0x80, 0xFE, 0xAA, 0xBB, 0xCC, 0xDD, 0xFE, 0xDC]
+        var value: byte = 0x00
+        for (var i = 0; i < 14; i++) {
+            assert large.TryRead(i, value) == PacketDataResult.Success
+            assert value == expected[i]
+        }
+        assert large.TryRead(65548, value) == PacketDataResult.Success
+        assert value == 0xA5
+        assert large.TryRead(65549, value) == PacketDataResult.Invalid
+        assert value == 0x00
+        payload.Configure(1, 0x0800, 0, true, -1)
+        assert small.TryPrepare(source, destination) == PacketDataResult.Success
+        assert small.GetAvailableLength() == 60
+        assert small.TryRead(14, value) == PacketDataResult.Success
+        assert value == 0xA5
+        assert small.TryRead(59, value) == PacketDataResult.Success
+        assert value == 0x00
+        assert small.TryRead(60, value) == PacketDataResult.Invalid
+        payload.Configure(65536, 0x0800, 0, true, -1)
+        assert large.TryPrepare(source, destination) == PacketDataResult.Invalid
+        assert !large.IsReady()
+    }
+
+    @Test
+    fn OddHeaderBoundariesAndReuse()
+    {
+        assert data.TryWrite(0, 0x80) == PacketDataResult.Success
+        assert data.TryWrite(1, 0xFF) == PacketDataResult.Success
+        assert data.TryWrite(2, 0xA5) == PacketDataResult.Success
+        assert data.TryPublish() == PacketDataResult.Success
+        assert header.TryLoad() == PacketParseResult.Success
+        assert header.GetByte(0) == 0x80
+        assert header.GetByte(2) == 0xA5
+        assert header.GetByte(3) == 0x00
+        assert header.GetWord(-1) == 0x0080
+        assert header.GetWord(0) == 0x80FF
+        assert header.GetWord(2) == 0xA500
+        assert header.GetSequence(0) == (0x80FFA500 as uint)
+        header.Invalidate()
+        assert data.TryRelease() == PacketDataResult.Success
+        assert header.GetWord(0) == 0
+        assert data.TryWrite(0, 0x12) == PacketDataResult.Success
+        assert data.TryWrite(1, 0x34) == PacketDataResult.Success
+        assert data.TryPublish() == PacketDataResult.Success
+        assert header.TryLoad() == PacketParseResult.Truncated
+        assert header.GetByte(0) == 0x00
+        assert data.TryRelease() == PacketDataResult.Success
+        assert data.TryWrite(0, 0x01) == PacketDataResult.Success
+        assert data.TryWrite(1, 0x02) == PacketDataResult.Success
+        assert data.TryWrite(2, 0x03) == PacketDataResult.Success
+        assert data.TryPublish() == PacketDataResult.Success
+        assert header.TryLoad() == PacketParseResult.Success
+        assert header.GetSequence(0) == (0x01020300 as uint)
+        assert data.TryRelease() == PacketDataResult.Success
+        assert header.GetByte(0) == 0x00
+    }
+}

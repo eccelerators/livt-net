@@ -1,0 +1,25 @@
+namespace Livt.Net.Drivers.Ethernet
+
+using Livt.Net
+using Livt.IO
+
+/** Result conversion keeps the two packages' public enums independent. */
+component EthernetLinkResults
+{
+	public static fn Map[](result: EthernetResult) FrameLinkResult
+	{
+		if (result == EthernetResult.Success) { return FrameLinkResult.Success }
+
+		if (result == EthernetResult.Accepted) { return FrameLinkResult.Accepted }
+
+		if (result == EthernetResult.NotReady) { return FrameLinkResult.NotReady }
+
+		if (result == EthernetResult.Busy) { return FrameLinkResult.Busy }
+
+		if (result == EthernetResult.Invalid) { return FrameLinkResult.Invalid }
+
+		if (result == EthernetResult.Unsupported) { return FrameLinkResult.Unsupported }
+
+		return FrameLinkResult.DeviceFailure
+	}
+}

@@ -1,0 +1,30 @@
+namespace Livt.Net
+
+/**
+ * Exclusively owned, writable packet snapshot. Writes initialize a contiguous
+ * prefix; publish freezes it, release permits reuse, and clear abandons an
+ * unpublished prefix. Neither release nor reset promises to erase cells.
+ * Share the clock/reset context and finish all readers before release/reuse.
+ * Invalid writes and Busy leave the initialized prefix unchanged.
+ * GEOMETRY makes the fixed capacity part of the static capability identity.
+ */
+interface IWritablePacketData<GEOMETRY> : IPacketData
+{
+	/** Returns the fixed writable capacity. */
+	fn GetCapacity() int
+
+	/** Returns the initialized contiguous prefix, whether published or not. */
+	fn GetWrittenLength() int
+
+	/** Appends or overwrites within the initialized prefix while unpublished. */
+	fn TryWrite(index: int, value: byte) PacketDataResult
+
+	/** Freezes the initialized prefix for readers. */
+	fn TryPublish() PacketDataResult
+
+	/** Ends a published lifetime and permits reuse. */
+	fn TryRelease() PacketDataResult
+
+	/** Abandons an unpublished prefix. */
+	fn TryClear() PacketDataResult
+}

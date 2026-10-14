@@ -70,10 +70,8 @@ component ArpResponder<S: IPacketData> : IPacketData
 
 		var destination = parser.GetTargetIpv4()
 
-		for (var i = 0; i < 4; i++) {
-			if (destination[i] != localIp[i]) {
-				return PacketDataResult.Invalid
-			}
+		if (destination[0] != localIp[0] || destination[1] != localIp[1] || destination[2] != localIp[2] || destination[3] != localIp[3]) {
+			return PacketDataResult.Invalid
 		}
 
 		var peerMac = parser.GetSenderMac()

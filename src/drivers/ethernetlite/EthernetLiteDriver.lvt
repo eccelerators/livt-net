@@ -97,18 +97,16 @@ component EthernetLiteDriver<B: IEthernetLiteRegisterAccess, S: IPacketData, RX_
 			var word: logic[32] = 0x00000000
 
 			for (var lane = 0; lane < 4; lane++) {
-				var offset = index * 4 + lane
+				var offset = (index << 2) + lane
 
 				if (offset < 6) {
 					var octet = this.mac[offset] as logic[8]
 
-					for (var bit = 0; bit < 8; bit++) {
-						word[lane * 8 + bit] = octet[bit]
-					}
+					word = word | (((octet as uint) as logic[32]) << (lane << 3))
 				}
 			}
 
-			if (!this.bus.Write((index * 4) as logic[13], word)) {
+			if (!this.bus.Write((index << 2) as logic[13], word)) {
 				return false
 			}
 		}
@@ -163,11 +161,7 @@ component EthernetLiteDriver<B: IEthernetLiteRegisterAccess, S: IPacketData, RX_
 						return true
 					}
 
-					var bits = value as logic[8]
-
-					for (var bit = 0; bit < 8; bit++) {
-						word[lane * 8 + bit] = bits[bit]
-					}
+					word = word | (((value as uint) as logic[32]) << (lane << 3))
 				}
 			}
 
@@ -229,11 +223,7 @@ component EthernetLiteDriver<B: IEthernetLiteRegisterAccess, S: IPacketData, RX_
 
 			for (var lane = 0; lane < 4; lane++) {
 				if (!this.window.IsFinished()) {
-					var value: logic[8] = 0x00
-
-					for (var bit = 0; bit < 8; bit++) {
-						value[bit] = word[lane * 8 + bit]
-					}
+					var value = (word >> (lane << 3)) as logic[8]
 
 					if (index + lane < RX_CAPACITY) {
 						if (!this.receiver.TryAppend(value as byte)) {

@@ -11,10 +11,10 @@ component IcmpEchoReply<P: IPacketData> : IPacketData, IIpv4Payload
 	payload: P
 
 	// Prepared echo header metadata and bounded data length.
-	identifier: int
-	sequence: int
-	checksum: int
-	dataLength: int
+	identifier: logic[16]
+	sequence: logic[16]
+	checksum: logic[16]
+	dataLength: logic[16]
 	ready: bool
 
 	// Owned accumulator used only while preparing the checksum.
@@ -56,8 +56,8 @@ component IcmpEchoReply<P: IPacketData> : IPacketData, IIpv4Payload
 			return PacketDataResult.Invalid
 		}
 
-		this.identifier = NetworkOrder.Word(identifier[0], identifier[1])
-		this.sequence = NetworkOrder.Word(sequence[0], sequence[1])
+		this.identifier = NetworkOrder.Word(identifier[0], identifier[1]) as logic[16]
+		this.sequence = NetworkOrder.Word(sequence[0], sequence[1]) as logic[16]
 		calculator.Reset()
 
 		// Reply type, code and checksum are all zero during calculation.
@@ -77,8 +77,8 @@ component IcmpEchoReply<P: IPacketData> : IPacketData, IIpv4Payload
 			calculator.AddByte(value)
 		}
 
-		checksum = calculator.GetChecksum()
-		dataLength = size
+		checksum = calculator.GetChecksum() as logic[16]
+		dataLength = size as logic[16]
 		ready = true
 		return PacketDataResult.Success
 	}
@@ -108,7 +108,7 @@ component IcmpEchoReply<P: IPacketData> : IPacketData, IIpv4Payload
 			return 0
 		}
 
-		return 8 + dataLength
+		return 8 + ((dataLength as uint) as int)
 	}
 
 	/**
@@ -126,44 +126,27 @@ component IcmpEchoReply<P: IPacketData> : IPacketData, IIpv4Payload
 			return PacketDataResult.NotReady
 		}
 
-		if (index < 0 || index >= 8 + dataLength) {
+		if (index < 0 || index >= 8 + ((dataLength as uint) as int)) {
 			return PacketDataResult.Invalid
 		}
 
-		if (index < 2) {
-			return PacketDataResult.Success
-		}
-
-		if (index == 2) {
-			value = (checksum / 256) as byte;
-			return PacketDataResult.Success
-		}
-
-		if (index == 3) {
-			value = (checksum % 256) as byte;
-			return PacketDataResult.Success
-		}
-
-		if (index == 4) {
-			value = (identifier / 256) as byte;
-			return PacketDataResult.Success
-		}
-
-		if (index == 5) {
-			value = (identifier % 256) as byte;
-			return PacketDataResult.Success
-		}
-
-		if (index == 6) {
-			value = (sequence / 256) as byte;
-			return PacketDataResult.Success
-		}
-
-		if (index == 7) {
-			value = (sequence % 256) as byte;
+		if (index < 8) {
+			value = this.IcmpHeaderByte(index, identifier, sequence, checksum)
 			return PacketDataResult.Success
 		}
 
 		return payload.TryRead(index - 8, value)
+	}
+
+	/** Pure byte selection; no additional scheduled transaction. */
+	inline fn IcmpHeaderByte[](index: int, snapshotidentifier: logic[16], snapshotsequence: logic[16], snapshotchecksum: logic[16]) byte
+	{
+		if (index == 2) { return (snapshotchecksum >> 8) as byte }
+		if (index == 3) { return snapshotchecksum as byte }
+		if (index == 4) { return (snapshotidentifier >> 8) as byte }
+		if (index == 5) { return snapshotidentifier as byte }
+		if (index == 6) { return (snapshotsequence >> 8) as byte }
+		if (index == 7) { return snapshotsequence as byte }
+		return 0x00
 	}
 }

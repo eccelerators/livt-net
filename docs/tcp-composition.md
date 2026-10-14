@@ -68,10 +68,8 @@ TX borrowing. Finish TX completion/acknowledgment, invalidate frame then packet
 then segment, and finally release or replace the provider. Invalidating a child
 behind a prepared parent violates this ownership contract.
 
-## Consumer migration
+## Header-only responses
 
-The specialized raw-request `TcpSynAckFrameComposer` is removed. Publish an empty
-provider and prepare this same graph with SYN-ACK metadata. The old per-byte
-HTTP frame composer and caller-supplied checksum API are also replaced; Web binds
-content and prepares a composed frame before any response reads. These changes
-intentionally require matching development Web and WebApp sources.
+Publish an empty provider and prepare this graph with SYN-ACK metadata for a
+header-only response. Payload-bearing consumers publish their content before
+preparation so the segment calculates its checksum from the actual bytes.

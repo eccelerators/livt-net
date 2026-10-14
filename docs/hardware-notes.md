@@ -15,7 +15,6 @@ The current stack targets:
 - IPv4 packets with fixed headers and no fragmentation.
 - ICMP echo requests.
 - TCP SYN, ACK, PSH+ACK, and FIN+ACK classification for a local port.
-
 - Ethernet-minimum response padding where needed.
 
 Unsupported packet forms are ignored by the endpoint dispatcher.
@@ -23,8 +22,8 @@ Unsupported packet forms are ignored by the endpoint dispatcher.
 ## Checksums
 
 Checksum helpers follow the RFC 1071 one's-complement checksum model. Several
-response builders rely on precomputed word sums where fixed protocol headers need checksums
-and caller-supplied body checksum metadata.
+response builders rely on precomputed word sums where fixed protocol headers
+need checksums and caller-supplied body checksum metadata.
 
 Higher-layer response generators own payload bytes and supply:
 
@@ -46,5 +45,28 @@ FCS-free bounded captures, TX limits, completion, errors and coordinated reset.
 may retain bytes across metadata reset, but unpublished data is not readable.
 There is no equal-latency, FPGA area or timing claim from these abstractions.
 
-Current verification uses Livt tests only. Historical native AXI and board
-results for EthernetFrameIo do not verify the extracted implementation.
+## Livt.IO MAC boundary
+
+`Livt.Net.Drivers.Ethernet` adapts IO's complete-frame RX and buffered TX capabilities
+without duplicating MAC, PHY or protocol logic. RX reports exact FCS-free length;
+TX retains prepared responses through IO wire completion. See the
+[adapter contract](ethernet.md) and [native RMII integration suite](../verification/io-ethernet/README.md).
+Clock-domain crossing and media-rate support belong to the underlying Livt.IO
+capability and its composition; the Net adapter adds neither.
+
+## IPv4 reply header storage
+
+`Ipv4Packet` stores seven 16-bit words (total length, identification, checksum
+and the two halves of each address) plus the protocol byte. `TryRead` selects
+header bytes from these fields and fixed constants. Preparation uses the existing
+`Ipv4HeaderChecksum.Calculate` helper to sum header words directly; it no longer
+constructs and rereads a writable 20-byte header array.
+
+Public preparation/read APIs, snapshot ownership, invalid-input behavior and
+payload delegation are unchanged. Length and protocol inputs are checked before
+narrowing, and the stored length is widened unsigned when exposed as an `int`,
+including the maximum total length of 65,535 bytes. Preparation still publishes
+readiness only after all fields are captured. Scheduled cycle counts may change.
+
+The [resource architecture](resource-optimization.md) documents the package-wide
+storage, arithmetic, scheduling, and verification rules.

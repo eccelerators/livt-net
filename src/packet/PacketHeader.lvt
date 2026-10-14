@@ -11,7 +11,9 @@ component PacketHeader<S: IPacketData, SIZE: int> : IPacketData
 	source: S
 
 	// Owned header snapshot and validation state.
-	header: byte[SIZE]
+	const HEADER_BITS: int = SIZE * 8
+	const LOAD_BITS: int = Bits.RequiredFor(SIZE)
+	header: logic[HEADER_BITS]
 	loaded: bool
 	opened: bool
 
@@ -54,16 +56,17 @@ component PacketHeader<S: IPacketData, SIZE: int> : IPacketData
 			return PacketParseResult.Truncated
 		}
 
-		for (var i = 0; i < SIZE; i++) {
+		for (var i: logic[LOAD_BITS] = 0; ((i as uint) as int) < SIZE; i++) {
 			var value: byte = 0x00
 
-			var result = source.TryRead(i, value)
+			var result = source.TryRead((i as uint) as int, value)
 
 			if (result != PacketDataResult.Success) {
 				return PacketParseResult.NotReady
 			}
 
-			header[i] = value
+			// A constant shift appends one byte without an indexed array write.
+			header = (header << 8) | ((value as uint) as logic[HEADER_BITS])
 		}
 
 		loaded = true
@@ -87,7 +90,7 @@ component PacketHeader<S: IPacketData, SIZE: int> : IPacketData
 			return 0x00
 		}
 
-		return header[index]
+		return this.ByteAt(header, index)
 	}
 
 	/**
@@ -107,7 +110,7 @@ component PacketHeader<S: IPacketData, SIZE: int> : IPacketData
 	{
 		var high = this.GetWord(index)
 		var low = this.GetWord(index + 2)
-		return (high as uint) * (65536 as uint) + (low as uint)
+		return ((high as uint) << 16) | (low as uint)
 	}
 
 	/**
@@ -172,4 +175,12 @@ component PacketHeader<S: IPacketData, SIZE: int> : IPacketData
 		value = readValue
 		return result
 	}
+
+	/** Pure selection from a fully loaded network-order shift register. */
+	inline fn ByteAt[](snapshot: logic[HEADER_BITS], index: int) byte
+	{
+		if (index < 0 || index >= SIZE) { return 0x00 }
+		return (snapshot >> ((SIZE - 1 - index) << 3)) as byte
+	}
+
 }

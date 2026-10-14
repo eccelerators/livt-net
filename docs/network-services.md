@@ -108,9 +108,10 @@ Serialize their use; invalidate external descendants (such as TCP parsing) befor
 handling another request or clearing diagnostics. These are fixed hardware
 bindings, not dynamically selected parser objects.
 
-`IcmpEchoResponder` retains echo bytes in `RamPacketData<CAPACITY>` so successful
-responses remain independent of RX. The common Web endpoint uses one receive RAM
-for HTTP and these services; it no longer duplicates every frame into two arrays.
+`IcmpEchoResponder<S, FRAME_CAPACITY, B>` owns its echo-byte backend, which
+defaults to `RamPacketData<FRAME_CAPACITY>`, so successful responses remain
+independent of RX. The common Web endpoint uses one receive RAM for HTTP and
+these services; it no longer duplicates every frame into two arrays.
 
 ## Custom policies and handlers
 

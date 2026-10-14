@@ -1,0 +1,138 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+/** Exercises one owned generic ICMP responder with its default RAM and explicit array backends. */
+@Test
+component IcmpStorageBackendTest
+{
+	const REQUEST: byte[60] = [0x00, 0x00, 0x5E, 0x00, 0xFA, 0xCE, 0x02, 0x10, 0x20, 0x30, 0x40, 0x50, 0x08, 0x00, 0x45, 0x00, 0x00, 0x20, 0x12, 0x34, 0x40, 0x00, 0x40, 0x01, 0x14, 0xA7, 0x0A, 0x00, 0x00, 0x02, 0x0A, 0x00, 0x00, 0x01, 0x08, 0x00, 0x38, 0x7C, 0xBE, 0xEF, 0x01, 0x02, 0x00, 0x80, 0xFF, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+	const REPLY: byte[60] = [0x02, 0x10, 0x20, 0x30, 0x40, 0x50, 0x00, 0x00, 0x5E, 0x00, 0xFA, 0xCE, 0x08, 0x00, 0x45, 0x00, 0x00, 0x20, 0x12, 0x34, 0x40, 0x00, 0x40, 0x01, 0x14, 0xA7, 0x0A, 0x00, 0x00, 0x01, 0x0A, 0x00, 0x00, 0x02, 0x00, 0x00, 0x40, 0x7C, 0xBE, 0xEF, 0x01, 0x02, 0x00, 0x80, 0xFF, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+
+	arrayRequest: ArrayPacketData<128>
+	arrayEthernet: EthernetFrameParser<ArrayPacketData<128>>
+	arrayIpv4: Ipv4PacketParser<EthernetFrameParser<ArrayPacketData<128>>>
+	arrayResponder: IcmpEchoResponder<ArrayPacketData<128>, 128, ArrayPacketData<128>>
+
+	ramRequest: ArrayPacketData<128>
+	ramEthernet: EthernetFrameParser<ArrayPacketData<128>>
+	ramIpv4: Ipv4PacketParser<EthernetFrameParser<ArrayPacketData<128>>>
+	ramResponder: IcmpEchoResponder<ArrayPacketData<128>>
+
+	new()
+	{
+		arrayRequest = new ArrayPacketData<128>()
+		arrayEthernet = new EthernetFrameParser<ArrayPacketData<128>>(arrayRequest)
+		arrayIpv4 = new Ipv4PacketParser<EthernetFrameParser<ArrayPacketData<128>>>(arrayEthernet)
+		arrayResponder = new IcmpEchoResponder<ArrayPacketData<128>, 128, ArrayPacketData<128>>(arrayEthernet, arrayIpv4)
+
+		ramRequest = new ArrayPacketData<128>()
+		ramEthernet = new EthernetFrameParser<ArrayPacketData<128>>(ramRequest)
+		ramIpv4 = new Ipv4PacketParser<EthernetFrameParser<ArrayPacketData<128>>>(ramEthernet)
+		ramResponder = new IcmpEchoResponder<ArrayPacketData<128>>(ramEthernet, ramIpv4)
+	}
+
+	fn FillArrayRequest(length: int)
+	{
+		if (arrayRequest.IsReady()) { arrayRequest.TryRelease() }
+		else { arrayRequest.TryClear() }
+
+		for (var i = 0; i < length; i++) {
+			assert arrayRequest.TryWrite(i, REQUEST[i]) == PacketDataResult.Success
+		}
+
+		assert arrayRequest.TryPublish() == PacketDataResult.Success
+	}
+
+	fn FillRamRequest(length: int)
+	{
+		if (ramRequest.IsReady()) { ramRequest.TryRelease() }
+		else { ramRequest.TryClear() }
+
+		for (var i = 0; i < length; i++) {
+			assert ramRequest.TryWrite(i, REQUEST[i]) == PacketDataResult.Success
+		}
+
+		assert ramRequest.TryPublish() == PacketDataResult.Success
+	}
+
+	fn CheckArrayReply()
+	{
+		var actual: byte = 0x00
+
+		for (var i = 0; i < 60; i++) {
+			assert arrayResponder.TryRead(i, actual) == PacketDataResult.Success
+			assert actual == REPLY[i]
+		}
+	}
+
+	fn CheckRamReply()
+	{
+		var actual: byte = 0x00
+
+		for (var i = 0; i < 60; i++) {
+			assert ramResponder.TryRead(i, actual) == PacketDataResult.Success
+			assert actual == REPLY[i]
+		}
+	}
+
+	@Test
+	fn ArrayBackendSurvivesRequestReuse()
+	{
+		this.FillArrayRequest(60)
+		var localMac: byte[6] = [0x00, 0x00, 0x5E, 0x00, 0xFA, 0xCE]
+		var localIp: byte[4] = [10, 0, 0, 1]
+		assert arrayResponder.TryPrepare(localMac, localIp) == PacketDataResult.Success
+
+		// The responder closed its parser views and retained an owned snapshot.
+		assert arrayRequest.TryRelease() == PacketDataResult.Success
+		assert arrayRequest.TryWrite(0, 0xEE) == PacketDataResult.Success
+		assert arrayRequest.TryPublish() == PacketDataResult.Success
+		this.CheckArrayReply()
+
+		arrayResponder.Invalidate()
+		assert !arrayResponder.IsReady()
+		this.FillArrayRequest(60)
+		assert arrayResponder.TryPrepare(localMac, localIp) == PacketDataResult.Success
+		arrayResponder.Invalidate()
+	}
+
+	@Test
+	fn DefaultRamBackendSurvivesRequestReuse()
+	{
+		this.FillRamRequest(60)
+		var localMac: byte[6] = [0x00, 0x00, 0x5E, 0x00, 0xFA, 0xCE]
+		var localIp: byte[4] = [10, 0, 0, 1]
+		assert ramResponder.TryPrepare(localMac, localIp) == PacketDataResult.Success
+		assert ramRequest.TryRelease() == PacketDataResult.Success
+		assert ramRequest.TryWrite(0, 0xEE) == PacketDataResult.Success
+		assert ramRequest.TryPublish() == PacketDataResult.Success
+		this.CheckRamReply()
+
+		ramResponder.Invalidate()
+		assert !ramResponder.IsReady()
+		this.FillRamRequest(60)
+		assert ramResponder.TryPrepare(localMac, localIp) == PacketDataResult.Success
+		ramResponder.Invalidate()
+	}
+
+	@Test
+	fn FailureLeavesBothBackendsReusable()
+	{
+		this.FillArrayRequest(41)
+		this.FillRamRequest(41)
+		var localMac: byte[6] = [0x00, 0x00, 0x5E, 0x00, 0xFA, 0xCE]
+		var localIp: byte[4] = [10, 0, 0, 1]
+		assert arrayResponder.TryPrepare(localMac, localIp) == PacketDataResult.Invalid
+		assert ramResponder.TryPrepare(localMac, localIp) == PacketDataResult.Invalid
+		assert !arrayResponder.IsReady()
+		assert !ramResponder.IsReady()
+
+		this.FillArrayRequest(60)
+		this.FillRamRequest(60)
+		assert arrayResponder.TryPrepare(localMac, localIp) == PacketDataResult.Success
+		assert ramResponder.TryPrepare(localMac, localIp) == PacketDataResult.Success
+		this.CheckArrayReply()
+		this.CheckRamReply()
+	}
+}

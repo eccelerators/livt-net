@@ -78,12 +78,19 @@ Protocol identity is separate from byte access: implement `IEthernetPayload` or
 `IIpv4Payload` alongside `IPacketData` for a custom protocol leaf. TCP pseudo-header
 checksums, general TCP, streaming and other protocol extensions remain separate.
 
-## Common request/reply API and migration
+## Common request/reply API
 
-`ArpResponder<S>` and `IcmpEchoResponder<S, CAPACITY>` own their prepared graphs
-bind an Ethernet-frame provider and expose one checked operation:
+`ArpResponder<S>` and `IcmpEchoResponder<S, FRAME_CAPACITY, B>` own their prepared graphs,
+bind an Ethernet-frame provider and expose one checked operation. The ICMP backend
+defaults to `RamPacketData<FRAME_CAPACITY>` and can be selected explicitly:
 
 ```livt
+// Omitting B owns RAM-backed echo storage.
+defaultResponder: IcmpEchoResponder<ArrayPacketData<128>>
+
+// An explicit backend remains a compile-time choice.
+arrayResponder: IcmpEchoResponder<ArrayPacketData<128>, 128, ArrayPacketData<128>>
+
 var result = responder.TryPrepare(localMac, localIp)
 if (result == PacketDataResult.Success) {
     var value: byte = 0x00
@@ -102,17 +109,11 @@ clears any prior response. ARP snapshots addresses; ICMP snapshots addresses,
 identifiers and echo data. After successful preparation the caller can release and reuse the source,
 while keeping the prepared response stable until emission finishes.
 
-This replaces `GetReplyByte(request, index, localMac, localIp)` and
-`GetReplyLength(request)`. Prepare once, then use checked reads and the prepared
-length. Recognition-only callers use the bounded parsers; `ShouldRespond` and
-array-based preparation signatures have been removed. See [packet parsing](packet-parsing.md)
-for failure-path invalidation and checksum policy. No old emission signatures or duplicate byte encoders
-are retained. TCP now uses prepared `TcpSegment<P>` compositions as documented in
-[tcp-composition.md](tcp-composition.md).
+Prepare once, then use checked reads and the prepared length. Recognition-only
+callers use the bounded parsers. See [packet parsing](packet-parsing.md) for
+failure-path invalidation and checksum policy. TCP uses prepared
+`TcpSegment<P>` compositions as documented in [tcp-composition.md](tcp-composition.md).
 
-Livt.Web's NetworkEndpoint uses the new preparation API and invalidates responses
-when beginning another frame. The WebApp consumes that endpoint transitively.
-This is a breaking development-package change; update Net and Web together.
 For valid ICMP requests the reply bytes are preserved. For inconsistent incoming
 ICMP checksum fields, the new response checksum follows the actual bytes instead
 of adjusting the supplied field. Incoming checksum validation remains a separate

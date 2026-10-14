@@ -1,0 +1,89 @@
+namespace Livt.Net.Tests
+using Livt.Net
+
+/** Checks independent wire vectors and the full public integer range. */
+@Test
+component Ipv4PacketFieldsTest
+{
+	payload: PacketMetadataStub
+	packet: Ipv4Packet<PacketMetadataStub>
+
+	new()
+	{
+		payload = new PacketMetadataStub()
+		packet = new Ipv4Packet<PacketMetadataStub>(payload)
+	}
+
+	@Test
+	fn MaximumLengthAndUnsignedFields()
+	{
+		payload.Configure(65515, 0x0800, 255, true, -1)
+		var source: byte[4] = [0xFE, 0xDC, 0xBA, 0x98]
+		var destination: byte[4] = [0x89, 0xAB, 0xCD, 0xEF]
+		var identification: byte[2] = [0xFE, 0xDC]
+		assert packet.TryPrepare(source, destination, identification) == PacketDataResult.Success
+		assert packet.GetAvailableLength() == 65535
+		// Preparation owns a snapshot, not references to the caller's arrays.
+		source[0] = 0x00
+		destination[3] = 0x00
+		identification[0] = 0x00
+		// Independently calculated checksum 0x2A12, including repeated carries.
+		var expected: byte[20] = [0x45, 0x00, 0xFF, 0xFF, 0xFE, 0xDC, 0x40, 0x00, 0x40, 0xFF, 0x2A, 0x12, 0xFE, 0xDC, 0xBA, 0x98, 0x89, 0xAB, 0xCD, 0xEF]
+		var value: byte = 0x00
+		for (var i = 0; i < 20; i++) {
+			assert packet.TryRead(i, value) == PacketDataResult.Success
+			assert value == expected[i]
+		}
+		assert packet.TryRead(65534, value) == PacketDataResult.Success
+		assert value == 0xA5
+		assert packet.TryRead(65535, value) == PacketDataResult.Invalid
+		assert value == 0x00
+		assert packet.TryRead(-1, value) == PacketDataResult.Invalid
+		assert value == 0x00
+	}
+
+	@Test
+	fn MinimumPacketAndInvalidation()
+	{
+		payload.Configure(1, 0x0800, 0, true, -1)
+		assert packet.TryPrepare([0x00, 0x00, 0x00, 0x00], [0x00, 0x00, 0x00, 0x00], [0x00, 0x00]) == PacketDataResult.Success
+		assert packet.GetAvailableLength() == 21
+		var expected: byte[20] = [0x45, 0x00, 0x00, 0x15, 0x00, 0x00, 0x40, 0x00, 0x40, 0x00, 0x3A, 0xEA, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+		var value: byte = 0x00
+		for (var i = 0; i < 20; i++) {
+			assert packet.TryRead(i, value) == PacketDataResult.Success
+			assert value == expected[i]
+		}
+		assert packet.TryRead(20, value) == PacketDataResult.Success
+		assert value == 0xA5
+		payload.Configure(1, 0x0800, 0, true, 0)
+		assert packet.TryRead(20, value) == PacketDataResult.Invalid
+		assert value == 0x00
+		packet.Invalidate()
+		assert !packet.IsReady()
+		assert packet.GetAvailableLength() == 0
+		assert packet.TryRead(0, value) == PacketDataResult.NotReady
+		assert value == 0x00
+	}
+
+	@Test
+	fn RejectBeforeNarrowingAndDiscardPreviousPreparation()
+	{
+		var lengths: int[6] = [-1, 0, 65516, 1, 1, 65515]
+		var protocols: int[6] = [1, 1, 1, -1, 256, 256]
+		var value: byte = 0xFF
+		for (var i = 0; i < 6; i++) {
+			payload.Configure(1, 0x0800, 1, true, -1)
+			assert packet.TryPrepare([0xFF, 0xFF, 0xFF, 0xFF], [0xFF, 0xFF, 0xFF, 0xFF], [0xFF, 0xFF]) == PacketDataResult.Success
+			payload.Configure(lengths[i], 0x0800, protocols[i], true, -1)
+			assert packet.TryPrepare([0x00, 0x00, 0x00, 0x00], [0x00, 0x00, 0x00, 0x00], [0x00, 0x00]) == PacketDataResult.Invalid
+			assert !packet.IsReady()
+			assert packet.GetAvailableLength() == 0
+			assert packet.TryRead(0, value) == PacketDataResult.NotReady
+			assert value == 0x00
+		}
+		payload.Configure(1, 0x0800, 1, false, -1)
+		assert packet.TryPrepare([0x00, 0x00, 0x00, 0x00], [0x00, 0x00, 0x00, 0x00], [0x00, 0x00]) == PacketDataResult.NotReady
+		assert !packet.IsReady()
+	}
+}

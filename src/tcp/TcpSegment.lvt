@@ -3,14 +3,22 @@ namespace Livt.Net
 /**
  * Prepared fixed-header TCP segment over a borrowed payload. No options or
  * connection state. Preparation reads the complete payload once to calculate
- * the IPv4 pseudo-header checksum. Only the 20-byte header is stored here.
+ * the IPv4 pseudo-header checksum. Only variable header fields are stored here.
  */
 component TcpSegment<P: IPacketData> : IPacketData, IIpv4Payload
 {
 	// Borrowed publication and owned prepared header metadata.
 	payload: P
-	header: byte[20]
-	length: int
+	sourcePortWord: logic[16]
+	destinationPortWord: logic[16]
+	sequenceHigh: logic[16]
+	sequenceLow: logic[16]
+	ackHigh: logic[16]
+	ackLow: logic[16]
+	windowWord: logic[16]
+	checksumWord: logic[16]
+	flagsByte: byte
+	length: logic[16]
 	ready: bool
 	calculator: InternetChecksum
 
@@ -52,28 +60,14 @@ component TcpSegment<P: IPacketData> : IPacketData, IIpv4Payload
 
 		this.calculator.Reset()
 
-		// Accumulate the pseudo-header and zero-checksum TCP header across
-		// scheduled calls instead of one long combinational checksum expression.
-		for (var i = 0; i < 4; i++) {
-			this.calculator.AddByte(sourceIp[i])
-		}
-
-		for (var i = 0; i < 4; i++) {
-			this.calculator.AddByte(destinationIp[i])
-		}
-
-		this.calculator.AddByte(0x00)
-		this.calculator.AddByte(IIpv4Payload.PROTOCOL_TCP)
-		this.calculator.AddByte(NetworkOrder.HighByte(20 + size))
-		this.calculator.AddByte(NetworkOrder.LowByte(20 + size))
-		var checksumBytes: byte[2] = [0x00, 0x00]
-
-		for (var i = 0; i < 20; i++) {
-			var octet = TcpSegmentBuilder.GetByte(i, sourcePort, destinationPort,
-				sequence, acknowledgment, flags, window, checksumBytes)
-			this.header[i] = octet
-			this.calculator.AddByte(octet)
-		}
+		sourcePortWord = NetworkOrder.Word(sourcePort[0], sourcePort[1]) as logic[16]
+		destinationPortWord = NetworkOrder.Word(destinationPort[0], destinationPort[1]) as logic[16]
+		sequenceHigh = NetworkOrder.Word(sequence[0], sequence[1]) as logic[16]
+		sequenceLow = NetworkOrder.Word(sequence[2], sequence[3]) as logic[16]
+		ackHigh = NetworkOrder.Word(acknowledgment[0], acknowledgment[1]) as logic[16]
+		ackLow = NetworkOrder.Word(acknowledgment[2], acknowledgment[3]) as logic[16]
+		windowWord = NetworkOrder.Word(window[0], window[1]) as logic[16]
+		flagsByte = flags
 
 		for (var i = 0; i < size; i++) {
 			var value: byte = 0x00
@@ -86,13 +80,11 @@ component TcpSegment<P: IPacketData> : IPacketData, IIpv4Payload
 			this.calculator.AddByte(value)
 		}
 
-		var checksum = this.calculator.GetChecksum()
-		var checksumHigh = NetworkOrder.HighByte(checksum)
-		var checksumLow = NetworkOrder.LowByte(checksum)
-		this.header[16] = checksumHigh
-		this.header[17] = checksumLow
-
-		this.length = 20 + size
+		var payloadWordSum = this.calculator.GetWordSum()
+		checksumWord = TcpChecksum.CalculatePayloadChecksum(sourceIp, destinationIp,
+			sourcePort, destinationPort, sequence, acknowledgment, flags, window,
+			20 + size, payloadWordSum) as logic[16]
+		this.length = (20 + size) as logic[16]
 		this.ready = true
 		return PacketDataResult.Success
 	}
@@ -116,7 +108,7 @@ component TcpSegment<P: IPacketData> : IPacketData, IIpv4Payload
 			return 0
 		}
 
-		return this.length
+		return (this.length as uint) as int
 	}
 
 	/** Header reads are cached; payload read errors propagate. Output is valid only on Success. */
@@ -128,15 +120,39 @@ component TcpSegment<P: IPacketData> : IPacketData, IIpv4Payload
 			return PacketDataResult.NotReady
 		}
 
-		if (index < 0 || index >= this.length) {
+		if (index < 0 || index >= ((this.length as uint) as int)) {
 			return PacketDataResult.Invalid
 		}
 
 		if (index < 20) {
-			value = this.header[index]
+			value = this.TcpHeaderByte(index, sourcePortWord, destinationPortWord, sequenceHigh, sequenceLow, ackHigh, ackLow, windowWord, checksumWord, flagsByte)
 			return PacketDataResult.Success
 		}
 
 		return this.payload.TryRead(index - 20, value)
+	}
+
+	/** Pure byte selection; no additional scheduled transaction. */
+	inline fn TcpHeaderByte[](index: int, snapshotsourcePortWord: logic[16], snapshotdestinationPortWord: logic[16], snapshotsequenceHigh: logic[16], snapshotsequenceLow: logic[16], snapshotackHigh: logic[16], snapshotackLow: logic[16], snapshotwindowWord: logic[16], snapshotchecksumWord: logic[16], snapshotflagsByte: byte) byte
+	{
+		if (index == 0) { return (snapshotsourcePortWord >> 8) as byte }
+		if (index == 1) { return snapshotsourcePortWord as byte }
+		if (index == 2) { return (snapshotdestinationPortWord >> 8) as byte }
+		if (index == 3) { return snapshotdestinationPortWord as byte }
+		if (index == 4) { return (snapshotsequenceHigh >> 8) as byte }
+		if (index == 5) { return snapshotsequenceHigh as byte }
+		if (index == 6) { return (snapshotsequenceLow >> 8) as byte }
+		if (index == 7) { return snapshotsequenceLow as byte }
+		if (index == 8) { return (snapshotackHigh >> 8) as byte }
+		if (index == 9) { return snapshotackHigh as byte }
+		if (index == 10) { return (snapshotackLow >> 8) as byte }
+		if (index == 11) { return snapshotackLow as byte }
+		if (index == 12) { return 0x50 }
+		if (index == 13) { return snapshotflagsByte }
+		if (index == 14) { return (snapshotwindowWord >> 8) as byte }
+		if (index == 15) { return snapshotwindowWord as byte }
+		if (index == 16) { return (snapshotchecksumWord >> 8) as byte }
+		if (index == 17) { return snapshotchecksumWord as byte }
+		return 0x00
 	}
 }
