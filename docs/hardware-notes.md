@@ -41,7 +41,7 @@ programming, RX/TX polling and AXI word transactions. Applications depend on
 frame capabilities. See [the driver contract](ethernetlite.md) for construction,
 FCS-free bounded captures, TX limits, completion, errors and coordinated reset.
 
-`Livt.Net 1.1.0-dev` uses `Livt.IO 1.2.0-dev` generic scheduled RAM. Storage cells
+`Livt.Net 1.1.0` uses `Livt.IO 1.2.0-dev` generic scheduled RAM. Storage cells
 may retain bytes across metadata reset, but unpublished data is not readable.
 There is no equal-latency, FPGA area or timing claim from these abstractions.
 

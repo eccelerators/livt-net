@@ -1,6 +1,6 @@
 [project]
 name = "Livt.Net"
-version = "1.1.0-dev"
+version = "1.1.0"
 path = "src"
 outdir = "out"
 
@@ -50,4 +50,4 @@ components = [
 ]
 
 [dependencies]
-Livt.IO = "1.2.0-dev"
+Livt.IO = "1.2.0"

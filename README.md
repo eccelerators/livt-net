@@ -4,7 +4,7 @@
 It focuses on small request/response stacks that can parse Ethernet frames,
 classify common IPv4 traffic, and emit deterministic response bytes.
 
-The 1.1.0-dev package surface is intentionally narrow and hardware-oriented:
+The 1.1.0 package surface is intentionally narrow and hardware-oriented:
 
 - `Livt.Net.EthernetFrameParser`: fixed Ethernet II header parser.
 - `Livt.Net.EthernetFrameBuilder`: static Ethernet header encoding from explicit addresses.
@@ -28,7 +28,7 @@ The 1.1.0-dev package surface is intentionally narrow and hardware-oriented:
 
 ```toml
 [dependencies]
-Livt.Net = "1.1.0-dev"
+Livt.Net = "1.1.0"
 ```
 
 `Livt.Net` depends on `Livt.IO 1.2.0-dev` for byte-addressable RAM used by the
