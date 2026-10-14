@@ -31,7 +31,7 @@ The 1.1.0 package surface is intentionally narrow and hardware-oriented:
 Livt.Net = "1.1.0"
 ```
 
-`Livt.Net` depends on `Livt.IO 1.2.0-dev` for byte-addressable RAM used by the
+`Livt.Net` depends on `Livt.IO 1.2.0` for byte-addressable RAM used by the
 Ethernet frame I/O path. Domain applications should depend on `Livt.Net`; add
 `Livt.IO` directly only when the application also uses I/O primitives itself.
 
