@@ -1,0 +1,78 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+/**
+ * Behavioral regression with explicit scenario initialization and owned test dependencies.
+ */
+@Test
+component TelnetSessionTest
+{
+	// Owned subject; every scenario starts a new session.
+	codec: TelnetSession
+
+	/**
+	 * Owns a codec initialized explicitly by each scenario.
+	 */
+	new()
+	{
+		this.codec = new TelnetSession()
+	}
+
+	/**
+	 * Checks and consumes one expected encoded byte.
+	 */
+	fn Output(expected: byte)
+	{
+		assert this.codec.HasOutput()
+		assert this.codec.PeekOutput() == expected
+		this.codec.ConsumeOutput()
+	}
+
+	/**
+	 * Resets negotiation and verifies refusal, IAC escaping, subnegotiation skipping and CR
+	 * normalization across byte boundaries.
+	 */
+	@Test
+	fn NegotiationEscapingAndBoundaries()
+	{
+		this.codec.Reset()
+		this.Output(255)
+		this.Output(251)
+		this.Output(3)
+		assert this.codec.Accept(255)
+		assert this.codec.Accept(253)
+		assert this.codec.Accept(3)
+		assert !this.codec.HasOutput()
+		assert this.codec.Accept(255)
+		assert this.codec.Accept(253)
+		assert this.codec.Accept(1)
+		this.Output(255)
+		this.Output(252)
+		this.Output(1)
+		assert this.codec.Accept(13)
+		assert !this.codec.Accept(10)
+		var value: byte = 0
+		assert this.codec.TryRead(value) && value == 13
+		assert this.codec.Accept(10)
+		assert !this.codec.TryRead(value)
+		assert this.codec.Accept(255)
+		assert this.codec.Accept(250)
+		assert this.codec.Accept(42)
+		assert this.codec.Accept(255)
+		assert this.codec.Accept(255)
+		assert this.codec.Accept(255)
+		assert this.codec.Accept(240)
+		assert this.codec.Accept(65)
+		assert this.codec.TryRead(value) && value == 65
+		assert this.codec.Accept(255)
+		assert this.codec.Accept(255)
+		assert this.codec.TryRead(value) && value == 255
+		assert this.codec.TryWrite(255)
+		assert !this.codec.TryWrite(65)
+		this.Output(255)
+		this.Output(255)
+		assert this.codec.TryWrite(65)
+		this.Output(65)
+	}
+}

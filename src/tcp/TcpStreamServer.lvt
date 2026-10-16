@@ -1,0 +1,881 @@
+namespace Livt.Net
+
+using Livt.IO
+
+enum TcpStreamState
+{
+	Listening
+	SynReceived
+	Established
+	CloseWait
+	LastAck
+}
+
+/**
+ * Bounded passive IPv4 TCP streams with one outstanding segment per connection. Two owned
+ * RAMs contain disjoint per-connection regions; parsing, checksum and transmission are shared. All
+ * scheduled methods have ONE serialized owner. TryHandle borrows the current RX frame only for
+ * that call. Poll publishes a response; no other operation may mutate the connection until
+ * ReleaseFrame ends the transmitter's borrow. Millisecond time is supplied by the owner; reset
+ * abandons the connection. An idle stream remains connected; only outstanding transmissions
+ * have a retry limit. The application explicitly selects the listening PORT and optional SESSIONS capacity.
+ */
+component TcpStreamServer<S: IPacketData, PORT: int, RX_CAPACITY: int = 512, TX_CAPACITY: int = 256, SESSIONS: int = 1> : IPacketData
+{
+	static assert SESSIONS > 0 && SESSIONS <= 16, "TCP sessions must be 1..16"
+
+	static assert PORT > 0 && PORT <= 65535, "TCP port required"
+
+	static assert RX_CAPACITY > 0 && RX_CAPACITY <= 32768, "TCP receive capacity must be 1..32768"
+
+	// Total bytes across disjoint connection regions.
+	const RX_STORAGE_CAPACITY: int = RX_CAPACITY * SESSIONS
+
+	// Ethernet protocol identifier for IPv4.
+	const ETHER_TYPE_IPV4: int = 0x0800
+
+	// IPv4 payload protocol identifier for TCP.
+	const IP_PROTOCOL_TCP: byte = 6
+
+	// IPv4 TCP default peer MSS when SYN omits the option.
+	const DEFAULT_MSS: int = 536
+
+	// Fixed TCP header length before SYN options.
+	const TCP_HEADER_LENGTH: int = 20
+
+	// Advertised-window offset relative to the TCP header.
+	const TCP_WINDOW_OFFSET: int = 14
+
+	// SYN admission mask and TCP flags used for receive classification and replies.
+	const SYN_REQUIRED_MASK: byte = 0x17
+	const FLAG_SYN: byte = 0x02
+	const FLAG_RST: byte = 0x04
+	const FLAG_ACK: byte = 0x10
+	const FLAG_FIN: byte = 0x01
+	const FLAGS_SYN_ACK: byte = 0x12
+	const FLAGS_DATA_ACK: byte = 0x18
+	const FLAGS_FIN_ACK: byte = 0x11
+
+	// Initial zero-window probe interval.
+	const INITIAL_PROBE_MS: uint = 1000
+
+	// Maximum zero-window probe interval.
+	const MAX_PROBE_MS: uint = 60000
+
+	// Minimum first-data timeout after a retransmitted handshake.
+	const LOST_HANDSHAKE_TIMEOUT_MS: uint = 3000
+
+	// Maximum initial output coalescing interval.
+	const COALESCE_MS: uint = 10
+
+	// Maximum retransmissions before abandoning the connection.
+	const MAX_RETRIES: logic[4] = 8
+
+	// Width of a receive/ring address; supports the configured capacity.
+	const INDEX_BITS: int = Bits.RequiredFor(RX_CAPACITY - 1)
+
+	// Width of the retained or received byte count, including full capacity.
+	const COUNT_BITS: int = Bits.RequiredFor(RX_CAPACITY)
+
+	// Borrowed shared parsers; their source is acquired only during TryHandle.
+	ethernet: EthernetFrameParser<S>
+	ipv4: Ipv4PacketParser<EthernetFrameParser<S>>
+
+	// Owned TCP parser, checksum engine, payload RAMs and composed response views.
+	tcp: TcpHeaderParser<Ipv4PacketParser<EthernetFrameParser<S>>>
+	checksum: InternetChecksum
+	rx: BlockRam<byte, RX_STORAGE_CAPACITY>
+	tx: TcpSendBuffer<TX_CAPACITY, SESSIONS>
+	segment: TcpSegment<TcpSendBuffer<TX_CAPACITY, SESSIONS>>
+	packet: TcpIpv4Packet<TcpSendBuffer<TX_CAPACITY, SESSIONS>>
+	frame: TcpIpv4Frame<TcpSendBuffer<TX_CAPACITY, SESSIONS>>
+	timer: TcpRetryTimer<SESSIONS>
+
+	// Local address bindings; callers keep them stable for the server lifetime.
+	localMac: byte[6]
+	localIp: byte[4]
+
+	// Current peer identity and advertised transmit bounds.
+	peerMac: byte[SESSIONS, 6]
+	peerIp: byte[SESSIONS, 4]
+	peerPort: logic[SESSIONS, 16]
+	peerWindow: logic[SESSIONS, 16]
+	peerMss: logic[SESSIONS, 16]
+
+	// Connection state and owned RX ring positions.
+	phase: TcpStreamState[SESSIONS]
+	rxRead: logic[SESSIONS, INDEX_BITS]
+	rxWrite: logic[SESSIONS, INDEX_BITS]
+	rxCount: logic[SESSIONS, COUNT_BITS]
+
+	// Wrapping TCP receive and transmit sequence space.
+	receiveNext: uint[SESSIONS]
+	sendNext: uint[SESSIONS]
+	sendUna: uint[SESSIONS]
+
+	// Retained segment range, flags and transmission ownership.
+	flightLength: logic[SESSIONS, 16]
+	consumed: logic[SESSIONS, 16]
+	flightOffset: logic[SESSIONS, 16]
+	flightFlags: byte[SESSIONS]
+	inFlight: bool[SESSIONS]
+	ackPending: bool[SESSIONS]
+	published: bool
+	closing: bool[SESSIONS]
+
+	// Current API selection and fair next-transmission candidate; publication pins selection.
+	session: int
+	nextPoll: int
+
+	// Wrapping millisecond timestamps and bounded retry metadata.
+	queuedAt: uint[SESSIONS]
+	probeAt: uint[SESSIONS]
+	probeDelay: uint[SESSIONS]
+	retries: logic[SESSIONS, 4]
+	generation: uint[SESSIONS]
+
+	/**
+	 * Borrows the shared Ethernet/IPv4 parsers and retains stable local addresses; owns TCP parsing,
+	 * checksum state, RX/TX RAMs and response views. All dependencies share the inherited
+	 * clock/reset context; construction starts listening.
+	 */
+	new(ethernet: EthernetFrameParser<S>, ipv4: Ipv4PacketParser<EthernetFrameParser<S>>, localMac: byte[6], localIp: byte[4])
+	{
+		this.ethernet = ethernet
+		this.ipv4 = ipv4
+		this.localMac = localMac
+		this.localIp = localIp
+		this.tcp = new TcpHeaderParser<Ipv4PacketParser<EthernetFrameParser<S>>>(ipv4)
+		this.checksum = new InternetChecksum()
+		this.rx = new BlockRam<byte, RX_STORAGE_CAPACITY>()
+		this.tx = new TcpSendBuffer<TX_CAPACITY, SESSIONS>()
+		this.segment = new TcpSegment<TcpSendBuffer<TX_CAPACITY, SESSIONS>>(this.tx)
+		this.packet = new TcpIpv4Packet<TcpSendBuffer<TX_CAPACITY, SESSIONS>>(this.segment)
+		this.frame = new TcpIpv4Frame<TcpSendBuffer<TX_CAPACITY, SESSIONS>>(this.packet)
+		this.timer = new TcpRetryTimer<SESSIONS>()
+	}
+
+	/**
+	 * Selects the connection used by byte operations, state queries, Close and Abort. Invalid
+	 * indices or an outstanding frame return false without mutation. TryHandle and Poll may
+	 * change this selection; select again before application operations.
+	 */
+	public fn SelectSession(index: int) bool
+	{
+		if (this.published || index < 0 || index >= SESSIONS) {
+			return false
+		}
+
+		this.session = index
+		this.tx.SelectSession(index)
+		this.timer.SelectSession(index)
+		return true
+	}
+
+	/**
+	 * Returns the selected connection index, also identifying the currently published frame.
+	 */
+	public fn GetSession() int
+	{
+		return this.session
+	}
+
+	/**
+	 * Abandons every connection without transmitting or clearing payload RAM. Requires no
+	 * published frame; per-slot generations are retained and selection ends at the last slot.
+	 */
+	public fn AbortAll()
+	{
+		for (var i = 0; i < SESSIONS; i++) {
+			this.SelectSession(i)
+			this.Abort()
+		}
+	}
+
+	/**
+	 * Returns the current connection state as a snapshot.
+	 */
+	public fn GetState() TcpStreamState
+	{
+		return this.phase[this.session]
+	}
+
+	/**
+	 * Returns a wrapping connection generation incremented for each accepted SYN. Abort preserves
+	 * it; coordinated reset returns it to zero.
+	 */
+	public fn GetGeneration() uint
+	{
+		return this.generation[this.session]
+	}
+
+	/**
+	 * Reports an established stream, including the peer-closed state while responses drain.
+	 */
+	public fn IsConnected() bool
+	{
+		return this.phase[this.session] == TcpStreamState.Established || this.phase[this.session] == TcpStreamState.CloseWait
+	}
+
+	/**
+	 * Reports receipt of peer FIN while application output may still drain.
+	 */
+	public fn HasPeerClosed() bool
+	{
+		return this.phase[this.session] == TcpStreamState.CloseWait
+	}
+
+	/**
+	 * Reports retained output or an outstanding segment, including handshake/close traffic. A false
+	 * result is a snapshot, not a capacity reservation.
+	 */
+	public fn HasPendingOutput() bool
+	{
+		return this.inFlight[this.session] || this.tx.GetLength() != 0
+	}
+
+	/**
+	 * Requests FIN after queued output drains. Requires peer-initiated close and no published frame;
+	 * does not actively close an established peer.
+	 */
+	public fn Close()
+	{
+		this.closing[this.session] = true
+	}
+
+	/**
+	 * Abandons the connection and buffered data without sending RST or clearing payload RAM.
+	 * Requires no published frame; preserves the connection generation.
+	 */
+	public fn Abort()
+	{
+		this.phase[this.session] = TcpStreamState.Listening
+		this.rxRead[this.session] = 0
+		this.rxWrite[this.session] = 0
+		this.rxCount[this.session] = 0
+		this.inFlight[this.session] = false
+		this.ackPending[this.session] = false
+		this.closing[this.session] = false
+		this.consumed[this.session] = 0
+		this.tx.Clear()
+		this.timer.Reset()
+	}
+
+	/**
+	 * Consumes one ordered receive byte through scheduled RAM access and requests a window update.
+	 * Returns false and assigns zero if empty or a frame is published.
+	 */
+	public fn TryReceive(value: out byte) bool
+	{
+		value = 0
+
+		if (this.published || this.rxCount[this.session] == 0) {
+			return false
+		}
+
+		value = this.rx.Read(this.session * RX_CAPACITY + ((this.rxRead[this.session] as uint) as int))
+
+		if (((this.rxRead[this.session] as uint) as int) == RX_CAPACITY - 1) {
+			this.rxRead[this.session] = 0
+		} else {
+			this.rxRead[this.session] = ((this.rxRead[this.session] as uint) + (1 as uint)) as logic[INDEX_BITS]
+		}
+
+		this.rxCount[this.session] = ((this.rxCount[this.session] as uint) - (1 as uint)) as logic[COUNT_BITS]
+
+		// Window updates are coalesced by the owner's Poll call.
+		this.ackPending[this.session] = true
+		return true
+	}
+
+	/**
+	 * Accepts one byte into retained output RAM at wrapping millisecond time now. Failure requires
+	 * retry; success is local acceptance, not delivery or peer acknowledgment. No mutation occurs
+	 * while a frame is published.
+	 */
+	public fn TryTransmit(value: byte, now: uint) bool
+	{
+		if (this.published || !this.IsConnected() || this.inFlight[this.session] || this.consumed[this.session] != 0 || this.closing[this.session]) {
+			return false
+		}
+
+		var count = this.tx.GetLength()
+
+		if (count >= ((this.peerMss[this.session] as uint) as int)) {
+			return false
+		}
+
+		if (!this.tx.TryAppend(value)) {
+			return false
+		}
+
+		if (count == 0) {
+			this.queuedAt[this.session] = now
+		}
+
+		return true
+	}
+
+	/**
+	 * Closes TCP, IPv4 and Ethernet parser views in borrow order before returning the acquired RX
+	 * frame to its owner.
+	 */
+	fn EndParse()
+	{
+		this.tcp.Invalidate()
+		this.ipv4.Invalidate()
+		this.ethernet.Invalidate()
+	}
+
+	/**
+	 * Examines the currently acquired RX frame at wrapping millisecond time now. Returns true for
+	 * claimed local-port TCP traffic, including rejected packets; false permits other services to
+	 * inspect it. Requires no published response. Shared parsers are invalidated before return; the
+	 * source frame remains caller-owned.
+	 */
+	public fn TryHandle(now: uint) bool
+	{
+		if (this.published) {
+			return true
+		}
+
+		this.ethernet.TryParse()
+
+		if (!this.ethernet.IsReady() || this.ethernet.GetEtherType() != ETHER_TYPE_IPV4) {
+			this.EndParse()
+			return false
+		}
+
+		this.ipv4.TryParse()
+
+		if (this.ipv4.GetProtocol() != IP_PROTOCOL_TCP) {
+			this.EndParse()
+			return false
+		}
+
+		if (this.ipv4.GetStatus() != PacketParseResult.Success || !this.ipv4.IsHeaderChecksumValid()) {
+			this.EndParse()
+			return true
+		}
+
+		var destination = this.ipv4.GetDestinationIpv4()
+		var source = this.ipv4.GetSourceIpv4()
+		var mac = this.ethernet.GetSourceMac()
+
+		for (var i = 0; i < 4; i++) {
+			if (destination[i] != this.localIp[i]) {
+				this.EndParse()
+				return true
+			}
+		}
+
+		if (this.tcp.TryParse() != PacketParseResult.Success) {
+			this.EndParse()
+			return true
+		}
+
+		if (this.tcp.GetDestinationPort() != PORT) {
+			this.EndParse()
+			return false
+		}
+
+		this.checksum.Reset()
+
+		for (var i = 0; i < 4; i++) {
+			this.checksum.AddByte(source[i])
+		}
+
+		for (var i = 0; i < 4; i++) {
+			this.checksum.AddByte(destination[i])
+		}
+
+		this.checksum.AddByte(0)
+		this.checksum.AddByte(IP_PROTOCOL_TCP)
+		var total = this.ipv4.GetAvailableLength()
+		this.checksum.AddByte(NetworkOrder.HighByte(total))
+		this.checksum.AddByte(NetworkOrder.LowByte(total))
+
+		for (var i = 0; i < total; i++) {
+			var value: byte = 0
+
+			if (this.ipv4.TryRead(i, value) != PacketDataResult.Success) {
+				this.EndParse()
+				return true
+			}
+
+			this.checksum.AddByte(value)
+		}
+
+		if (this.checksum.GetChecksum() != 0) {
+			this.EndParse()
+			return true
+		}
+
+		var selected = -1
+		var free = -1
+		selected = -1
+		free = -1
+
+		for (var candidate = 0; candidate < SESSIONS; candidate++) {
+			if (this.phase[candidate] == TcpStreamState.Listening) {
+				if (free < 0) {
+					free = candidate
+				}
+			} else {
+				var matches = this.tcp.GetSourcePort() == ((this.peerPort[candidate] as uint) as int)
+
+				for (var octet = 0; octet < 4; octet++) {
+					if (source[octet] != this.peerIp[candidate, octet]) {
+						matches = false
+					}
+				}
+
+				if (matches) {
+					selected = candidate
+				}
+			}
+		}
+
+		if (selected < 0) {
+			selected = free
+		}
+
+		if (selected < 0) {
+			this.EndParse()
+			return true
+		}
+
+		this.SelectSession(selected)
+
+		var flags = this.tcp.GetFlags()
+		var sequence = this.tcp.GetSequenceNumber()
+		var acknowledgment = this.tcp.GetAcknowledgmentNumber()
+		var length = this.tcp.GetAvailableLength()
+		var high: byte = 0
+		var low: byte = 0
+		this.ipv4.TryRead(TCP_WINDOW_OFFSET, high)
+		this.ipv4.TryRead(TCP_WINDOW_OFFSET + 1, low)
+		var window = NetworkOrder.Word(high, low)
+
+		if (this.phase[this.session] == TcpStreamState.Listening) {
+			if ((flags & SYN_REQUIRED_MASK) != FLAG_SYN || length != 0) {
+				this.EndParse()
+				return true
+			}
+
+			// Parse bounded SYN options; unsupported options are skipped by length.
+			var mss = DEFAULT_MSS
+			mss = DEFAULT_MSS
+			var index = TCP_HEADER_LENGTH
+			index = TCP_HEADER_LENGTH
+			var headerLength = this.tcp.GetHeaderLength()
+
+			while (index < headerLength) {
+				var kind: byte = 0
+				this.ipv4.TryRead(index, kind)
+
+				if (kind == 0) {
+					break
+				}
+
+				if (kind == 1) {
+					index++
+					continue
+				}
+
+				var optionLength: byte = 0
+
+				if (index + 1 >= headerLength) {
+					this.EndParse()
+					return true
+				}
+
+				this.ipv4.TryRead(index + 1, optionLength)
+				var size = (optionLength as uint) as int
+
+				if (size < 2 || index + size > headerLength) {
+					this.EndParse()
+					return true
+				}
+
+				if (kind == 2) {
+					if (size != 4) {
+						this.EndParse()
+						return true
+					}
+
+					this.ipv4.TryRead(index + 2, high)
+					this.ipv4.TryRead(index + 3, low)
+					mss = NetworkOrder.Word(high, low)
+
+					if (mss == 0) {
+						this.EndParse()
+						return true
+					}
+				}
+
+				index = index + size
+			}
+
+			this.Abort()
+			this.peerMac[this.session] = mac
+			this.peerIp[this.session] = source
+			this.peerPort[this.session] = this.tcp.GetSourcePort() as logic[16]
+			this.peerMss[this.session] = mss as logic[16]
+			this.peerWindow[this.session] = window as logic[16]
+			this.receiveNext[this.session] = sequence + (1 as uint)
+			this.generation[this.session] = this.generation[this.session] + (1 as uint)
+			this.sendUna[this.session] = (now << 16) + (this.generation[this.session] << 10)
+			this.sendNext[this.session] = this.sendUna[this.session] + (1 as uint)
+			this.flightLength[this.session] = 0
+			this.flightOffset[this.session] = 0
+			this.flightFlags[this.session] = FLAGS_SYN_ACK
+			this.inFlight[this.session] = true
+			this.retries[this.session] = 0
+			this.phase[this.session] = TcpStreamState.SynReceived
+			this.probeAt[this.session] = now
+			this.probeDelay[this.session] = INITIAL_PROBE_MS
+			this.timer.Start(now)
+			this.ackPending[this.session] = true
+			this.EndParse()
+			return true
+		}
+
+		for (var i = 0; i < 4; i++) {
+			if (source[i] != this.peerIp[this.session, i]) {
+				this.EndParse()
+				return true
+			}
+		}
+
+		if (this.tcp.GetSourcePort() != ((this.peerPort[this.session] as uint) as int)) {
+			this.EndParse()
+			return true
+		}
+
+		if ((flags & FLAG_RST) != 0) {
+			if (sequence == this.receiveNext[this.session]) {
+				this.Abort()
+			} else {
+				this.ackPending[this.session] = true
+			}
+
+			this.EndParse()
+			return true
+		}
+
+		if (this.phase[this.session] == TcpStreamState.SynReceived && (flags & FLAG_SYN) != 0 && sequence + (1 as uint) == this.receiveNext[this.session]) {
+			this.ackPending[this.session] = true
+			this.EndParse()
+			return true
+		}
+
+		if ((flags & FLAG_ACK) == 0 || (flags & FLAG_SYN) != 0) {
+			this.EndParse()
+			return true
+		}
+
+		// Out-of-order segments are not stored; the cumulative ACK requests retry.
+		var skip = this.receiveNext[this.session] - sequence
+
+		if (skip > (length as uint)) {
+			this.ackPending[this.session] = true
+			this.EndParse()
+			return true
+		}
+
+		var advance = acknowledgment - this.sendUna[this.session]
+
+		if (advance > this.sendNext[this.session] - this.sendUna[this.session]) {
+			this.ackPending[this.session] = true
+			this.EndParse()
+			return true
+		}
+
+		this.peerWindow[this.session] = window as logic[16]
+
+		if (this.inFlight[this.session] && advance != 0) {
+			if (acknowledgment == this.sendNext[this.session]) {
+				this.timer.Acknowledge(now)
+				this.sendUna[this.session] = acknowledgment
+				this.inFlight[this.session] = false
+
+				if (this.flightFlags[this.session] == FLAGS_DATA_ACK) {
+					this.consumed[this.session] = ((this.flightOffset[this.session] as uint) + (this.flightLength[this.session] as uint)) as logic[16]
+				}
+
+				if (((this.consumed[this.session] as uint) as int) == this.tx.GetLength()) {
+					this.tx.Clear()
+					this.consumed[this.session] = 0
+				}
+
+				if (this.phase[this.session] == TcpStreamState.SynReceived) {
+					if (this.retries[this.session] != 0) {
+						this.timer.RequireMinimum(LOST_HANDSHAKE_TIMEOUT_MS)
+					}
+
+					this.phase[this.session] = TcpStreamState.Established
+				} elif (this.phase[this.session] == TcpStreamState.LastAck) {
+					this.Abort()
+					this.EndParse()
+					return true
+				}
+			} elif (this.flightFlags[this.session] == FLAGS_DATA_ACK) {
+				this.flightOffset[this.session] = ((this.flightOffset[this.session] as uint) + advance) as logic[16]
+				this.flightLength[this.session] = ((this.flightLength[this.session] as uint) - advance) as logic[16]
+				this.sendUna[this.session] = acknowledgment
+
+			// Keep the original timer; partial ACK must not postpone recovery.
+			}
+		}
+
+		if (!this.IsConnected()) {
+			this.EndParse()
+			return true
+		}
+
+		var remaining = length - (skip as int)
+
+		if (this.phase[this.session] == TcpStreamState.Established && remaining > 0) {
+			var available = RX_CAPACITY - ((this.rxCount[this.session] as uint) as int)
+
+			if (remaining > available) {
+				remaining = available
+			}
+
+			for (var i = 0; i < remaining; i++) {
+				var value: byte = 0
+
+				if (this.tcp.TryRead((skip as int) + i, value) != PacketDataResult.Success) {
+					this.Abort()
+					this.EndParse()
+					return true
+				}
+
+				this.rx.Write(this.session * RX_CAPACITY + ((this.rxWrite[this.session] as uint) as int), value)
+
+				if (((this.rxWrite[this.session] as uint) as int) == RX_CAPACITY - 1) {
+					this.rxWrite[this.session] = 0
+				} else {
+					this.rxWrite[this.session] = ((this.rxWrite[this.session] as uint) + (1 as uint)) as logic[INDEX_BITS]
+				}
+
+				this.rxCount[this.session] = ((this.rxCount[this.session] as uint) + (1 as uint)) as logic[COUNT_BITS]
+			}
+
+			this.receiveNext[this.session] = this.receiveNext[this.session] + (remaining as uint)
+		}
+
+		if ((flags & FLAG_FIN) != 0 && this.phase[this.session] == TcpStreamState.Established && sequence + (length as uint) == this.receiveNext[this.session]) {
+			this.receiveNext[this.session] = this.receiveNext[this.session] + (1 as uint)
+			this.phase[this.session] = TcpStreamState.CloseWait
+		}
+
+		if (length != 0 || (flags & FLAG_FIN) != 0) {
+			this.ackPending[this.session] = true
+		}
+
+		this.EndParse()
+		return true
+	}
+
+	/**
+	 * Polls all connections in rotating order and publishes at most one Ethernet frame. The next
+	 * call starts after the successful slot, preventing a busy peer from starving another. A
+	 * published frame remains stable until ReleaseFrame; call regularly even without RX traffic.
+	 */
+	public fn Poll(now: uint) bool
+	{
+		if (this.published) {
+			return true
+		}
+
+		for (var attempt = 0; attempt < SESSIONS; attempt++) {
+			this.SelectSession(this.nextPoll)
+			this.nextPoll++
+
+			if (this.nextPoll == SESSIONS) {
+				this.nextPoll = 0
+			}
+
+			if (this.PollSession(now)) {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	/**
+	 * Advances timers and prepares autonomous ACK, data, handshake or close traffic at wrapping
+	 * millisecond time now. True publishes a complete Ethernet frame, stable until ReleaseFrame();
+	 * an already published frame remains unchanged. Call regularly even without incoming traffic.
+	 */
+	fn PollSession(now: uint) bool
+	{
+		if (this.published) {
+			return true
+		}
+
+		if (this.phase[this.session] == TcpStreamState.Listening) {
+			return false
+		}
+
+		// Reinitialize invocation-local emission decisions before applying priority rules.
+		var emit = false
+		emit = false
+		var flags: byte = FLAG_ACK
+		flags = FLAG_ACK
+		var sequence = this.sendNext[this.session]
+		var offset = 0
+		var length = 0
+		offset = 0
+		length = 0
+
+		// Retransmission takes priority over handshake, queued data, close and pure ACKs.
+		if (this.inFlight[this.session] && this.timer.IsExpired(now)) {
+			if (this.retries[this.session] == MAX_RETRIES) {
+				this.Abort()
+				return false
+			}
+
+			this.retries[this.session] = ((this.retries[this.session] as uint) + (1 as uint)) as logic[4]
+			this.timer.Retry(now)
+			emit = true
+			flags = this.flightFlags[this.session]
+			sequence = this.sendUna[this.session]
+			offset = (this.flightOffset[this.session] as uint) as int
+			length = (this.flightLength[this.session] as uint) as int
+		} elif (this.phase[this.session] == TcpStreamState.SynReceived && this.ackPending[this.session]) {
+			emit = true
+			flags = FLAGS_SYN_ACK
+			sequence = this.sendUna[this.session]
+		} elif (!this.inFlight[this.session] && this.IsConnected()) {
+			var count = this.tx.GetLength() - ((this.consumed[this.session] as uint) as int)
+
+			if (count != 0 && (now - this.queuedAt[this.session] >= COALESCE_MS || count == TX_CAPACITY || count == ((this.peerMss[this.session] as uint) as int))) {
+				// A single segment limits congestion to at most one MSS in flight.
+				if (this.peerWindow[this.session] != 0) {
+					length = count
+
+					if (length > ((this.peerWindow[this.session] as uint) as int)) {
+						length = (this.peerWindow[this.session] as uint) as int
+					}
+
+					if (length > ((this.peerMss[this.session] as uint) as int)) {
+						length = (this.peerMss[this.session] as uint) as int
+					}
+
+					offset = (this.consumed[this.session] as uint) as int
+					flags = FLAGS_DATA_ACK
+					emit = true
+				} elif (now - this.probeAt[this.session] >= this.probeDelay[this.session]) {
+					emit = true
+					sequence = this.sendUna[this.session] - (1 as uint)
+					this.probeAt[this.session] = now
+
+					if (this.probeDelay[this.session] < MAX_PROBE_MS) {
+						this.probeDelay[this.session] = this.probeDelay[this.session] << 1
+					}
+
+					if (this.probeDelay[this.session] > MAX_PROBE_MS) {
+						this.probeDelay[this.session] = MAX_PROBE_MS
+					}
+				}
+			} elif (count == 0 && this.closing[this.session] && this.phase[this.session] == TcpStreamState.CloseWait) {
+				flags = FLAGS_FIN_ACK
+				emit = true
+				this.phase[this.session] = TcpStreamState.LastAck
+			}
+
+			if (flags == FLAGS_DATA_ACK || flags == FLAGS_FIN_ACK) {
+				this.flightOffset[this.session] = offset as logic[16]
+				this.flightLength[this.session] = length as logic[16]
+				this.flightFlags[this.session] = flags
+				this.sendUna[this.session] = this.sendNext[this.session]
+				sequence = this.sendUna[this.session]
+				this.sendNext[this.session] = this.sendNext[this.session] + (length as uint)
+
+				if (flags == FLAGS_FIN_ACK) {
+					this.sendNext[this.session] = this.sendNext[this.session] + (1 as uint)
+				}
+
+				this.inFlight[this.session] = true
+				this.retries[this.session] = 0
+				this.timer.Start(now)
+			}
+		}
+
+		if (this.ackPending[this.session]) {
+			emit = true
+		}
+
+		if (!emit) {
+			return false
+		}
+
+		this.ackPending[this.session] = false
+
+		if (!this.tx.Open(offset, length)) {
+			this.Abort()
+			return false
+		}
+
+		var sourcePort: byte[2] = [NetworkOrder.HighByte(PORT), NetworkOrder.LowByte(PORT)]
+		var destinationPort: byte[2] = [(this.peerPort[this.session] >> 8) as byte, this.peerPort[this.session] as byte]
+		var seq: byte[4] = [(sequence >> 24) as byte, (sequence >> 16) as byte, (sequence >> 8) as byte, sequence as byte]
+		var ack: byte[4] = [(this.receiveNext[this.session] >> 24) as byte, (this.receiveNext[this.session] >> 16) as byte, (this.receiveNext[this.session] >> 8) as byte, this.receiveNext[this.session] as byte]
+		var available = RX_CAPACITY - ((this.rxCount[this.session] as uint) as int)
+		var window: byte[2] = [NetworkOrder.HighByte(available), NetworkOrder.LowByte(available)]
+		var id: byte[2] = [0, 0]
+
+		if (this.segment.TryPrepare(this.localIp, this.peerIp[this.session], sourcePort, destinationPort, seq, ack, flags, window) != PacketDataResult.Success
+			|| this.packet.TryPrepare(this.localIp, this.peerIp[this.session], id) != PacketDataResult.Success
+			|| this.frame.TryPrepare(this.localMac, this.peerMac[this.session]) != PacketDataResult.Success) {
+			this.ReleaseFrame()
+			this.Abort()
+			return false
+		}
+
+		this.published = true
+		return true
+	}
+
+	/**
+	 * Ends the transmitter borrow after local transmission completes or is abandoned. Invalidates
+	 * frame views but retains unacknowledged TCP payload for retry.
+	 */
+	public fn ReleaseFrame()
+	{
+		this.frame.Invalidate()
+		this.packet.Invalidate()
+		this.segment.Invalidate()
+		this.tx.Close()
+		this.published = false
+	}
+
+	/**
+	 * Reports whether a complete Ethernet response is published for borrowing.
+	 */
+	override fn IsReady() bool
+	{
+		return this.published
+	}
+
+	/**
+	 * Returns the published Ethernet frame length, or zero when no response is ready.
+	 */
+	override fn GetAvailableLength() int
+	{
+		return this.frame.GetAvailableLength()
+	}
+
+	/**
+	 * Reads a published Ethernet-frame byte at index; propagates the frame view result and zero-on-
+	 * failure contract. Reads do not consume or acknowledge retained payload.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		return this.frame.TryRead(index, value)
+	}
+}

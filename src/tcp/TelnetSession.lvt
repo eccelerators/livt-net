@@ -1,0 +1,303 @@
+namespace Livt.Net
+
+/**
+ * Bounded Telnet NVT codec with optional application echo and suppress-go-ahead. Serialize calls.
+ * Drain protocol output and decoded input before feeding again. Subnegotiation is skipped
+ * without storage; input CR-LF/CR-NUL becomes CR. Output accepts ASCII with CR-LF line endings;
+ * IAC is escaped automatically.
+ */
+component TelnetSession
+{
+	// Telnet command bytes, introduced by IAC.
+	const IAC: byte = 255
+	const WILL: byte = 251
+	const WONT: byte = 252
+	const DO: byte = 253
+	const DONT: byte = 254
+	const SUBNEGOTIATION: byte = 250
+	const END_SUBNEGOTIATION: byte = 240
+	const ERASE_CHARACTER: byte = 247
+
+	// Terminal control characters normalized at the stream boundary.
+	const CARRIAGE_RETURN: byte = 13
+	const LINE_FEED: byte = 10
+	const BACKSPACE: byte = 8
+
+	// Supported Telnet options. Echo is performed by the consuming application.
+	const ECHO: byte = 1
+	const SUPPRESS_GO_AHEAD: byte = 3
+
+	// Incremental decoder states; subnegotiation requires no payload storage.
+	const STATE_DATA: byte = 0
+	const STATE_COMMAND: byte = 1
+	const STATE_OPTION: byte = 2
+	const STATE_SUBNEGOTIATION_DATA: byte = 3
+	const STATE_SUBNEGOTIATION_COMMAND: byte = 4
+
+	// Packed negotiation greeting and escaped IAC, most significant byte first.
+	const GREETING: logic[48] = 0xFFFB03000000
+	const ECHO_GREETING: logic[48] = 0xFFFB01FFFB03
+	const ESCAPED_IAC: logic[48] = 0xFFFF00000000
+
+	// Bit width of an encoded wire byte.
+	const BYTE_BITS: int = 8
+
+	// Incremental wire decoding and CR normalization state.
+	stateCode: byte
+	verb: byte
+	crSeen: bool
+
+	// One decoded input byte awaiting consumption.
+	inputReady: bool
+	inputByte: byte
+
+	// Up to six encoded bytes, most significant byte first.
+	output: logic[48]
+	outputCount: logic[3]
+
+	// Borrowed echo capability and pending initial offer.
+	allowEcho: bool
+	echoOffered: bool
+
+	// Negotiated echo state; the application binds its line editor to this value.
+	public echoEnabled: bool
+
+	// Local and remote suppress-go-ahead negotiation state.
+	localSga: bool
+	remoteSga: bool
+
+	/**
+	 * Creates an idle codec in the inherited context. Call Reset before each connection.
+	 * Keep allowEcho stable; when true, the application must echo accepted input only while
+	 * echoEnabled is true. The codec negotiates echo but does not generate application echoes.
+	 */
+	new(allowEcho: bool = false)
+	{
+		this.allowEcho = allowEcho
+	}
+
+	/**
+	 * Discards pending input/output and negotiation state, then queues WILL SUPPRESS-GO-AHEAD for
+	 * the new connection. Also offers WILL ECHO when configured; echoEnabled stays false until
+	 * the peer accepts, and returns to false on refusal or reset.
+	 */
+	public fn Reset()
+	{
+		this.stateCode = STATE_DATA
+		this.crSeen = false
+		this.inputReady = false
+
+		// Offer suppress-go-ahead and optionally application echo for this connection.
+		this.output = GREETING
+		this.outputCount = 3
+		this.echoEnabled = false
+		this.echoOffered = this.allowEcho
+
+		if (this.allowEcho) {
+			this.output = ECHO_GREETING
+			this.outputCount = 6
+		}
+
+		this.localSga = true
+		this.remoteSga = false
+	}
+
+	/**
+	 * Reports whether one incoming wire byte can be accepted without overwriting decoded input or
+	 * pending output.
+	 */
+	public fn CanAccept() bool
+	{
+		return !this.inputReady && this.outputCount == 0
+	}
+
+	/**
+	 * Reports pending encoded bytes, including negotiation replies. Drain them before accepting more
+	 * input.
+	 */
+	public fn HasOutput() bool
+	{
+		return this.outputCount != 0
+	}
+
+	/**
+	 * Returns the next encoded byte without consuming it. Requires HasOutput(); retry downstream
+	 * admission with the same byte.
+	 */
+	public fn PeekOutput() byte
+	{
+		return (this.output >> 40) as byte
+	}
+
+	/**
+	 * Removes one encoded byte after downstream acceptance; does nothing when empty.
+	 */
+	public fn ConsumeOutput()
+	{
+		if (this.outputCount != 0) {
+			this.output = this.output << BYTE_BITS
+			this.outputCount--
+		}
+	}
+
+	/**
+	 * Queues one application byte, doubling IAC when needed. Returns false without mutation while
+	 * output is pending. The caller supplies CR-LF line endings.
+	 */
+	public fn TryWrite(value: byte) bool
+	{
+		if (this.outputCount != 0) {
+			return false
+		}
+
+		this.output = ((value as uint) as logic[48]) << 40
+		this.outputCount = 1
+
+		if (value == IAC) {
+			this.output = ESCAPED_IAC
+			this.outputCount = 2
+		}
+
+		return true
+	}
+
+	/**
+	 * Consumes one decoded input byte. Returns false and assigns zero when no input is ready.
+	 */
+	public fn TryRead(value: out byte) bool
+	{
+		value = 0
+
+		if (!this.inputReady) {
+			return false
+		}
+
+		value = this.inputByte
+		this.inputReady = false
+		return true
+	}
+
+	/**
+	 * Queues a three-byte IAC/command/option response. Requires empty output and serialized access.
+	 */
+	fn Reply(command: byte, option: byte)
+	{
+		this.output = (IAC as logic[48]) << 40 | (((command as uint) as logic[48]) << 32) | (((option as uint) as logic[48]) << 24)
+		this.outputCount = 3
+	}
+
+	/**
+	 * Consumes one wire byte when CanAccept() is true; otherwise returns false without mutation.
+	 * Maintains negotiation state across calls and may produce decoded input or protocol output.
+	 */
+	public fn Accept(value: byte) bool
+	{
+		if (!this.CanAccept()) {
+			return false
+		}
+
+		if (this.stateCode == STATE_SUBNEGOTIATION_DATA) {
+			if (value == IAC) {
+				this.stateCode = STATE_SUBNEGOTIATION_COMMAND
+			}
+
+			return true
+		}
+
+		if (this.stateCode == STATE_SUBNEGOTIATION_COMMAND) {
+			if (value == END_SUBNEGOTIATION) {
+				this.stateCode = STATE_DATA
+			} else {
+				this.stateCode = STATE_SUBNEGOTIATION_DATA
+			}
+
+			return true
+		}
+
+		if (this.stateCode == STATE_OPTION) {
+			this.stateCode = STATE_DATA
+
+			if (this.verb == DO) {
+				if (value == ECHO && this.allowEcho) {
+					if (!this.echoEnabled && !this.echoOffered) {
+						this.Reply(WILL, value)
+					}
+
+					this.echoEnabled = true
+					this.echoOffered = false
+				} elif (value == SUPPRESS_GO_AHEAD) {
+					if (!this.localSga) {
+						this.Reply(WILL, value)
+						this.localSga = true
+					}
+				} else {
+					this.Reply(WONT, value)
+				}
+			} elif (this.verb == DONT) {
+				if (value == ECHO) {
+					this.echoOffered = false
+
+					if (this.echoEnabled) {
+						this.echoEnabled = false
+						this.Reply(WONT, value)
+					}
+				} elif (value == SUPPRESS_GO_AHEAD && this.localSga) {
+					this.localSga = false
+					this.Reply(WONT, value)
+				}
+			} elif (this.verb == WILL) {
+				if (value == SUPPRESS_GO_AHEAD) {
+					if (!this.remoteSga) {
+						this.remoteSga = true
+						this.Reply(DO, value)
+					}
+				} else {
+					this.Reply(DONT, value)
+				}
+			} elif (this.verb == WONT && value == SUPPRESS_GO_AHEAD && this.remoteSga) {
+				this.remoteSga = false
+				this.Reply(DONT, value)
+			}
+
+			return true
+		}
+
+		if (this.stateCode == STATE_COMMAND) {
+			this.stateCode = STATE_DATA
+
+			if (value >= WILL && value <= DONT) {
+				this.verb = value
+				this.stateCode = STATE_OPTION
+				return true
+			}
+
+			if (value == SUBNEGOTIATION) {
+				this.stateCode = STATE_SUBNEGOTIATION_DATA
+				return true
+			}
+
+			if (value == ERASE_CHARACTER) {
+				this.inputByte = BACKSPACE
+				this.inputReady = true
+				return true
+			}
+
+			if (value != IAC) {
+				return true
+			}
+		} elif (value == IAC) {
+			this.stateCode = STATE_COMMAND
+			return true
+		}
+
+		if (this.crSeen && (value == 0 || value == LINE_FEED)) {
+			this.crSeen = false
+			return true
+		}
+
+		this.crSeen = value == CARRIAGE_RETURN
+		this.inputByte = value
+		this.inputReady = true
+		return true
+	}
+}

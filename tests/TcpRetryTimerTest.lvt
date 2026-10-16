@@ -1,0 +1,44 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+/**
+ * Behavioral regression with explicit scenario initialization and owned test dependencies.
+ */
+@Test
+component TcpRetryTimerTest
+{
+	// Owned subject; every scenario explicitly resets it.
+	timer: TcpRetryTimer
+
+	/**
+	 * Owns a retry timer used by the timing scenarios.
+	 */
+	new()
+	{
+		this.timer = new TcpRetryTimer()
+	}
+
+	/**
+	 * Resets the timer, then checks timeout bounds, retransmission sampling exclusion and wrapping
+	 * time.
+	 */
+	@Test
+	fn SamplingBackoffAndWrap()
+	{
+		this.timer.Reset()
+		this.timer.Start(0)
+		assert !this.timer.IsExpired(999)
+		assert this.timer.IsExpired(1000)
+		this.timer.Retry(1000)
+		assert this.timer.GetTimeout() == (2000 as uint)
+		this.timer.Acknowledge(1100)
+		assert this.timer.GetTimeout() == (2000 as uint)
+		this.timer.Start(2000)
+		this.timer.Acknowledge(2100)
+		assert this.timer.GetTimeout() == (1000 as uint)
+		this.timer.Start(0xFFFFFF00)
+		assert !this.timer.IsExpired(0x000002E7)
+		assert this.timer.IsExpired(0x000002E8)
+	}
+}

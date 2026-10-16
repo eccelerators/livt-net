@@ -1,10 +1,10 @@
 # Livt.Net
 
 `Livt.Net` provides compile-time configurable networking components for Livt hardware designs.
-It focuses on small request/response stacks that can parse Ethernet frames,
-classify common IPv4 traffic, and emit deterministic response bytes.
+It supports small Ethernet/IPv4 request/response stacks and bounded TCP control
+streams, with RAM-backed buffering and a Telnet terminal codec.
 
-The 1.1.0 package surface is intentionally narrow and hardware-oriented:
+The 1.2.0 package surface is intentionally narrow and hardware-oriented:
 
 - `Livt.Net.EthernetFrameParser`: fixed Ethernet II header parser.
 - `Livt.Net.EthernetFrameBuilder`: static Ethernet header encoding from explicit addresses.
@@ -21,6 +21,8 @@ The 1.1.0 package surface is intentionally narrow and hardware-oriented:
 - `Livt.Net.TcpSegment<P>`: prepared TCP segment over a bounded payload provider.
 - `Livt.Net.TcpIpv4Packet<P>` / `TcpIpv4Frame<P>`: common TCP packet/frame compositions.
 - `Livt.Net.TcpChecksum`: checksum helper for fixed TCP responses.
+- `Livt.Net.TcpStreamServer`: bounded passive TCP streams with shared, partitioned RAM storage.
+- `Livt.Net.TelnetSession`: bounded Telnet negotiation and terminal-data codec.
 - `Livt.Net.IFrameReceiver` / `IFrameTransmitter`: device-independent frame capabilities.
 - `Livt.Net.Drivers.EthernetLite`: concrete driver, ownership components and AXI boundary.
 
@@ -28,8 +30,10 @@ The 1.1.0 package surface is intentionally narrow and hardware-oriented:
 
 ```toml
 [dependencies]
-Livt.Net = "1.1.0"
+Livt.Net = "1.2.0"
 ```
+
+See the [changelog](CHANGELOG.md) for release changes.
 
 `Livt.Net` depends on `Livt.IO 1.2.0` for byte-addressable RAM used by the
 Ethernet frame I/O path. Domain applications should depend on `Livt.Net`; add
@@ -50,7 +54,9 @@ protocol responsibilities without imposing extra imports; see
 | ARP | `ArpPacketParser`, `ArpReply`, `ArpResponder` |
 | IPv4 | `Ipv4Packet`, `Ipv4PacketParser`, `Ipv4HeaderBuilder`, `Ipv4HeaderChecksum` |
 | ICMP | `IcmpEchoReply`, `IcmpEchoResponder<S, FRAME_CAPACITY, B>` |
-| TCP | `TcpHeaderParser`, `TcpConnectionRecognizer`, `TcpSegmentBuilder`, `TcpSegment`, `TcpIpv4Packet`, `TcpIpv4Frame`, `TcpChecksum` |
+| TCP packets | `TcpHeaderParser`, `TcpConnectionRecognizer`, `TcpSegmentBuilder`, `TcpSegment`, `TcpIpv4Packet`, `TcpIpv4Frame`, `TcpChecksum` |
+| TCP streams | `TcpStreamServer`, `TcpSendBuffer`, `TcpRetryTimer` |
+| Telnet | `TelnetSession` |
 | Checksums | `InternetChecksum`, `Ipv4HeaderChecksum`, `TcpChecksum` |
 | Services | `NetworkService`, `ArpService`, `IcmpEchoService`, `ServiceChain`, `FrameService`, `ResponseTransfer` |
 | Buffered links | `IFrameReceiver`, `IFrameTransmitter`, `TestFrameReceiver`, `TestFrameTransmitter` |
@@ -99,6 +105,20 @@ static contract, and backend selection adds no runtime selector. See
 It accepts `byte` octets and returns either the unfolded word sum for the static
 `TcpChecksum` helper or the final
 RFC 1071 checksum, including the required zero padding for odd-length input.
+
+### TCP streams and Telnet
+
+`TcpStreamServer<S, PORT, RX_CAPACITY, TX_CAPACITY, SESSIONS>` provides bounded
+passive TCP connections with RAM-backed byte storage, checksum validation, flow
+control and retransmission. `SESSIONS` defaults to one and supports up to 16
+connections. Connections share parsers and response generation while retaining
+independent state and disjoint regions of the receive/transmit RAMs.
+
+`TelnetSession` adapts the byte stream to a minimal NVT terminal protocol with
+negotiated echo, CR-LF/CR-NUL input normalization and IAC escaping. These components
+target small control streams: one segment is outstanding per connection, graceful
+close is peer-initiated, and there is no TCP keep-alive, authentication or encryption.
+See [TCP stream ownership and limits](docs/tcp-stream.md).
 
 ### Buffered link capabilities
 
@@ -160,7 +180,7 @@ resource and scheduling rules are recorded in
 
 Possible future work includes broader IPv4/TCP option handling, UDP support and
 streaming frame adapters. These are separate features, not part of the current
-fixed-header request/response contract.
+bounded IPv4 request/response and passive TCP stream contracts.
 
 ## 📄 License
 

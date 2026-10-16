@@ -1,0 +1,163 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+/**
+ * Two-peer protocol regression over independently prepared request packets. Verifies tuple
+ * routing, RAM isolation, bounded capacity, fair publication, and reset/reuse of one slot.
+ */
+@Test
+component TcpMultiSessionTest
+{
+	// Owned peer packet builders and borrowed server parsing chain.
+	payload: ArrayPacketData<8>
+	segment: TcpSegment<ArrayPacketData<8>>
+	packet: TcpIpv4Packet<ArrayPacketData<8>>
+	frame: TcpIpv4Frame<ArrayPacketData<8>>
+	ethernet: EthernetFrameParser<TcpIpv4Frame<ArrayPacketData<8>>>
+	ipv4: Ipv4PacketParser<EthernetFrameParser<TcpIpv4Frame<ArrayPacketData<8>>>>
+	server: TcpStreamServer<TcpIpv4Frame<ArrayPacketData<8>>, 23, 8, 8, 2>
+
+	/**
+	 * Constructs two slots with small independent RAM regions and one shared protocol engine.
+	 */
+	new()
+	{
+		this.payload = new ArrayPacketData<8>()
+		this.segment = new TcpSegment<ArrayPacketData<8>>(this.payload)
+		this.packet = new TcpIpv4Packet<ArrayPacketData<8>>(this.segment)
+		this.frame = new TcpIpv4Frame<ArrayPacketData<8>>(this.packet)
+		this.ethernet = new EthernetFrameParser<TcpIpv4Frame<ArrayPacketData<8>>>(this.frame)
+		this.ipv4 = new Ipv4PacketParser<EthernetFrameParser<TcpIpv4Frame<ArrayPacketData<8>>>>(this.ethernet)
+		this.server = new TcpStreamServer<TcpIpv4Frame<ArrayPacketData<8>>, 23, 8, 8, 2>(this.ethernet, this.ipv4, [2, 0, 0, 0, 0, 2], [10, 0, 0, 1])
+	}
+
+	/**
+	 * Delivers one peer segment at now milliseconds. Ports distinguish peers at the same IPv4
+	 * address; value -1 supplies no payload, otherwise one byte. Header builders supply checksums.
+	 */
+	fn Receive(port: int, flags: byte, sequence: uint, acknowledgment: uint, value: int, window: int, now: uint)
+	{
+		this.frame.Invalidate()
+		this.packet.Invalidate()
+		this.segment.Invalidate()
+
+		if (this.payload.IsReady()) {
+			this.payload.TryRelease()
+		} else {
+			this.payload.TryClear()
+		}
+
+		if (value >= 0) {
+			assert this.payload.TryWrite(0, value as byte) == PacketDataResult.Success
+		}
+
+		assert this.payload.TryPublish() == PacketDataResult.Success
+		var seq: byte[4] = [(sequence >> 24) as byte, (sequence >> 16) as byte, (sequence >> 8) as byte, sequence as byte]
+		var ack: byte[4] = [(acknowledgment >> 24) as byte, (acknowledgment >> 16) as byte, (acknowledgment >> 8) as byte, acknowledgment as byte]
+		var sourcePort: byte[2] = [NetworkOrder.HighByte(port), NetworkOrder.LowByte(port)]
+		var receiveWindow: byte[2] = [NetworkOrder.HighByte(window), NetworkOrder.LowByte(window)]
+		assert this.segment.TryPrepare([10, 0, 0, 101], [10, 0, 0, 1], sourcePort, [0, 23], seq, ack, flags, receiveWindow) == PacketDataResult.Success
+		assert this.packet.TryPrepare([10, 0, 0, 101], [10, 0, 0, 1], [0, 0]) == PacketDataResult.Success
+		assert this.frame.TryPrepare([2, 0, 0, 0, 0, 101], [2, 0, 0, 0, 0, 2]) == PacketDataResult.Success
+		assert this.server.TryHandle(now)
+	}
+
+	/**
+	 * Reads a byte from the pinned response view, asserting valid publication.
+	 */
+	fn ByteAt(index: int) byte
+	{
+		var value: byte = 0
+		assert this.server.TryRead(index, value) == PacketDataResult.Success
+		return value
+	}
+
+	/**
+	 * Reads the published TCP sequence in network order.
+	 */
+	fn Sequence() uint
+	{
+		return ((this.ByteAt(38) as uint) << 24) | ((this.ByteAt(39) as uint) << 16)
+			| ((this.ByteAt(40) as uint) << 8) | (this.ByteAt(41) as uint)
+	}
+
+	/**
+	 * Exercises simultaneous clients, isolated payloads and slot reuse after a peer reset.
+	 */
+	@Test
+	fn IsolatesPeersAndReusesClosedSlot()
+	{
+		this.server.AbortAll()
+		this.Receive(10000, 0x02, 100, 0, -1, 8, 0)
+		assert this.server.Poll(0)
+		assert this.server.GetSession() == 0
+		var firstAck = this.Sequence() + (1 as uint)
+		this.server.ReleaseFrame()
+		this.Receive(10001, 0x02, 200, 0, -1, 8, 0)
+		assert this.server.Poll(0)
+		assert this.server.GetSession() == 1
+		var secondAck = this.Sequence() + (1 as uint)
+		this.server.ReleaseFrame()
+		this.Receive(10000, 0x10, 101, firstAck, -1, 8, 1)
+		this.Receive(10001, 0x10, 201, secondAck, -1, 8, 1)
+		assert this.server.SelectSession(0)
+		assert this.server.IsConnected()
+		assert this.server.TryTransmit(65, 10)
+		assert this.server.SelectSession(1)
+		assert this.server.IsConnected()
+		assert this.server.TryTransmit(66, 10)
+		assert this.server.Poll(20)
+		assert this.server.GetSession() == 0
+		assert this.ByteAt(54) == 65
+		assert !this.server.SelectSession(1)
+		assert this.server.Poll(20)
+		assert this.server.GetSession() == 0
+		assert this.ByteAt(54) == 65
+		this.server.ReleaseFrame()
+		assert this.server.Poll(20)
+		assert this.server.GetSession() == 1
+		assert this.ByteAt(54) == 66
+		this.server.ReleaseFrame()
+		// The second peer progresses while the first has an unacknowledged segment.
+		this.Receive(10001, 0x18, 201, secondAck + (1 as uint), 89, 8, 30)
+		assert this.server.SelectSession(1)
+		var value: byte = 0
+		assert this.server.TryReceive(value) && value == 89
+		assert this.server.SelectSession(0)
+		assert !this.server.TryReceive(value)
+		assert this.server.HasPendingOutput()
+		this.Receive(10000, 0x18, 101, firstAck + (1 as uint), 88, 8, 31)
+		assert this.server.SelectSession(0)
+		assert this.server.TryReceive(value) && value == 88
+		assert this.server.SelectSession(1)
+		assert !this.server.TryReceive(value)
+		// An excess SYN must not evict either live tuple.
+		this.Receive(10002, 0x02, 300, 0, -1, 8, 32)
+		assert this.server.SelectSession(0)
+		assert this.server.IsConnected()
+		var generation = this.server.GetGeneration()
+		assert this.server.SelectSession(1)
+		assert this.server.IsConnected()
+		assert this.server.Poll(40)
+		this.server.ReleaseFrame()
+		assert this.server.Poll(40)
+		this.server.ReleaseFrame()
+		this.Receive(10000, 0x04, 102, 0, -1, 8, 41)
+		assert this.server.SelectSession(0)
+		assert this.server.GetState() == TcpStreamState.Listening
+		assert this.server.SelectSession(1)
+		assert this.server.IsConnected()
+		this.Receive(10002, 0x02, 300, 0, -1, 8, 42)
+		assert this.server.Poll(42)
+		assert this.server.GetSession() == 0
+		assert this.server.GetGeneration() == generation + (1 as uint)
+		assert this.ByteAt(47) == 0x12
+		this.server.ReleaseFrame()
+		assert this.server.SelectSession(1)
+		assert this.server.IsConnected()
+		assert !this.server.SelectSession(-1)
+		assert !this.server.SelectSession(2)
+		this.server.AbortAll()
+	}
+}

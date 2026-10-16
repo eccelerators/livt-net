@@ -1,0 +1,166 @@
+namespace Livt.Net
+
+/**
+ * Millisecond RFC 6298 estimator, Karn sampling and exponential timeout backoff. Caller supplies
+ * monotonic uint milliseconds (wrapping subtraction), one owner.
+ */
+component TcpRetryTimer<SESSIONS: int = 1>
+{
+	static assert SESSIONS > 0 && SESSIONS <= 16, "TCP sessions must be 1..16"
+
+	// Selected timer; all timers share one serialized owner.
+	session: int
+
+	// Initial and minimum retransmission timeout in milliseconds.
+	const INITIAL_TIMEOUT_MS: uint = 1000
+
+	// Maximum backed-off retransmission timeout in milliseconds.
+	const MAX_TIMEOUT_MS: uint = 60000
+
+	// Smoothed RTT, variation and current timeout, all in milliseconds.
+	srtt: uint[SESSIONS]
+	variance: uint[SESSIONS]
+	rto: uint[SESSIONS]
+
+	// Active transmission timestamp and RTT-sampling eligibility.
+	started: uint[SESSIONS]
+	active: bool[SESSIONS]
+	sampled: bool[SESSIONS]
+	repeated: bool[SESSIONS]
+
+	/**
+	 * Creates an inactive timer with a one-second timeout in the inherited context.
+	 */
+	new()
+	{
+		for (var i = 0; i < SESSIONS; i++) {
+			this.rto[i] = INITIAL_TIMEOUT_MS
+		}
+	}
+
+	/**
+	 * Selects a timer without changing its state. Requires index in 0..SESSIONS-1.
+	 */
+	public fn SelectSession(index: int)
+	{
+		this.session = index
+	}
+
+	/**
+	 * Discards RTT history and active timing, restoring the initial timeout.
+	 */
+	public fn Reset()
+	{
+		this.rto[this.session] = INITIAL_TIMEOUT_MS
+		this.active[this.session] = false
+		this.sampled[this.session] = false
+		this.repeated[this.session] = false
+	}
+
+	/**
+	 * Starts timing an outstanding transmission at wrapping unsigned millisecond time now. Keeps the
+	 * current RTT estimate and timeout.
+	 */
+	public fn Start(now: uint)
+	{
+		this.started[this.session] = now
+		this.active[this.session] = true
+		this.repeated[this.session] = false
+	}
+
+	/**
+	 * Reports whether an active transmission has reached its timeout at now, in wrapping
+	 * milliseconds.
+	 */
+	public fn IsExpired(now: uint) bool
+	{
+		return this.active[this.session] && now - this.started[this.session] >= this.rto[this.session]
+	}
+
+	/**
+	 * Records a retransmission at now and doubles its timeout up to MAX_TIMEOUT_MS. Call only for an
+	 * active outstanding transmission; its RTT sample is excluded.
+	 */
+	public fn Retry(now: uint)
+	{
+		this.repeated[this.session] = true
+		this.started[this.session] = now
+
+		if (this.rto[this.session] < MAX_TIMEOUT_MS) {
+			this.rto[this.session] = this.rto[this.session] << 1
+		}
+
+		if (this.rto[this.session] > MAX_TIMEOUT_MS) {
+			this.rto[this.session] = MAX_TIMEOUT_MS
+		}
+	}
+
+	/**
+	 * Ends the active timing interval. Updates RTT estimates only for a transmission that was not
+	 * retried; now is wrapping millisecond time.
+	 */
+	public fn Acknowledge(now: uint)
+	{
+		if (this.active[this.session] && !this.repeated[this.session]) {
+			var elapsed = now - this.started[this.session]
+
+			if (elapsed == 0) {
+				elapsed = 1
+			}
+
+			if (!this.sampled[this.session]) {
+				this.srtt[this.session] = elapsed
+				this.variance[this.session] = elapsed >> 1
+				this.sampled[this.session] = true
+			} else {
+				var difference: uint = 0
+
+				if (this.srtt[this.session] > elapsed) {
+					difference = this.srtt[this.session] - elapsed
+				} else {
+					difference = elapsed - this.srtt[this.session]
+				}
+
+				this.variance[this.session] = this.variance[this.session] - (this.variance[this.session] >> 2) + (difference >> 2)
+				this.srtt[this.session] = this.srtt[this.session] - (this.srtt[this.session] >> 3) + (elapsed >> 3)
+			}
+
+			var spread = this.variance[this.session] << 2
+
+			if (spread == 0) {
+				spread = 1
+			}
+
+			this.rto[this.session] = this.srtt[this.session] + spread
+
+			if (this.rto[this.session] < INITIAL_TIMEOUT_MS) {
+				this.rto[this.session] = INITIAL_TIMEOUT_MS
+			}
+
+			if (this.rto[this.session] > MAX_TIMEOUT_MS) {
+				this.rto[this.session] = MAX_TIMEOUT_MS
+			}
+		}
+
+		this.active[this.session] = false
+	}
+
+	/**
+	 * Raises the timeout floor for the next transmission without starting it. Caller supplies
+	 * milliseconds no greater than MAX_TIMEOUT_MS.
+	 */
+	public fn RequireMinimum(value: uint)
+	{
+		if (this.rto[this.session] < value) {
+			this.rto[this.session] = value
+		}
+	}
+
+	/**
+	 * Returns the current retransmission timeout in milliseconds.
+	 */
+	public fn GetTimeout() uint
+	{
+		return this.rto[this.session]
+	}
+}

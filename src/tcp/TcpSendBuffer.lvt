@@ -1,0 +1,152 @@
+namespace Livt.Net
+
+using Livt.IO
+
+/**
+ * Banked retained TCP payloads in one RAM with a borrowed transmission view; serialize every call.
+ */
+component TcpSendBuffer<CAPACITY: int = 256, SESSIONS: int = 1> : IPacketData
+{
+	static assert SESSIONS > 0 && SESSIONS <= 16, "TCP sessions must be 1..16"
+
+	static assert CAPACITY > 0 && CAPACITY <= 536, "TCP send capacity must be 1..536"
+
+	// Total bytes across disjoint connection regions.
+	const STORAGE_CAPACITY: int = CAPACITY * SESSIONS
+
+	// Width of the retained or received byte count, including full capacity.
+	const COUNT_BITS: int = Bits.RequiredFor(CAPACITY)
+
+	// Owned payload RAM and retained byte count; payload is not reset.
+	storage: BlockRam<byte, STORAGE_CAPACITY>
+	length: logic[SESSIONS, COUNT_BITS]
+
+	// Selected retained payload; selection is pinned while a view is open.
+	session: int
+
+	// Borrowed transmission window over retained bytes.
+	offset: logic[COUNT_BITS]
+	viewLength: logic[COUNT_BITS]
+	opened: bool
+
+	/**
+	 * Owns an empty block-style RAM in the inherited clock/reset context; payload bytes are not
+	 * reset.
+	 */
+	new()
+	{
+		this.storage = new BlockRam<byte, STORAGE_CAPACITY>()
+	}
+
+	/**
+	 * Selects one retained payload when no view is published. Invalid indices or an open view
+	 * return false without changing the selection. All calls share one serialized owner.
+	 */
+	public fn SelectSession(index: int) bool
+	{
+		if (this.opened || index < 0 || index >= SESSIONS) {
+			return false
+		}
+
+		this.session = index
+		return true
+	}
+
+	/**
+	 * Returns the retained byte count, including bytes outside the current transmission view.
+	 */
+	public fn GetLength() int
+	{
+		return (this.length[this.session] as uint) as int
+	}
+
+	/**
+	 * Appends one byte when no view is open and capacity remains. Success means the RAM write
+	 * completed; rejection leaves the payload unchanged.
+	 */
+	public fn TryAppend(value: byte) bool
+	{
+		if (this.opened || this.GetLength() == CAPACITY) {
+			return false
+		}
+
+		this.storage.Write(this.session * CAPACITY + this.GetLength(), value)
+		this.length[this.session] = ((this.length[this.session] as uint) + (1 as uint)) as logic[COUNT_BITS]
+		return true
+	}
+
+	/**
+	 * Discards retained length and any view without clearing RAM. Call only after all readers have
+	 * released their borrow.
+	 */
+	public fn Clear()
+	{
+		this.opened = false
+		this.length[this.session] = 0
+	}
+
+	/**
+	 * Borrows the retained range [start, start + count) for transmission. Requires non-negative
+	 * bounds within GetLength(); failure leaves the existing view unchanged.
+	 */
+	public fn Open(start: int, count: int) bool
+	{
+		if (this.opened || start < 0 || count < 0 || start > this.GetLength() || count > this.GetLength() - start) {
+			return false
+		}
+
+		this.offset = start as logic[COUNT_BITS]
+		this.viewLength = count as logic[COUNT_BITS]
+		this.opened = true
+		return true
+	}
+
+	/**
+	 * Ends the transmission view without discarding retained bytes. The caller must first finish all
+	 * reads.
+	 */
+	public fn Close()
+	{
+		this.opened = false
+	}
+
+	/**
+	 * Reports whether a transmission view is open; this is a snapshot, not a reservation.
+	 */
+	override fn IsReady() bool
+	{
+		return this.opened
+	}
+
+	/**
+	 * Returns the open view length, or zero when closed.
+	 */
+	override fn GetAvailableLength() int
+	{
+		if (!this.opened) {
+			return 0
+		}
+
+		return (this.viewLength as uint) as int
+	}
+
+	/**
+	 * Reads a view-relative byte through scheduled RAM access. Failure assigns zero and reports
+	 * NotReady or Invalid; reads do not consume payload.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0
+
+		if (!this.opened) {
+			return PacketDataResult.NotReady
+		}
+
+		if (index < 0 || index >= this.GetAvailableLength()) {
+			return PacketDataResult.Invalid
+		}
+
+		value = this.storage.Read(this.session * CAPACITY + ((this.offset as uint) as int) + index)
+		return PacketDataResult.Success
+	}
+}
