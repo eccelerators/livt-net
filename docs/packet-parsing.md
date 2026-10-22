@@ -63,10 +63,18 @@ TCP options are bounded and skipped, not decoded or cached.
 
 ## Checksums and compatibility of packet behavior
 
-Success is **structural**, not checksum validation. Ethernet FCS, ICMP and TCP
-receive checksums remain unchecked, preserving the existing demo's policy.
+For the standalone Ethernet, IPv4 and TCP header parsers, Success is
+**structural**, not proof of checksum validation. These header parsers do not
+validate Ethernet FCS or transport checksums.
 `Ipv4PacketParser.IsHeaderChecksumValid()` explicitly checks the cached IP header;
 it is not an implicit admission gate. ARP has no checksum.
+
+`UdpPacketParser` has a stronger contract: it checks the IPv4 header checksum,
+complete UDP length and any nonzero UDP checksum before publishing its payload.
+It accepts a zero checksum as omitted. Its source starts at the IPv4 header, not
+at the UDP header. See [UDP parsing](udp.md#receive-a-datagram).
+`TcpStreamServer` also performs checksum admission checks beyond the standalone
+header parsers; see [TCP streams](tcp-stream.md).
 
 Malformed declared lengths, truncated TCP options and ARP carried under a wrong
 EtherType are now rejected rather than accidentally recognized through fixed

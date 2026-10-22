@@ -81,3 +81,34 @@ Use a single application process that serializes frame lifecycle calls. Checked 
 accept contiguous writes and overwrites within the initialized prefix; they
 reject holes, writes after submission and attempts to replace an in-flight frame.
 `ConsumeTxFrame()` cannot cancel device-owned work.
+
+## IPv4 UDP and networking refactor validation (2026-10-22)
+
+Generic UDP header/packet composition and UDP checksum/parsing now belong to
+Livt.Net. Video headers, pixel ownership, streaming video transmission and media
+arbitration remain in the demo. TCP single-session specialization and staged
+ICMP reply preparation replace its former local copies. EthernetLite CRC byte
+updates share Livt.IO.EthernetCrc; UDP uses the separate Internet checksum.
+
+Validation with the current local compiler:
+
+- 18 relevant package cases passed: UDP (3), TCP stream (4), multiple-session TCP
+  (1), retry timer (1), ICMP responder (5), ICMP storage (3), EthernetLite CRC (1).
+- Six demo packet/streaming cases passed, including the unchanged 2,878-clock
+  640-pixel packet and byte/FCS vectors. Full board GHDL elaboration/reset passed.
+- Full package suite: 117 passed, 4 failed, 6 skipped. This is not a green full run.
+  Three assertions reproduce on the unmodified committed sources with the same
+  simulation times: FrameLinkTest (Accepted versus Busy, 132515 ns),
+  EthernetFrameContractTest (IsFree false, 64665 ns), and
+  EthernetFrameServiceTest (Pending versus Idle, 2625 ns).
+- The fourth reported failure is the reset simulation that was manually
+  interrupted to let the suite continue. Its committed-source baseline also did
+  not finish within a 240-second overall limit, including about 113 seconds of
+  simulation. This is a validation limitation, not proof of an infinite loop.
+- These baseline failures/timeouts are left unchanged for separate investigation;
+  no compiler root cause is asserted here.
+
+Logs, JUnit results and baseline commit provenance are retained locally under
+`out/refactor-validation/` (ignored build artifacts). No new FPGA synthesis or
+routing was performed for this package refactor; functional simulation does not
+establish new resource or timing results.

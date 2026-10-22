@@ -48,7 +48,12 @@ component TcpSendBuffer<CAPACITY: int = 256, SESSIONS: int = 1> : IPacketData
 			return false
 		}
 
-		this.session = index
+		// A single session has no runtime slot selection hardware.
+		static if (SESSIONS == 1) {
+			this.session = 0
+		} else {
+			this.session = index
+		}
 		return true
 	}
 

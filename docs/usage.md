@@ -63,3 +63,11 @@ encoders.
 Use `ArrayPacketData`, `RamPacketData` and generic `PacketRegion` for checked,
 bounded access to published byte prefixes. See [packet data](packet-data.md) for
 construction, ownership and release rules.
+
+## Send and receive UDP
+
+Use `UdpEthernetPacket<P>` for a prepared Ethernet/IPv4/UDP frame, and
+`UdpPacketParser<S>` for a validated UDP payload view over an IPv4-relative source.
+The [UDP guide](udp.md) shows construction, checksum selection, checked publication
+and cleanup. Executable examples and independent wire vectors live in
+[`UdpPacketTest`](../tests/UdpPacketTest.lvt).

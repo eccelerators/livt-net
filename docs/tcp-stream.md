@@ -12,6 +12,11 @@ RAMs. Parsers, checksum arithmetic and the output frame builder are shared.
 Connections are matched by remote IPv4 address and TCP port before a free slot
 can accept a SYN. Extra clients are ignored while all slots are occupied.
 
+For `SESSIONS = 1`, the server, send buffer and retry timer select slot zero
+through compile-time specialization. Multiple-session selection remains indexed;
+existing checked selection rules still apply. This expresses the intended
+hardware structure without promising a particular area or timing result.
+
 ## Ownership and progress
 
 Call `TryHandle(now)` while an RX frame is acquired; it consumes the frame only

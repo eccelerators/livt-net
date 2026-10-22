@@ -98,6 +98,6 @@ but reads/writes are scheduled RAM transactions, not combinational array access.
 The Web endpoint shares one receive RAM between protocol consumers; ICMP keeps a
 separate RAM snapshot to permit early RX release. Small protocol header caches
 remain register arrays: a measured 20-byte RAM-cache alternative used more total
-LUTs. See the [reproducible storage probes](../verification/storage-probes/README.md)
-for the workload, results and their limits. Sharing a physical source still requires
+LUTs in an earlier experiment. Its storage probes are not included in this
+checkout, so this is not a reproducible 1.3.0 resource result. Sharing a physical source still requires
 one serialized lifecycle owner; publication does not count outstanding borrows.

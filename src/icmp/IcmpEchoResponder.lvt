@@ -178,8 +178,24 @@ component IcmpEchoResponder<
 		sourceIpLow = NetworkOrder.Word(localIp[2], localIp[3]) as logic[16]
 		destinationIpHigh = NetworkOrder.Word(peerIp[0], peerIp[1]) as logic[16]
 		destinationIpLow = NetworkOrder.Word(peerIp[2], peerIp[3]) as logic[16]
-		ipv4Checksum = Ipv4HeaderChecksum.Calculate(28 + length, identification,
-			localIp, peerIp, IIpv4Payload.PROTOCOL_ICMP) as logic[16]
+		// Snapshot both partial sums before yielding; ready remains false until publication.
+		var headerLeft = 0x4500 + (28 + length)
+			+ NetworkOrder.Word(identification[0], identification[1]) + 0x4000
+		var headerRight = 0x4000 + NetworkOrder.ByteValue(IIpv4Payload.PROTOCOL_ICMP)
+			+ NetworkOrder.Word(localIp[0], localIp[1]) + NetworkOrder.Word(localIp[2], localIp[3])
+			+ NetworkOrder.Word(peerIp[0], peerIp[1]) + NetworkOrder.Word(peerIp[2], peerIp[3])
+		state {
+		}
+
+		var headerSum = headerLeft + headerRight
+		state {
+		}
+
+		var foldedHeader = ChecksumArithmetic.Fold(headerSum)
+		state {
+		}
+
+		ipv4Checksum = (0xFFFF - ChecksumArithmetic.Fold(foldedHeader)) as logic[16]
 		icmpChecksum = ChecksumArithmetic.Finish(sum) as logic[16]
 		icmpIdentifier = NetworkOrder.Word(identifier[0], identifier[1]) as logic[16]
 		icmpSequence = NetworkOrder.Word(sequence[0], sequence[1]) as logic[16]

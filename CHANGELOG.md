@@ -2,6 +2,44 @@
 
 All notable changes to this package are documented here.
 
+## 1.3.0
+
+### Added
+
+- Add `UdpHeader`, `UdpEthernetPacket<P>`, `UdpChecksum` and `UdpPacketParser<S>`
+  for IPv4 UDP header encoding, borrowed Ethernet frame composition, optional
+  checksum generation and complete packet validation.
+- Reuse InternetChecksum for UDP payload/pseudo-header validation, including
+  odd lengths, omitted checksums and computed-zero encoding.
+
+### Changed
+
+- Specialize single-session TCP selection while retaining multi-session behavior.
+- Stage ICMP IPv4 checksum preparation across explicit state boundaries.
+- Reuse Livt.IO EthernetCrc.Update in EthernetLiteReceiveWindow.
+
+### Compatibility and scope
+
+- Keep existing public networking APIs and the `Livt.IO 1.2.0` dependency.
+- UDP transmission supports payloads up to 1472 bytes, source ports 0..65535,
+  destination ports 1..65535 and fixed IPv4 headers with DF and TTL 64.
+  `Prepare` omits the UDP checksum; `PrepareChecksummed` includes it.
+- UDP reception requires a complete fixed-header IPv4 packet and matching UDP/IP
+  payload lengths. A zero UDP checksum is accepted as omitted; nonzero checksums
+  are verified. IPv6, fragments, port dispatch and MAC resolution are not added.
+- ICMP preparation has additional scheduling boundaries. Preserve the existing
+  completion/ownership contract rather than assuming the former cycle count.
+- Video packet formats, stream scheduling and media arbitration remain in the
+  application. No FPGA area or timing improvement is claimed without synthesis.
+
+### Validation
+
+- Pass 18 directly relevant package cases, six demo packet/streaming cases and
+  full board GHDL elaboration/reset after the refactor.
+- Full suite: 117 passed, 4 failed, 6 skipped. Three assertions reproduce on the
+  committed baseline; the interrupted reset case also times out on that baseline.
+  These remain unresolved. See [validation evidence](docs/design-notes.md#ipv4-udp-and-networking-refactor-validation-2026-10-22).
+
 ## 1.2.0
 
 ### Added

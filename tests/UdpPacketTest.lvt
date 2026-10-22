@@ -1,0 +1,126 @@
+namespace Livt.Net.Tests
+using Livt.Net
+
+/** Independent Python struct/one's-complement vectors; no expected bytes derive from the DUT. */
+@Test
+component UdpPacketTest
+{
+	// Constant network-order wire vectors and endpoint identity.
+	const IP: byte[31] = [0x45, 0x00, 0x00, 0x1F, 0x12, 0x34, 0x40, 0x00, 0x40, 0x11, 0x14, 0x35, 0x0A, 0x00, 0x00, 0x01, 0x0A, 0x00, 0x00, 0x65, 0x04, 0xD2, 0x16, 0x2E, 0x00, 0x0B, 0x4E, 0x74, 0x80, 0xFE, 0x01]
+	const FRAME: byte[60] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x03, 0x02, 0x00, 0x00, 0x00, 0x00, 0x02, 0x08, 0x00, 0x45, 0x00, 0x00, 0x1F, 0x12, 0x34, 0x40, 0x00, 0x40, 0x11, 0x14, 0x35, 0x0A, 0x00, 0x00, 0x01, 0x0A, 0x00, 0x00, 0x65, 0x04, 0xD2, 0x16, 0x2E, 0x00, 0x0B, 0x4E, 0x74, 0x80, 0xFE, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+	const LOCAL_MAC: byte[6] = [2, 0, 0, 0, 0, 2]
+	const REMOTE_MAC: byte[6] = [2, 0, 0, 0, 0, 3]
+	const LOCAL_IP: byte[4] = [10, 0, 0, 1]
+	const REMOTE_IP: byte[4] = [10, 0, 0, 101]
+	input: ArrayPacketData<64>
+	parser: UdpPacketParser<ArrayPacketData<64>>
+	payload: ArrayPacketData<32>
+	packet: UdpEthernetPacket<ArrayPacketData<32>>
+	new()
+	{
+		this.input = new ArrayPacketData<64>()
+		this.parser = new UdpPacketParser<ArrayPacketData<64>>(this.input)
+		this.payload = new ArrayPacketData<32>()
+		this.packet = new UdpEthernetPacket<ArrayPacketData<32>>(this.payload, LOCAL_MAC, LOCAL_IP, REMOTE_MAC, REMOTE_IP)
+	}
+
+	fn Load(change: int, replacement: byte, length: int, omit: bool)
+	{
+		this.parser.Invalidate()
+		if (this.input.IsReady()) { this.input.TryRelease() } else { this.input.TryClear() }
+		for (var index = 0; index < length; index++) {
+			var value = IP[index]
+			if (index == change) { value = replacement }
+			if (omit && (index == 26 || index == 27)) { value = 0 }
+			assert this.input.TryWrite(index, value) == PacketDataResult.Success
+		}
+		assert this.input.TryPublish() == PacketDataResult.Success
+	}
+
+	@Test
+	fn ReceivesChecksummedAndOmittedDatagrams()
+	{
+		this.Load(-1, 0, 31, false)
+		assert this.parser.TryParse() == PacketParseResult.Success
+		assert this.parser.GetSourcePort() == 1234 && this.parser.GetDestinationPort() == 5678
+		assert this.parser.HasChecksum()
+		assert this.parser.GetAvailableLength() == 3
+		var value: byte = 0
+		for (var index = 0; index < 3; index++) {
+			assert this.parser.TryRead(index, value) == PacketDataResult.Success
+			assert value == IP[28 + index]
+		}
+		assert this.parser.TryRead(3, value) == PacketDataResult.Invalid
+		this.Load(-1, 0, 31, true)
+		assert this.parser.TryParse() == PacketParseResult.Success
+		assert !this.parser.HasChecksum()
+		this.parser.Invalidate()
+		assert !this.parser.IsReady() && this.parser.GetSourcePort() == 0
+		assert this.parser.TryRead(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn RejectsMalformedPacketsAndDiscardsOldMetadata()
+	{
+		this.Load(-1, 0, 31, false)
+		assert this.parser.TryParse() == PacketParseResult.Success
+		this.Load(30, 2, 31, false)
+		assert this.parser.TryParse() == PacketParseResult.Invalid
+		assert !this.parser.IsReady() && this.parser.GetAvailableLength() == 0
+		this.Load(-1, 0, 30, false)
+		assert this.parser.TryParse() == PacketParseResult.Truncated
+		this.Load(25, 7, 31, true)
+		assert this.parser.TryParse() == PacketParseResult.Invalid
+		this.Load(25, 10, 31, true)
+		assert this.parser.TryParse() == PacketParseResult.Invalid
+		this.Load(25, 12, 31, true)
+		assert this.parser.TryParse() == PacketParseResult.Invalid
+		this.Load(10, 0, 31, false)
+		assert this.parser.TryParse() == PacketParseResult.Invalid
+		this.Load(6, 0x20, 31, false)
+		assert this.parser.TryParse() == PacketParseResult.Unsupported
+		this.Load(9, 6, 31, false)
+		assert this.parser.TryParse() == PacketParseResult.Unsupported
+		this.Load(0, 0x46, 31, false)
+		assert this.parser.TryParse() == PacketParseResult.Unsupported
+		this.parser.Invalidate()
+		this.input.TryRelease()
+		assert this.parser.TryParse() == PacketParseResult.NotReady
+	}
+
+	@Test
+	fn TransmitsExactHeaderChecksumPaddingAndReusesPublication()
+	{
+		this.packet.Release()
+		if (this.payload.IsReady()) { this.payload.TryRelease() } else { this.payload.TryClear() }
+		assert !this.packet.Prepare(1234, 5678, 0x1234)
+		for (var index = 0; index < 3; index++) {
+			assert this.payload.TryWrite(index, IP[28 + index]) == PacketDataResult.Success
+		}
+		assert this.payload.TryPublish() == PacketDataResult.Success
+		assert !this.packet.Prepare(-1, 5678, 0)
+		assert !this.packet.Prepare(1234, 0, 0)
+		assert this.packet.PrepareChecksummed(1234, 5678, 0x1234)
+		assert !this.packet.Prepare(1234, 5678, 0)
+		assert this.packet.GetAvailableLength() == 60
+		var value: byte = 0
+		for (var index = 0; index < 60; index++) {
+			assert this.packet.TryRead(index, value) == PacketDataResult.Success
+			assert value == FRAME[index]
+		}
+		assert this.packet.TryRead(60, value) == PacketDataResult.Invalid
+		this.packet.Release()
+		assert this.packet.TryRead(0, value) == PacketDataResult.NotReady
+		assert this.packet.Prepare(0, 5678, 0)
+		assert this.packet.TryRead(40, value) == PacketDataResult.Success && value == 0
+		assert this.packet.TryRead(41, value) == PacketDataResult.Success && value == 0
+		this.packet.Release()
+		this.payload.TryRelease()
+		assert this.payload.TryPublish() == PacketDataResult.Success
+		assert this.packet.PrepareChecksummed(0, 5678, 0)
+		assert this.packet.TryRead(39, value) == PacketDataResult.Success && value == 8
+		this.packet.Release()
+		// Independently chosen payload sum makes the one's-complement result zero.
+		assert UdpChecksum.Calculate(LOCAL_IP, REMOTE_IP, 1234, 5678, 10, 53364) == 65535
+	}
+}

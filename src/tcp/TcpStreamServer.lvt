@@ -166,9 +166,14 @@ component TcpStreamServer<S: IPacketData, PORT: int, RX_CAPACITY: int = 512, TX_
 			return false
 		}
 
-		this.session = index
-		this.tx.SelectSession(index)
-		this.timer.SelectSession(index)
+		// A single session has no runtime slot selection hardware.
+		static if (SESSIONS == 1) {
+			this.session = 0
+		} else {
+			this.session = index
+		}
+		this.tx.SelectSession(this.session)
+		this.timer.SelectSession(this.session)
 		return true
 	}
 

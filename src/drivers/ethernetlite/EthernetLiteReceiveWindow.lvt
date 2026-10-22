@@ -1,5 +1,7 @@
 namespace Livt.Net.Drivers.EthernetLite
 
+using Livt.IO
+
 /**
  * Finds a conservative prefix in CRC-accepted EthernetLite RX storage.
  * Scan at most capacity + four FCS octets. The first valid residue at or after
@@ -10,8 +12,7 @@ component EthernetLiteReceiveWindow<CAPACITY: int = 128>
 {
 	static assert CAPACITY >= 60 && CAPACITY <= 1514, "Capture capacity must be 60..1514"
 
-	// Reflected Ethernet CRC polynomial and residue, before final complement.
-	const POLYNOMIAL: uint = 0xEDB88320
+	// Ethernet CRC residue before final complement; byte updates come from Livt.IO.
 	const RESIDUE: uint = 0xDEBB20E3
 
 	// Current scan state; no packet storage is owned here.
@@ -50,15 +51,7 @@ component EthernetLiteReceiveWindow<CAPACITY: int = 128>
 			return
 		}
 
-		var next = this.crc ^ (value as uint)
-
-		for (var bit = 0; bit < 8; bit++) {
-			if ((next & (1 as uint)) != (0 as uint)) {
-				next = (next >> 1) ^ POLYNOMIAL
-			} else {
-				next = next >> 1
-			}
-		}
+		var next = EthernetCrc.Update(this.crc as logic[32], value) as uint
 
 		this.crc = next
 		this.count++

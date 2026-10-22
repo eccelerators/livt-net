@@ -1,7 +1,7 @@
 # Package structure and helper APIs
 
 The public protocol namespace remains `Livt.Net`. Protocol names already identify
-Ethernet, IPv4, ARP, ICMP and TCP, so callers do not need a separate import for
+Ethernet, IPv4, ARP, ICMP, UDP and TCP, so callers do not need a separate import for
 each header in a composition. Device-specific names remain in
 `Livt.Net.Drivers.EthernetLite`.
 
@@ -12,7 +12,8 @@ each header in a composition. Device-specific names remain in
 | `ipv4` | IPv4 envelopes, parsing, encoding, fixed-header checksum and `IIpv4Payload` |
 | `arp` | ARP parsing, reply fields and response preparation |
 | `icmp` | ICMP echo reply composition and response preparation |
-| `tcp` | TCP parsing, recognition, fixed-header encoding/checksum and SYN-ACK composition |
+| `udp` | IPv4 UDP header encoding, prepared Ethernet packets, checksum and validated payload parsing |
+| `tcp` | TCP packet composition, passive streams, shared send storage, retry timing and Telnet codec |
 | `checksum` | General one's-complement folding and stateful stream accumulation |
 | `services` | Acceptance policies, protocol dispatch and coordinated response ownership |
 | `link` | Device-independent RX/TX contracts and deterministic test links |
@@ -21,7 +22,8 @@ each header in a composition. Device-specific names remain in
 ## Pure calculations and stateful components
 
 `NetworkOrder`, `ChecksumArithmetic`, `Ipv4HeaderChecksum`, `TcpChecksum`,
-`EthernetFrameBuilder`, `Ipv4HeaderBuilder` and `TcpSegmentBuilder` are classes
+`EthernetFrameBuilder`, `Ipv4HeaderBuilder`, `TcpSegmentBuilder`, `UdpHeader` and
+`UdpChecksum` are classes
 with context-free static functions. Do not instantiate them. They neither borrow
 packet providers nor start scheduled component transactions.
 
@@ -87,3 +89,6 @@ changing a helper or its callers.
 Common inherited specializations live beside their protocols. See
 [common packet compositions](common-packets.md) for exact expansions, supported
 defaults, construction and lifetime rules.
+
+UDP provides a complete Ethernet frame view and an IPv4-relative receive parser.
+See [UDP](udp.md) for construction, checksum choices and borrowed lifetimes.

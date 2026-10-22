@@ -14,6 +14,7 @@ The current stack targets:
 - ARP requests for the configured local IPv4 address.
 - IPv4 packets with fixed headers and no fragmentation.
 - ICMP echo requests.
+- Complete IPv4 UDP datagrams with optional transmit checksums and validated reception.
 - TCP SYN, ACK, PSH+ACK, and FIN+ACK classification for a local port.
 - Ethernet-minimum response padding where needed.
 
@@ -33,6 +34,15 @@ Higher-layer response generators own payload bytes and supply:
 This keeps `Livt.Net` reusable and avoids embedding application content in the
 networking package.
 
+UDP uses the Internet checksum for the IPv4 pseudo-header, UDP header and payload.
+This is separate from Ethernet CRC32/FCS. `EthernetLiteReceiveWindow` reuses
+`Livt.IO.EthernetCrc.Update` for its FCS scan; no CRC32 calculation replaces a UDP
+checksum. See [UDP checksum choices](udp.md#checksum-and-scheduling).
+
+ICMP reply preparation splits IPv4 checksum arithmetic across explicit state
+boundaries. The reply becomes readable only when preparation completes; callers
+must not assume a fixed preparation latency from an earlier release.
+
 ## EthernetLite boundary
 
 The device implementation lives in `Livt.Net.Drivers.EthernetLite`. Its receiver
@@ -41,7 +51,7 @@ programming, RX/TX polling and AXI word transactions. Applications depend on
 frame capabilities. See [the driver contract](ethernetlite.md) for construction,
 FCS-free bounded captures, TX limits, completion, errors and coordinated reset.
 
-`Livt.Net 1.1.0` uses `Livt.IO 1.2.0-dev` generic scheduled RAM. Storage cells
+`Livt.Net 1.3.0` uses `Livt.IO 1.2.0` generic scheduled RAM. Storage cells
 may retain bytes across metadata reset, but unpublished data is not readable.
 There is no equal-latency, FPGA area or timing claim from these abstractions.
 
@@ -50,7 +60,8 @@ There is no equal-latency, FPGA area or timing claim from these abstractions.
 `Livt.Net.Drivers.Ethernet` adapts IO's complete-frame RX and buffered TX capabilities
 without duplicating MAC, PHY or protocol logic. RX reports exact FCS-free length;
 TX retains prepared responses through IO wire completion. See the
-[adapter contract](ethernet.md) and [native RMII integration suite](../verification/io-ethernet/README.md).
+[adapter contract](ethernet.md). The historical native RMII integration fixture
+is not included in this checkout.
 Clock-domain crossing and media-rate support belong to the underlying Livt.IO
 capability and its composition; the Net adapter adds neither.
 

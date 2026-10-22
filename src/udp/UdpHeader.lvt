@@ -1,0 +1,94 @@
+namespace Livt.Net
+
+/**
+ * Pure fixed IPv4/UDP Ethernet header for byte-oriented transmission.
+ * Addresses are stable during a packet; IPv4 checksum is prepared before FIRST.
+ */
+class UdpHeader
+{
+	/**
+	 * Returns byte 0..41; IPv4 DF=1, TTL=64, configurable UDP ports/checksum. Caller validates bounds.
+	 */
+	public static fn GetByte[](index: int, localMac: byte[6], localIp: byte[4],
+		remoteMac: byte[6], remoteIp: byte[4], payloadLength: int,
+		identification: uint, checksum: int, sourcePort: int, destinationPort: int, udpChecksum: int) byte
+	{
+		if (index >= 0 && index < 6) {
+			return remoteMac[index]
+		}
+
+		if (index >= 6 && index < 12) {
+			return localMac[index - 6]
+		}
+
+		if (index >= 26 && index < 30) {
+			return localIp[index - 26]
+		}
+
+		if (index >= 30 && index < 34) {
+			return remoteIp[index - 30]
+		}
+
+		match (index)
+		{
+			12 =>
+			{
+				return 8
+			}
+			14 =>
+			{
+				return 0x45
+			}
+			16 =>
+			{
+				return (((payloadLength + 28) as uint) >> 8) as byte
+			}
+			17 =>
+			{
+				return (payloadLength + 28) as byte
+			}
+			18 =>
+			{
+				return (identification >> 8) as byte
+			}
+			19 =>
+			{
+				return identification as byte
+			}
+			20, 22 =>
+			{
+				return 0x40
+			}
+			23 =>
+			{
+				return 17
+			}
+			24 =>
+			{
+				return ((checksum as uint) >> 8) as byte
+			}
+			25 =>
+			{
+				return checksum as byte
+			}
+			34 => { return NetworkOrder.HighByte(sourcePort) }
+			35 => { return NetworkOrder.LowByte(sourcePort) }
+			36 => { return NetworkOrder.HighByte(destinationPort) }
+			37 => { return NetworkOrder.LowByte(destinationPort) }
+			40 => { return NetworkOrder.HighByte(udpChecksum) }
+			41 => { return NetworkOrder.LowByte(udpChecksum) }
+			38 =>
+			{
+				return (((payloadLength + 8) as uint) >> 8) as byte
+			}
+			39 =>
+			{
+				return (payloadLength + 8) as byte
+			}
+			_ =>
+			{
+				return 0
+			}
+		}
+	}
+}

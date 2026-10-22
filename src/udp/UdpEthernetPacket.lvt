@@ -1,0 +1,155 @@
+namespace Livt.Net
+
+/**
+ * Reusable prepared Ethernet/IPv4/UDP view over one borrowed payload publication.
+ * No frame buffer. Caller resolves/configures destination MAC before construction;
+ * all four address arrays must remain stable. One owner serializes Prepare/Release
+ * and retains the payload through MAC completion. IPv4 DF, TTL64. Prepare omits
+ * the UDP checksum; PrepareChecksummed includes it. No IPv6, fragmentation, ARP
+ * or retransmission here.
+ */
+component UdpEthernetPacket<P: IPacketData> : IPacketData
+{
+	// Borrowed stable payload and endpoint addresses; no payload ownership transfers.
+	payload: P
+	localMac: byte[6]
+	remoteMac: byte[6]
+	localIp: byte[4]
+	remoteIp: byte[4]
+
+	// Published scalar header snapshot, held until the transmitter releases it.
+	published: bool
+	payloadLength: int
+	frameLength: int
+	udpChecksum: int
+	payloadSum: InternetChecksum
+	checksum: int
+	sourcePort: int
+	destinationPort: int
+	identity: int
+
+	/**
+	 * Binds endpoint identity in the same context; the outer network owner resolves MAC.
+	 */
+	new(payload: P, localMac: byte[6], localIp: byte[4], remoteMac: byte[6], remoteIp: byte[4])
+	{
+		this.payloadSum = new InternetChecksum()
+		this.payload = payload
+		this.localMac = localMac
+		this.localIp = localIp
+		this.remoteMac = remoteMac
+		this.remoteIp = remoteIp
+	}
+
+	/**
+	 * Captures one valid payload of up to 1472 bytes; rejects overlapping publication.
+	 */
+	public fn Prepare(sourcePort: int, destinationPort: int, identification: int) bool
+	{
+		return this.PrepareInternal(sourcePort, destinationPort, identification, false)
+	}
+
+	/** Scans the stable payload and publishes only after its UDP checksum is ready. */
+	public fn PrepareChecksummed(sourcePort: int, destinationPort: int, identification: int) bool
+	{
+		return this.PrepareInternal(sourcePort, destinationPort, identification, true)
+	}
+
+	fn PrepareInternal(sourcePort: int, destinationPort: int, identification: int, checksummed: bool) bool
+	{
+		if (this.published || sourcePort < 0 || sourcePort > 65535
+			|| destinationPort < 1 || destinationPort > 65535
+			|| identification < 0 || identification > 65535 || !this.payload.IsReady()) {
+			return false
+		}
+
+		var length = this.payload.GetAvailableLength()
+
+		if (length < 0 || length > 1472) {
+			return false
+		}
+
+		this.payloadLength = length
+		this.frameLength = length + 42
+
+		if (this.frameLength < 60) {
+			this.frameLength = 60
+		}
+
+		this.sourcePort = sourcePort
+		this.destinationPort = destinationPort
+		this.identity = identification
+		var sum = 0x4500 + (length + 28) + identification + 0x4000 + 0x4011
+			+ NetworkOrder.Word(this.localIp[0], this.localIp[1])
+			+ NetworkOrder.Word(this.localIp[2], this.localIp[3])
+			+ NetworkOrder.Word(this.remoteIp[0], this.remoteIp[1])
+			+ NetworkOrder.Word(this.remoteIp[2], this.remoteIp[3])
+		this.checksum = ChecksumArithmetic.Finish(sum)
+		this.udpChecksum = 0
+		if (checksummed) {
+			this.payloadSum.Reset()
+			for (var index = 0; index < length; index++) {
+				var value: byte = 0
+				if (this.payload.TryRead(index, value) != PacketDataResult.Success) { return false }
+				this.payloadSum.AddByte(value)
+			}
+			this.udpChecksum = UdpChecksum.Calculate(this.localIp, this.remoteIp,
+				sourcePort, destinationPort, length + 8, this.payloadSum.GetWordSum())
+		}
+		this.published = true
+		return true
+	}
+
+	/**
+	 * Ends the header view after every dependent read and MAC completion has finished.
+	 */
+	public fn Release()
+	{
+		this.published = false
+	}
+
+	/**
+	 * Reports the retained publication without acquiring it.
+	 */
+	override fn IsReady() bool
+	{
+		return this.published
+	}
+
+	/**
+	 * Ethernet size excludes FCS/preamble, includes zero padding to minimum size.
+	 */
+	override fn GetAvailableLength() int
+	{
+		if (this.published) {
+			return this.frameLength
+		}
+
+		return 0
+	}
+
+	/**
+	 * Header reads use network order; payload failures propagate and padding is zero.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0
+
+		if (!this.published) {
+			return PacketDataResult.NotReady
+		}
+
+		if (index < 0 || index >= this.frameLength) {
+			return PacketDataResult.Invalid
+		}
+
+		if (index < 42) {
+			value = UdpHeader.GetByte(index, this.localMac, this.localIp, this.remoteMac,
+				this.remoteIp, this.payloadLength, this.identity as uint, this.checksum,
+				this.sourcePort, this.destinationPort, this.udpChecksum)
+		} elif (index < this.payloadLength + 42) {
+			return this.payload.TryRead(index - 42, value)
+		}
+		return PacketDataResult.Success
+	}
+}

@@ -19,8 +19,8 @@ transmitter = new EthernetFrameTransmitter<NetworkService<EthernetFrameReceiver>
 endpoint = new FrameService<EthernetFrameReceiver, NetworkService<EthernetFrameReceiver>, EthernetFrameTransmitter<NetworkService<EthernetFrameReceiver>>>(receiver, service, transmitter)
 ```
 
-The [executable composition](../verification/io-ethernet/NetEthernetIntegration.lvt)
-includes the real IO MACs, RMII adapter and endpoint polling process. Its resolved
+The historical `NetEthernetIntegration.lvt` verification composition (not included
+in this checkout) includes the real IO MACs, RMII adapter and endpoint polling process. Its resolved
 100M link is a simulation fixture; a hardware composition supplies PHY management
 and reset sequencing as documented in Livt.IO. IO remains independent of Net.
 
@@ -87,8 +87,8 @@ resetting only the MAC or only a source violates the ownership contract.
 
 EthernetLite's contracts and implementation are unchanged. The single-slot IO MAC
 and scheduled per-byte copies limit application throughput below wire rate;
-frames arriving while RX is occupied are dropped whole. See the
-[IO throughput measurements](../../livt-io/verification/ethernet/README.md).
+frames arriving while RX is occupied are dropped whole. Throughput must be
+measured for the chosen MAC and application composition.
 No new buffering, flow control, CDC or 10M qualification is supplied by this adapter.
 
 ## Verification
@@ -100,7 +100,7 @@ terminal failure and recovery. Existing ARP/ICMP services are checked byte-for-b
 against their fixed independent request/reply vectors. A controllable IO fixture
 holds completion to prove the borrow survives after copying ends.
 
-The [native integration runner](../verification/io-ethernet/README.md) additionally
+The historical native integration runner (not included in this checkout) additionally
 injects physical RMII requests through the real MAC, adapters and existing Net
 services. It checks every response dibit and independent zlib FCS, corrupt-frame
 rejection, completion after transmission, reset during an active source borrow,

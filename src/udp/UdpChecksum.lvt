@@ -1,0 +1,20 @@
+namespace Livt.Net
+
+/** IPv4 UDP checksum over addresses, ports, length and an InternetChecksum payload sum. */
+class UdpChecksum
+{
+	/** Caller validates ports (0..65535) and UDP length (8..65515). Odd payloads are zero padded. */
+	public static fn Calculate[](sourceIp: byte[4], destinationIp: byte[4],
+		sourcePort: int, destinationPort: int, udpLength: int, payloadWordSum: int) int
+	{
+		var addressSum = NetworkOrder.Word(sourceIp[0], sourceIp[1])
+			+ NetworkOrder.Word(sourceIp[2], sourceIp[3])
+			+ NetworkOrder.Word(destinationIp[0], destinationIp[1])
+			+ NetworkOrder.Word(destinationIp[2], destinationIp[3])
+		var sum = addressSum + 17 + udpLength + sourcePort + destinationPort + udpLength
+		var checksum = ChecksumArithmetic.Finish(sum + payloadWordSum)
+		// Wire zero means omitted; a computed zero must be encoded as all ones.
+		if (checksum == 0) { return 65535 }
+		return checksum
+	}
+}

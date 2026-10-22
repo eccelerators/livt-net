@@ -2,9 +2,9 @@
 
 `Livt.Net` provides compile-time configurable networking components for Livt hardware designs.
 It supports small Ethernet/IPv4 request/response stacks and bounded TCP control
-streams, with RAM-backed buffering and a Telnet terminal codec.
+streams, IPv4 UDP datagrams, RAM-backed buffering and a Telnet terminal codec.
 
-The 1.2.0 package surface is intentionally narrow and hardware-oriented:
+The 1.3.0 package surface is intentionally narrow and hardware-oriented:
 
 - `Livt.Net.EthernetFrameParser`: fixed Ethernet II header parser.
 - `Livt.Net.EthernetFrameBuilder`: static Ethernet header encoding from explicit addresses.
@@ -15,6 +15,8 @@ The 1.2.0 package surface is intentionally narrow and hardware-oriented:
 - `Livt.Net.Ipv4HeaderChecksum`: checksum helper for fixed IPv4 responses.
 - `Livt.Net.InternetChecksum`: streaming RFC 1071 Internet checksum helper.
 - `Livt.Net.IcmpEchoResponder`: ICMP request recognition and prepared reply composition.
+- `Livt.Net.UdpHeader` / `UdpEthernetPacket<P>`: UDP header encoding and prepared Ethernet frames.
+- `Livt.Net.UdpChecksum` / `UdpPacketParser<S>`: IPv4 UDP checksum calculation and validated payload views.
 - `Livt.Net.TcpHeaderParser`: bounded TCP header parser.
 - `Livt.Net.TcpConnectionRecognizer`: TCP packet recognizer for local endpoints.
 - `Livt.Net.TcpSegmentBuilder`: static fixed TCP header encoding.
@@ -30,7 +32,7 @@ The 1.2.0 package surface is intentionally narrow and hardware-oriented:
 
 ```toml
 [dependencies]
-Livt.Net = "1.2.0"
+Livt.Net = "1.3.0"
 ```
 
 See the [changelog](CHANGELOG.md) for release changes.
@@ -54,10 +56,11 @@ protocol responsibilities without imposing extra imports; see
 | ARP | `ArpPacketParser`, `ArpReply`, `ArpResponder` |
 | IPv4 | `Ipv4Packet`, `Ipv4PacketParser`, `Ipv4HeaderBuilder`, `Ipv4HeaderChecksum` |
 | ICMP | `IcmpEchoReply`, `IcmpEchoResponder<S, FRAME_CAPACITY, B>` |
+| UDP | `UdpHeader`, `UdpEthernetPacket`, `UdpChecksum`, `UdpPacketParser` |
 | TCP packets | `TcpHeaderParser`, `TcpConnectionRecognizer`, `TcpSegmentBuilder`, `TcpSegment`, `TcpIpv4Packet`, `TcpIpv4Frame`, `TcpChecksum` |
 | TCP streams | `TcpStreamServer`, `TcpSendBuffer`, `TcpRetryTimer` |
 | Telnet | `TelnetSession` |
-| Checksums | `InternetChecksum`, `Ipv4HeaderChecksum`, `TcpChecksum` |
+| Checksums | `InternetChecksum`, `Ipv4HeaderChecksum`, `TcpChecksum`, `UdpChecksum` |
 | Services | `NetworkService`, `ArpService`, `IcmpEchoService`, `ServiceChain`, `FrameService`, `ResponseTransfer` |
 | Buffered links | `IFrameReceiver`, `IFrameTransmitter`, `TestFrameReceiver`, `TestFrameTransmitter` |
 | EthernetLite device | `EthernetLiteDriver`, `EthernetLiteReceiver`, `EthernetLiteTransmitter`, `EthernetLiteBus` |
@@ -103,8 +106,22 @@ static contract, and backend selection adds no runtime selector. See
 
 `InternetChecksum` incrementally consumes network-order bytes with `AddByte()`.
 It accepts `byte` octets and returns either the unfolded word sum for the static
-`TcpChecksum` helper or the final
+`TcpChecksum` and `UdpChecksum` helpers or the final
 RFC 1071 checksum, including the required zero padding for odd-length input.
+
+### IPv4 UDP
+
+`UdpEthernetPacket<P>` prepares an Ethernet/IPv4/UDP frame over a borrowed
+`IPacketData` payload of up to 1472 bytes. Choose `Prepare` to omit the UDP
+checksum or `PrepareChecksummed` to calculate it from the payload. Both include
+the IPv4 header checksum and minimum Ethernet padding; the MAC supplies FCS.
+
+`UdpPacketParser<S>` validates a complete IPv4 UDP packet, checks any nonzero UDP
+checksum, and exposes ports and a bounded payload. Applications own endpoint
+selection, destination MAC resolution and transmission scheduling. IPv6,
+fragmentation, automatic port dispatch and retransmission are outside this API.
+Video framing and streaming remain application responsibilities.
+See [UDP construction, ownership and examples](docs/udp.md).
 
 ### TCP streams and Telnet
 
@@ -166,6 +183,12 @@ notes live in [`docs/design-notes.md`](docs/design-notes.md). The package-wide
 resource and scheduling rules are recorded in
 [`docs/resource-optimization.md`](docs/resource-optimization.md).
 
+The 1.3.0 refactor passed all 18 directly relevant package cases, six demo
+packet/streaming cases and board GHDL elaboration/reset. The full suite reported
+117 passed, 4 failed and 6 skipped; baseline assertions and a reset timeout remain
+unresolved. See [validation details](docs/design-notes.md#ipv4-udp-and-networking-refactor-validation-2026-10-22)
+before publishing. No new FPGA resource or timing result is claimed.
+
 ## 🛠️ Development Notes
 
 - Keep reusable protocol components in `namespace Livt.Net`.
@@ -178,7 +201,7 @@ resource and scheduling rules are recorded in
 
 ## 🚧 Outlook
 
-Possible future work includes broader IPv4/TCP option handling, UDP support and
+Possible future work includes broader IPv4/TCP option handling and
 streaming frame adapters. These are separate features, not part of the current
 bounded IPv4 request/response and passive TCP stream contracts.
 

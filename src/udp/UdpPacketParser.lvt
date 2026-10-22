@@ -1,0 +1,115 @@
+namespace Livt.Net
+
+/**
+ * Complete IPv4 UDP validation over a borrowed IPv4 packet (byte zero is the IP header).
+ * Rejects IPv4 options/fragments, truncation, bad IP checksums and invalid nonzero
+ * UDP checksums. UDP length must equal the declared IP payload length. A zero UDP
+ * checksum is accepted as omitted. No port dispatch, ARP, reassembly or IPv6.
+ * One serialized owner keeps source bytes published and stable through all reads;
+ * invalidate this parser before releasing/replacing that source.
+ */
+component UdpPacketParser<S: IPacketData> : IPacketData
+{
+	// Owned metadata/checksum state; payload bytes remain in the borrowed source.
+	ip: Ipv4PacketParser<S>
+	header: PacketHeader<Ipv4PacketParser<S>, 8>
+	checksum: InternetChecksum
+	status: PacketParseResult
+
+	new(source: S)
+	{
+		this.ip = new Ipv4PacketParser<S>(source)
+		this.header = new PacketHeader<Ipv4PacketParser<S>, 8>(this.ip)
+		this.checksum = new InternetChecksum()
+	}
+
+	public fn Invalidate()
+	{
+		this.status = PacketParseResult.NotReady
+		this.header.Invalidate()
+		this.ip.Invalidate()
+	}
+
+	public fn TryParse() PacketParseResult
+	{
+		this.Invalidate()
+		var result = this.ip.TryParse()
+		if (result == PacketParseResult.HeaderOnly) { result = PacketParseResult.Truncated }
+		if (result != PacketParseResult.Success) { this.status = result; return result }
+		if (this.ip.GetProtocol() != 17) {
+			this.status = PacketParseResult.Unsupported
+			return this.status
+		}
+		if (!this.ip.IsHeaderChecksumValid()) {
+			this.status = PacketParseResult.Invalid
+			return this.status
+		}
+		result = this.header.TryLoad()
+		if (result != PacketParseResult.Success) { this.status = result; return result }
+		var length = this.header.GetWord(4)
+		if (length < 8 || length != this.ip.GetDeclaredPayloadLength()) {
+			this.status = PacketParseResult.Invalid
+			return this.status
+		}
+		if (this.header.GetWord(6) != 0) {
+			this.checksum.Reset()
+			var sourceIp = this.ip.GetSourceIpv4()
+			var destinationIp = this.ip.GetDestinationIpv4()
+			for (var index = 0; index < 4; index++) { this.checksum.AddByte(sourceIp[index]) }
+			for (var index = 0; index < 4; index++) { this.checksum.AddByte(destinationIp[index]) }
+			this.checksum.AddByte(0)
+			this.checksum.AddByte(17)
+			this.checksum.AddByte(NetworkOrder.HighByte(length))
+			this.checksum.AddByte(NetworkOrder.LowByte(length))
+			for (var index = 0; index < length; index++) {
+				var value: byte = 0
+				if (this.ip.TryRead(index, value) != PacketDataResult.Success) {
+					this.status = PacketParseResult.NotReady
+					return this.status
+				}
+				this.checksum.AddByte(value)
+			}
+			if (this.checksum.GetChecksum() != 0) {
+				this.status = PacketParseResult.Invalid
+				return this.status
+			}
+		}
+		this.status = this.header.TryOpenPayload(8, length - 8)
+		return this.status
+	}
+
+	public fn GetStatus() PacketParseResult
+	{
+		if (this.status == PacketParseResult.Success && !this.header.IsReady()) {
+			return PacketParseResult.NotReady
+		}
+		return this.status
+	}
+
+	override fn IsReady() bool { return this.GetStatus() == PacketParseResult.Success }
+	override fn GetAvailableLength() int
+	{
+		if (!this.IsReady()) { return 0 }
+		return this.header.GetAvailableLength()
+	}
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0
+		if (!this.IsReady()) { return PacketDataResult.NotReady }
+		return this.header.TryRead(index, value)
+	}
+	public fn GetSourcePort() int
+	{
+		if (!this.IsReady()) { return 0 }
+		return this.header.GetWord(0)
+	}
+	public fn GetDestinationPort() int
+	{
+		if (!this.IsReady()) { return 0 }
+		return this.header.GetWord(2)
+	}
+	public fn HasChecksum() bool
+	{
+		return this.IsReady() && this.header.GetWord(6) != 0
+	}
+}
