@@ -3,8 +3,11 @@
 `Livt.Net.Drivers.Ethernet.EthernetFrameReceiver` and
 `EthernetFrameTransmitter<S: IPacketData>` adapt Livt.IO's buffered MAC to
 `IFrameReceiver` and `IFrameTransmitter`. They contain no PHY configuration,
-RMII pin handling or protocol implementations. Existing `NetworkService` and
+RMII/MII pin handling or protocol implementations. Existing `NetworkService` and
 `FrameService` supply ARP/ICMP handling and response lifetime management.
+
+See [MII integration](mii.md) for Livt.IO 1.4.0 wiring and the included 10/100 Mb/s
+verification projects. The same frame ownership contract applies to both media.
 
 ## Construction and ownership
 

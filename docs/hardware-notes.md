@@ -51,7 +51,7 @@ programming, RX/TX polling and AXI word transactions. Applications depend on
 frame capabilities. See [the driver contract](ethernetlite.md) for construction,
 FCS-free bounded captures, TX limits, completion, errors and coordinated reset.
 
-`Livt.Net 1.3.0` uses `Livt.IO 1.2.0` generic scheduled RAM. Storage cells
+`Livt.Net 1.3.1` uses `Livt.IO 1.4.0` generic scheduled RAM. Storage cells
 may retain bytes across metadata reset, but unpublished data is not readable.
 There is no equal-latency, FPGA area or timing claim from these abstractions.
 
@@ -64,6 +64,8 @@ TX retains prepared responses through IO wire completion. See the
 is not included in this checkout.
 Clock-domain crossing and media-rate support belong to the underlying Livt.IO
 capability and its composition; the Net adapter adds neither.
+The included [MII integration tests](mii.md) cover full frames at 10 and 100 Mb/s
+in simulation. These results do not establish FPGA resource use or board timing.
 
 ## IPv4 reply header storage
 

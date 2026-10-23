@@ -1,0 +1,127 @@
+namespace Livt.Net.Tests
+
+using Livt.IO
+using Livt.Net
+using Livt.Net.Drivers.Ethernet
+
+/**
+ * Real Livt.IO MAC CRC/framing and Livt.Net ownership over asynchronous MII.
+ */
+@Test
+@Context(ClockFrequency = 50MHz, ResetStyle = ResetStyle.Asynchronous)
+component MiiFrameTest
+{
+	// Minimum Ethernet frame length without FCS.
+	const FRAME_BYTES: int = 60
+
+	// Test MAC storage capacity in bytes.
+	const MAC_CAPACITY: int = 128
+
+	// Local unicast address; the test transmits broadcast frames.
+	const LOCAL_MAC: byte[6] = [2, 0, 0, 0, 1, 3]
+
+	// Owned media-clock fixture, physical loopback, and resolved link.
+	@Context(ClockFrequency = 25MHz, ResetStyle = ResetStyle.Asynchronous)
+	mediaClock: IContext
+	pins: FrameMiiPins
+	link: FrameMiiLink
+	media: MiiAdapter
+
+	// Owned frame MACs, packet storage, and Net ownership adapters.
+	rxMac: EthernetReceiver<MAC_CAPACITY>
+	txMac: EthernetTransmitter<MAC_CAPACITY>
+	receiver: EthernetFrameReceiver
+	source: ArrayPacketData<FRAME_BYTES>
+	transmitter: EthernetFrameTransmitter<ArrayPacketData<FRAME_BYTES>>
+
+	/**
+	 * Constructs the test-owned devices and binds their clock and signal dependencies.
+	 */
+	new()
+	{
+		this.pins = new FrameMiiPins()
+		this.link = new FrameMiiLink()
+		this.media = new MiiAdapter(this.context, mediaClock, mediaClock, pins, link)
+		this.rxMac = new EthernetReceiver<MAC_CAPACITY>(media, link, LOCAL_MAC)
+		this.txMac = new EthernetTransmitter<MAC_CAPACITY>(media, link)
+		this.receiver = new EthernetFrameReceiver(rxMac)
+		this.source = new ArrayPacketData<FRAME_BYTES>()
+		this.transmitter = new EthernetFrameTransmitter<ArrayPacketData<FRAME_BYTES>>(txMac, source)
+	}
+
+	/**
+	 * Connects TX pins to RX pins in the shared test media domain.
+	 */
+	process Loop[]()
+	{
+		this.pins.rxData = pins.txData
+		this.pins.rxValid = pins.txEnable
+		this.pins.rxError = 0b0
+	}
+
+	/**
+	 * Exercises this scenario once from the fixture reset state and checks completion and ownership.
+	 */
+	@Test
+	fn SendsCrcCheckedFrameAndReleasesOwnership()
+	{
+		for (var index = 0; index < FRAME_BYTES; index++) {
+			var value = index as byte
+
+			if (index < 6) {
+				value = 0xFF
+			}
+
+			if (index == 12) {
+				value = 0x08
+			}
+
+			if (index == 13) {
+				value = 0x06
+			}
+
+			assert source.TryWrite(index, value) == PacketDataResult.Success
+		}
+
+		assert source.TryPublish() == PacketDataResult.Success
+		assert transmitter.TrySubmit() == FrameLinkResult.Accepted
+		var outcome = FrameTransmitOutcome.DeviceFailure
+		var result = FrameLinkResult.NotReady
+
+		for (var attempt = 0; attempt < 3000; attempt++) {
+			result = transmitter.TryGetCompletion(outcome)
+
+			if (result == FrameLinkResult.Success) {
+				break
+			}
+		}
+
+		assert result == FrameLinkResult.Success
+		assert outcome == FrameTransmitOutcome.Delivered
+		var acquired = FrameLinkResult.NotReady
+
+		for (var attempt = 0; attempt < 100; attempt++) {
+			acquired = receiver.TryAcquire()
+
+			if (acquired == FrameLinkResult.Success) {
+				break
+			}
+		}
+
+		assert acquired == FrameLinkResult.Success
+		assert receiver.GetAvailableLength() == FRAME_BYTES
+
+		for (var index = 0; index < FRAME_BYTES; index++) {
+			var expected: byte = 0
+			var actual: byte = 0
+			assert source.TryRead(index, expected) == PacketDataResult.Success
+			assert receiver.TryRead(index, actual) == PacketDataResult.Success
+			assert actual == expected
+		}
+
+		assert rxMac.GetDiscardCount(EthernetReceiveDiscard.BadFcs) == 0
+		assert receiver.TryRelease() == FrameLinkResult.Success
+		assert transmitter.TryAcknowledgeCompletion() == FrameLinkResult.Success
+		assert !transmitter.IsSourceBorrowed()
+	}
+}

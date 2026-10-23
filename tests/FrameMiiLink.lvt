@@ -1,0 +1,18 @@
+namespace Livt.Net.Tests
+
+using Livt.IO
+
+/**
+ * Always-ready 100 Mb/s full-duplex link for the frame fixture.
+ */
+component FrameMiiLink : IEthernetLinkStatus
+{
+	/**
+	 * Publishes the resolved full-duplex test link.
+	 */
+	process Status[]()
+	{
+		this.ready = true
+		this.speed = EthernetSpeed.Mbps100
+	}
+}

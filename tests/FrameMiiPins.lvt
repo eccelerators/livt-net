@@ -1,0 +1,10 @@
+namespace Livt.Net.Tests
+
+using Livt.IO
+
+/**
+ * Loopback pin bundle driven by the owning frame test.
+ */
+component FrameMiiPins : IMiiPins
+{
+}

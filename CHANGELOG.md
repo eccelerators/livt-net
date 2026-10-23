@@ -2,6 +2,29 @@
 
 All notable changes to this package are documented here.
 
+## 1.3.1
+
+### Added
+
+- Direct-MII integration documentation for the existing IO-MAC frame adapters.
+- Livt integration verification covering full Ethernet framing/FCS, exact packet
+  bytes, and frame ownership release using the Livt.IO 1.4.0 MII implementation at 10 and 100 Mb/s.
+
+### Changed
+
+- Keep MII fixtures and helpers as ordinary files under `tests/`, registered in
+  the package test catalog; remove development-only verification projects.
+
+- Require `Livt.IO 1.4.0`; publish that dependency before this release.
+- Update Ethernet documentation and dependency examples for MII integration.
+- Keep existing public frame/protocol APIs unchanged. MII serialization, clock
+  crossing, and PHY management remain in Livt.IO.
+
+### Validation
+
+- Both focused MII integration tests pass in Livt simulation. This release does
+  not claim a new full-suite pass, FPGA timing result, or hardware qualification.
+
 ## 1.3.0
 
 ### Added

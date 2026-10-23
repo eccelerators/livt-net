@@ -4,7 +4,7 @@
 It supports small Ethernet/IPv4 request/response stacks and bounded TCP control
 streams, IPv4 UDP datagrams, RAM-backed buffering and a Telnet terminal codec.
 
-The 1.3.0 package surface is intentionally narrow and hardware-oriented:
+The 1.3.1 package surface is intentionally narrow and hardware-oriented:
 
 - `Livt.Net.EthernetFrameParser`: fixed Ethernet II header parser.
 - `Livt.Net.EthernetFrameBuilder`: static Ethernet header encoding from explicit addresses.
@@ -32,14 +32,18 @@ The 1.3.0 package surface is intentionally narrow and hardware-oriented:
 
 ```toml
 [dependencies]
-Livt.Net = "1.3.0"
+"Livt.Net" = "1.3.1"
 ```
 
 See the [changelog](CHANGELOG.md) for release changes.
 
-`Livt.Net` depends on `Livt.IO 1.2.0` for byte-addressable RAM used by the
+`Livt.Net` depends on `Livt.IO 1.4.0` for byte-addressable RAM used by the
 Ethernet frame I/O path. Domain applications should depend on `Livt.Net`; add
 `Livt.IO` directly only when the application also uses I/O primitives itself.
+
+Version 1.3.1 documents and verifies the existing IO-MAC adapters over
+[MII Ethernet](docs/mii.md) at 10 and 100 Mb/s. No public frame or protocol API
+changes are required; PHY management and media timing belong to Livt.IO.
 
 ## 📚 Namespaces
 
