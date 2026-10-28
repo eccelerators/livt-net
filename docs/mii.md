@@ -21,11 +21,11 @@ Use these registry dependencies in a consumer that constructs the IO components:
 
 ```toml
 [dependencies]
-"Livt.Net" = "1.3.1"
-"Livt.IO" = "1.4.0"
+"Livt.Net" = "1.4.0"
+"Livt.IO" = "1.5.0"
 ```
 
-Publish Livt.IO 1.4.0 before Livt.Net 1.3.1. Existing Net frame/protocol APIs are
+Publish Livt.IO 1.5.0 before Livt.Net 1.4.0. Existing Net frame/protocol APIs are
 unchanged. See [frame adapter construction](ethernet.md) for the MAC-to-Net wiring.
 
 The normal package test catalog includes `MiiFrameTest` and `MiiFrame10Test`.

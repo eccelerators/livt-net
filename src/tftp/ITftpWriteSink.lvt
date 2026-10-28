@@ -1,0 +1,37 @@
+namespace Livt.Net
+
+/**
+ * Transactional destination for one TFTP upload in the caller's context. The
+ * server borrows this sink exclusively. Calls wait for acceptance/completion;
+ * server and sink borrow the same ITftpUploadBuffer bound at construction.
+ * Read only the supplied prefix, without retaining a borrow after the call.
+ * The sink never modifies staging. No network ownership.
+ */
+interface ITftpWriteSink
+{
+	/**
+	 * Starts an unpublished replacement identified by 1..63 staged filename bytes.
+	 * Requires no active upload. Returns false if unavailable or rejected,
+	 * leaving no new upload active.
+	 */
+	fn Begin(length: int) bool
+
+	/**
+	 * Appends 0..512 staged data bytes exactly once. False aborts the transfer; no assumption
+	 * is made about partial writes. The sink enforces its own capacity limit.
+	 * A DATA packet may arrive as several ordered chunks; only Commit publishes it.
+	 */
+	fn Write(length: int) bool
+
+	/**
+	 * Validates and publishes the complete upload. False leaves the previous
+	 * published content intact; the server subsequently calls Abort.
+	 */
+	fn Commit() bool
+
+	/**
+	 * Discards an unpublished upload, preserving previous committed content.
+	 * Idempotent; never removes a successfully committed file.
+	 */
+	fn Abort()
+}

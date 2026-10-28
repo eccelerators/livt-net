@@ -1,0 +1,150 @@
+namespace Livt.Net
+
+using Livt.IO
+
+/**
+ * Bounded RFC 1350 packet decoder. Owns a 516-byte snapshot so the network
+ * source may be released after Load. One serialized caller in the same context.
+ * STYLE selects the default RAM preference. B may replace storage and must provide
+ * at least 516 bytes. Only successfully loaded bytes are readable.
+ * Supports octet WRQ filenames up to 63 bytes and baseline 512-byte DATA.
+ */
+component TftpRequest<P: IPacketData, STYLE: MemoryStyle = MemoryStyle.Block,
+	B: IRam<byte> & new() = Ram<byte, 516, STYLE>>
+{
+	// Borrowed published datagram and owned validated packet prefix.
+	source: P
+	bytes: B
+	length: int
+
+	/**
+	 * Binds a stable published UDP payload; Load performs the snapshot.
+	 */
+	new(source: P)
+	{
+		this.source = source
+		bytes = new B()
+	}
+
+	/**
+	 * Copies a complete 2..516-byte datagram. Failure invalidates the previous snapshot.
+	 */
+	public fn Load() bool
+	{
+		length = 0
+		var count = source.GetAvailableLength()
+
+		if (!source.IsReady() || count < 2 || count > 516) {
+			return false
+		}
+
+		for (var index = 0; index < count; index++) {
+			var value: byte = 0
+
+			if (source.TryRead(index, value) != PacketDataResult.Success) {
+				return false
+			}
+
+			bytes.Write(index, value)
+		}
+
+		length = count
+		return true
+	}
+
+	/**
+	 * Returns the snapshot length, or zero after failed loading.
+	 */
+	public fn GetLength() int
+	{
+		return length
+	}
+
+	/**
+	 * Returns one snapshot byte, or zero outside the valid prefix.
+	 */
+	public fn GetByte(index: int) byte
+	{
+		if (index < 0 || index >= length) {
+			return 0x00
+		}
+
+		return bytes.Read(index)
+	}
+
+	/**
+	 * Returns a network-order opcode, or zero without a complete opcode.
+	 */
+	public fn GetOpcode() int
+	{
+		if (length < 2) {
+			return 0
+		}
+
+		return (GetByte(0) as int) * 256 + (GetByte(1) as int)
+	}
+
+	/**
+	 * Returns a network-order block number; callers must require at least four bytes.
+	 */
+	public fn GetBlock() int
+	{
+		return (GetByte(2) as int) * 256 + (GetByte(3) as int)
+	}
+
+	/**
+	 * Returns the filename length of a valid octet WRQ, or zero. Mode matching
+	 * is case-insensitive. Complete option/value pairs are accepted but ignored,
+	 * as permitted when the server does not negotiate RFC 2347 options.
+	 */
+	public fn GetWriteNameLength() int
+	{
+		if (GetOpcode() != 2) {
+			return 0
+		}
+
+		var end = 2
+
+		while (end < length && end < 66 && GetByte(end) != 0) {
+			end++
+		}
+
+		var nameLength = end - 2
+
+		if (nameLength < 1 || nameLength > 63 || end + 7 > length || GetByte(end) != 0) {
+			return 0
+		}
+
+		if ((GetByte(end + 1) as int | 32) != 111
+			|| (GetByte(end + 2) as int | 32) != 99
+			|| (GetByte(end + 3) as int | 32) != 116
+			|| (GetByte(end + 4) as int | 32) != 101
+			|| (GetByte(end + 5) as int | 32) != 116 || GetByte(end + 6) != 0) {
+			return 0
+		}
+
+		var cursor = end + 7
+		var fields = 0
+
+		while (cursor < length) {
+			var start = cursor
+
+			while (cursor < length && GetByte(cursor) != 0) {
+				cursor++
+			}
+
+			if (cursor == start || cursor == length) {
+				return 0
+			}
+
+			cursor++
+			fields++
+		}
+
+		if (fields % 2 != 0) {
+			return 0
+		}
+
+		return nameLength
+	}
+}

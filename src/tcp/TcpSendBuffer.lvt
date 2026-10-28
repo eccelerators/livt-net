@@ -3,22 +3,25 @@ namespace Livt.Net
 using Livt.IO
 
 /**
- * Banked retained TCP payloads in one RAM with a borrowed transmission view; serialize every call.
+ * Banked retained TCP payloads with a borrowed transmission view; serialize every call.
+ * Owns B in the inherited clock/reset context. B requires a parameterless constructor and
+ * at least CAPACITY * SESSIONS byte addresses. The default uses block RAM; callers may
+ * substitute array, automatic, distributed or custom scheduled storage. Access has no
+ * fixed-cycle guarantee. Length metadata guards unwritten bytes; reset discards all views
+ * and lengths without requiring payload initialization or retention.
  */
-component TcpSendBuffer<CAPACITY: int = 256, SESSIONS: int = 1> : IPacketData
+component TcpSendBuffer<CAPACITY: int = 256, SESSIONS: int = 1,
+	B: IRam<byte> & new() = BlockRam<byte, (CAPACITY * SESSIONS)>> : IPacketData
 {
 	static assert SESSIONS > 0 && SESSIONS <= 16, "TCP sessions must be 1..16"
 
 	static assert CAPACITY > 0 && CAPACITY <= 536, "TCP send capacity must be 1..536"
 
-	// Total bytes across disjoint connection regions.
-	const STORAGE_CAPACITY: int = CAPACITY * SESSIONS
-
 	// Width of the retained or received byte count, including full capacity.
 	const COUNT_BITS: int = Bits.RequiredFor(CAPACITY)
 
-	// Owned payload RAM and retained byte count; payload is not reset.
-	storage: BlockRam<byte, STORAGE_CAPACITY>
+	// Owned payload storage and retained byte count; no payload initialization is required.
+	storage: B
 	length: logic[SESSIONS, COUNT_BITS]
 
 	// Selected retained payload; selection is pinned while a view is open.
@@ -30,12 +33,11 @@ component TcpSendBuffer<CAPACITY: int = 256, SESSIONS: int = 1> : IPacketData
 	opened: bool
 
 	/**
-	 * Owns an empty block-style RAM in the inherited clock/reset context; payload bytes are not
-	 * reset.
+	 * Creates owned storage and empty payload metadata in the inherited clock/reset context.
 	 */
 	new()
 	{
-		this.storage = new BlockRam<byte, STORAGE_CAPACITY>()
+		this.storage = new B()
 	}
 
 	/**

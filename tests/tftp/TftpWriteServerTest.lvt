@@ -1,0 +1,318 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+/**
+ * Independent wire vectors exercise loss, duplicates, completion and peer isolation.
+ */
+@Test
+component TftpWriteServerTest
+{
+	// Wire request: WRQ, filename "scene", octet mode and terminating NULs.
+	const WRQ: byte[14] = [0, 2, 115, 99, 101, 110, 101, 0, 111, 99, 116, 101, 116, 0]
+
+	// Owned input, sink and upload engine with short manually supplied timer intervals.
+	upload: TftpUploadBuffer
+	input: ArrayPacketData<516>
+	sink: TftpTestSink
+	server: TftpWriteServer<ArrayPacketData<516>, TftpTestSink, 1069, 10, 2>
+
+	/**
+	 * Binds the protocol engine to deterministic datagram and storage doubles.
+	 */
+	new()
+	{
+		upload = new TftpUploadBuffer()
+		input = new ArrayPacketData<516>()
+		sink = new TftpTestSink(upload)
+		server = new TftpWriteServer<ArrayPacketData<516>, TftpTestSink, 1069, 10, 2>(input, sink, upload)
+	}
+
+	/**
+	 * Abandons any previous protocol session and resets observations.
+	 */
+	fn Reset()
+	{
+		server.Cancel()
+		sink.Reset()
+		ClearInput()
+	}
+
+	/**
+	 * Releases and clears the packet before writing its next prefix.
+	 */
+	fn ClearInput()
+	{
+		if (input.IsReady()) {
+			input.TryRelease()
+		} else {
+			input.TryClear()
+		}
+	}
+
+	/**
+	 * Supplies an independent complete WRQ vector.
+	 */
+	fn Request()
+	{
+		ClearInput()
+
+		for (var index = 0; index < 14; index++) {
+			assert input.TryWrite(index, WRQ[index]) == PacketDataResult.Success
+		}
+
+		input.TryPublish()
+		assert server.Receive(0x0A000065, 40000, 69, 0)
+	}
+
+	/**
+	 * Publishes a DATA block with a deterministic payload pattern.
+	 */
+	fn Data(block: int, length: int)
+	{
+		ClearInput()
+		input.TryWrite(0, 0)
+		input.TryWrite(1, 3)
+		input.TryWrite(2, (block >> 8) as byte)
+		input.TryWrite(3, block as byte)
+
+		for (var index = 0; index < length; index++) {
+			input.TryWrite(index + 4, 0xA5)
+		}
+
+		input.TryPublish()
+	}
+
+	/**
+	 * Checks ACK/ERROR opcode and low code byte from the stable response.
+	 */
+	fn Expect(opcode: byte, code: byte)
+	{
+		var value: byte = 0
+		assert server.TryRead(1, value) == PacketDataResult.Success
+		assert value == opcode
+		assert server.TryRead(3, value) == PacketDataResult.Success
+		assert value == code
+	}
+
+	/**
+	 * Retries WRQ and final DATA without repeating storage mutations.
+	 */
+	@Test
+	fn CommitsShortUploadExactlyOnce()
+	{
+		Reset()
+		Request()
+		Expect(4, 0)
+		server.Release()
+		Request()
+		assert sink.begins == 1
+		server.Release()
+		Data(1, 3)
+		assert server.Receive(0x0A000065, 40000, 1069, 1)
+		Expect(4, 1)
+		assert sink.bytes == 3 && sink.firstByte == 0xA5
+		assert sink.commits == 1
+		server.Release()
+		assert server.Receive(0x0A000065, 40000, 1069, 2)
+		Expect(4, 1)
+		assert sink.writes == 1 && sink.commits == 1
+	}
+
+	/**
+	 * An exact multiple of 512 bytes requires a final empty block.
+	 */
+	@Test
+	fn RequiresEmptyTerminatorAfterFullBlock()
+	{
+		Reset()
+		Request()
+		server.Release()
+		Data(1, 512)
+		assert server.Receive(0x0A000065, 40000, 1069, 1)
+		assert sink.commits == 0 && sink.bytes == 512
+		server.Release()
+		assert server.Receive(0x0A000065, 40000, 1069, 2)
+		assert sink.writes == 8
+		server.Release()
+		Data(2, 0)
+		assert server.Receive(0x0A000065, 40000, 1069, 3)
+		Expect(4, 2)
+		assert sink.commits == 1 && sink.bytes == 512
+	}
+
+	/**
+	 * Foreign transfer identifiers cannot write or cancel the active upload.
+	 */
+	@Test
+	fn RejectsForeignPeerAndFutureBlock()
+	{
+		Reset()
+		Request()
+		server.Release()
+		Data(1, 3)
+		assert server.Receive(0x0A000066, 40000, 1069, 1)
+		Expect(5, 5)
+		assert sink.writes == 0
+		server.Release()
+		Data(2, 3)
+		assert server.Receive(0x0A000065, 40000, 1069, 2)
+		assert !server.IsReady() && sink.writes == 0
+	}
+
+	/**
+	 * Retry exhaustion aborts an unfinished transaction and permits another upload.
+	 */
+	@Test
+	fn AbortsAfterRetryBudget()
+	{
+		Reset()
+		Request()
+		server.Release()
+		server.Poll(10)
+		Expect(4, 0)
+		server.Release()
+		server.Poll(20)
+		server.Release()
+		server.Poll(30)
+		assert sink.aborts == 1 && !server.IsReady()
+		Request()
+		assert sink.begins == 2
+	}
+
+	/**
+	 * Failed validation produces ERROR rather than acknowledging completion.
+	 */
+	@Test
+	fn DoesNotAcknowledgeFailedCommit()
+	{
+		Reset()
+		Request()
+		server.Release()
+		sink.rejectCommit = true
+		Data(1, 1)
+		assert server.Receive(0x0A000065, 40000, 1069, 1)
+		Expect(5, 3)
+		assert sink.commits == 0 && sink.aborts == 1
+	}
+
+	/**
+	 * Illegal packets from the active peer terminate its incomplete transaction.
+	 */
+	@Test
+	fn AbortsMalformedActiveTransfer()
+	{
+		Reset()
+		Request()
+		server.Release()
+		ClearInput()
+		input.TryWrite(0, 0)
+		input.TryWrite(1, 3)
+		input.TryPublish()
+		assert server.Receive(0x0A000065, 40000, 1069, 1)
+		Expect(5, 4)
+		assert sink.aborts == 1
+	}
+
+	/**
+	 * Millisecond rollover preserves retry deadlines and response ownership.
+	 */
+	@Test
+	fn HandlesTimerRolloverAndPinnedResponse()
+	{
+		Reset()
+		Request()
+		server.Release()
+		Data(1, 512)
+		assert server.Receive(0x0A000065, 40000, 1069, 4294967290)
+		server.Poll(4)
+		Expect(4, 1)
+		assert !server.Receive(0x0A000065, 40000, 1069, 4)
+		server.Release()
+		server.Poll(4)
+		Expect(4, 1)
+		assert sink.writes == 8
+	}
+
+	/**
+	 * Preserves all byte positions while streaming one wire block through smaller sink chunks.
+	 */
+	@Test
+	fn StreamsOrderedBytesThroughBoundedChunks()
+	{
+		Reset()
+		Request()
+		server.Release()
+		ClearInput()
+		input.TryWrite(0, 0)
+		input.TryWrite(1, 3)
+		input.TryWrite(2, 0)
+		input.TryWrite(3, 1)
+
+		for (var index = 0; index < 512; index++) {
+			input.TryWrite(index + 4, index as byte)
+		}
+
+		input.TryPublish()
+		assert server.Receive(0x0A000065, 40000, 1069, 1)
+		Expect(4, 1)
+		assert sink.bytes == 512 && sink.writes == 8
+		assert sink.largestChunk == 64 && sink.checksum == 65280
+	}
+
+
+	/**
+	 * A competing filename cannot mutate the active request or cause a second Begin.
+	 */
+	@Test
+	fn RetainsFilenameAcrossRejectedRequest()
+	{
+		Reset()
+		Request()
+		server.Release()
+		ClearInput()
+
+		for (var index = 0; index < 14; index++) {
+			input.TryWrite(index, WRQ[index])
+		}
+
+		input.TryWrite(2, 120)
+		input.TryPublish()
+		assert server.Receive(0x0A000065, 40000, 69, 1)
+		Expect(5, 0)
+		assert upload.GetNameByte(0) == 115
+		server.Release()
+		ClearInput()
+		var longer: byte[15] = [0, 2, 108, 111, 110, 103, 101, 114, 0, 111, 99, 116, 101, 116, 0]
+
+		for (var index = 0; index < 15; index++) {
+			input.TryWrite(index, longer[index])
+		}
+
+		input.TryPublish()
+		assert server.Receive(0x0A000065, 40000, 69, 2)
+		Expect(5, 0)
+		assert upload.GetNameByte(0) == 115
+		server.Release()
+		Request()
+		Expect(4, 0)
+		assert sink.begins == 1
+	}
+
+	/**
+	 * A later rejected chunk aborts the block without ACK or commit.
+	 */
+	@Test
+	fn RejectsPartiallyAcceptedBlock()
+	{
+		Reset()
+		Request()
+		server.Release()
+		sink.rejectWriteAt = 2
+		Data(1, 512)
+		assert server.Receive(0x0A000065, 40000, 1069, 1)
+		Expect(5, 3)
+		assert sink.writes == 2 && sink.bytes == 64
+		assert sink.aborts == 1 && sink.commits == 0
+	}
+}

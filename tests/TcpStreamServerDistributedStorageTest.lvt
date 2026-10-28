@@ -1,0 +1,59 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+using Livt.IO
+
+/**
+ * Runs the shared TCP protocol regressions with independently selected byte stores.
+ */
+@Test
+@Context(ClockFrequency = 50MHz)
+component TcpStreamServerDistributedStorageTest
+{
+	// Owned protocol fixture; each scenario initializes its connection state.
+	checks: TcpStreamServerStorageChecks<Ram<byte, 8, MemoryStyle.Distributed>, Ram<byte, 8, MemoryStyle.Distributed>>
+
+	/**
+	 * Creates the protocol fixture in this context.
+	 */
+	new()
+	{
+		checks = new TcpStreamServerStorageChecks<Ram<byte, 8, MemoryStyle.Distributed>, Ram<byte, 8, MemoryStyle.Distributed>>()
+	}
+
+	/**
+	 * Verifies StreamRetransmissionAndClose against the selected storage backends.
+	 */
+	@Test
+	fn StreamRetransmissionAndClose()
+	{
+		checks.StreamRetransmissionAndClose()
+	}
+
+	/**
+	 * Verifies ResumesAfterLongIdle against the selected storage backends.
+	 */
+	@Test
+	fn ResumesAfterLongIdle()
+	{
+		checks.ResumesAfterLongIdle()
+	}
+
+	/**
+	 * Verifies AbandonsUnansweredHandshakeAfterRetryLimit against the selected storage backends.
+	 */
+	@Test
+	fn AbandonsUnansweredHandshakeAfterRetryLimit()
+	{
+		checks.AbandonsUnansweredHandshakeAfterRetryLimit()
+	}
+
+	/**
+	 * Verifies LostHandshakeAndDataTimeout against the selected storage backends.
+	 */
+	@Test
+	fn LostHandshakeAndDataTimeout()
+	{
+		checks.LostHandshakeAndDataTimeout()
+	}
+}

@@ -1,0 +1,78 @@
+namespace Livt.Net
+
+using Livt.IO
+
+/**
+ * Owns one RAM containing disjoint filename and upload-data regions. Scheduled
+ * access follows ITftpUploadBuffer; no initialization or payload reset is required.
+ * STYLE selects default backing. B may replace it with any owned IRam providing
+ * at least 576 bytes, including ArrayRam. One caller serializes reads and writes.
+ */
+component TftpUploadBuffer<STYLE: MemoryStyle = MemoryStyle.Block,
+	B: IRam<byte> & new() = Ram<byte, 576, STYLE>> : ITftpUploadBuffer
+{
+	// Region geometry keeps filename bytes intact while data chunks are replaced.
+	public const NAME_CAPACITY: int = 64
+	public const DATA_CAPACITY: int = 512
+
+	// Owned byte storage in the inherited clock/reset context.
+	storage: B
+
+	/**
+	 * Creates storage; callers must stage every byte before reading a prefix.
+	 */
+	new()
+	{
+		storage = new B()
+	}
+
+	/**
+	 * Stages one filename byte without touching the payload region.
+	 */
+	override fn SetNameByte(index: int, value: byte) bool
+	{
+		if (index < 0 || index >= NAME_CAPACITY) {
+			return false
+		}
+
+		storage.Write(index, value)
+		return true
+	}
+
+	/**
+	 * Reads a staged filename byte, or zero for an invalid index.
+	 */
+	override fn GetNameByte(index: int) byte
+	{
+		if (index < 0 || index >= NAME_CAPACITY) {
+			return 0
+		}
+
+		return storage.Read(index)
+	}
+
+	/**
+	 * Stages one payload byte without touching the retained filename.
+	 */
+	override fn SetDataByte(index: int, value: byte) bool
+	{
+		if (index < 0 || index >= DATA_CAPACITY) {
+			return false
+		}
+
+		storage.Write(NAME_CAPACITY + index, value)
+		return true
+	}
+
+	/**
+	 * Reads a staged payload byte, or zero for an invalid index.
+	 */
+	override fn GetDataByte(index: int) byte
+	{
+		if (index < 0 || index >= DATA_CAPACITY) {
+			return 0
+		}
+
+		return storage.Read(NAME_CAPACITY + index)
+	}
+}

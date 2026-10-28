@@ -1,0 +1,157 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+using Livt.IO
+
+/**
+ * Snapshot storage choices preserve source independence, bounds and failed-load invalidation.
+ */
+@Test
+component TftpRequestMemoryTest
+{
+	// One serialized source and independent snapshots for each supported memory style.
+	array: TftpRequest<ArrayPacketData<516>, MemoryStyle.Auto, ArrayRam<byte, 516>>
+	input: ArrayPacketData<516>
+	automatic: TftpRequest<ArrayPacketData<516>, MemoryStyle.Auto>
+	block: TftpRequest<ArrayPacketData<516>, MemoryStyle.Block>
+	distributed: TftpRequest<ArrayPacketData<516>, MemoryStyle.Distributed>
+
+	/**
+	 * Constructs all snapshots in the same context; tests serialize source access.
+	 */
+	new()
+	{
+		input = new ArrayPacketData<516>()
+		array = new TftpRequest<ArrayPacketData<516>, MemoryStyle.Auto, ArrayRam<byte, 516>>(input)
+		automatic = new TftpRequest<ArrayPacketData<516>, MemoryStyle.Auto>(input)
+		block = new TftpRequest<ArrayPacketData<516>, MemoryStyle.Block>(input)
+		distributed = new TftpRequest<ArrayPacketData<516>, MemoryStyle.Distributed>(input)
+	}
+
+	/**
+	 * Auto storage retains a maximum DATA packet after source reuse and hides invalid bytes.
+	 */
+	@Test
+	fn PreservesAutoSnapshotContract()
+	{
+		if (input.IsReady()) {
+			input.TryRelease()
+		}
+
+		input.TryClear()
+
+		for (var index = 0; index < 516; index++) {
+			assert input.TryWrite(index, (index % 256) as byte) == PacketDataResult.Success
+		}
+
+		input.TryWrite(0, 0)
+		input.TryWrite(1, 3)
+		input.TryPublish()
+		assert automatic.Load()
+		input.TryRelease()
+		input.TryWrite(0, 0xFF)
+		assert automatic.GetOpcode() == 3
+		assert automatic.GetLength() == 516
+		assert automatic.GetByte(515) == 3
+		assert automatic.GetByte(-1) == 0
+		assert automatic.GetByte(516) == 0
+		assert !automatic.Load()
+		assert automatic.GetLength() == 0
+		assert automatic.GetByte(515) == 0
+	}
+
+	/**
+	 * Block storage retains a maximum DATA packet after source reuse and hides invalid bytes.
+	 */
+	@Test
+	fn PreservesBlockSnapshotContract()
+	{
+		if (input.IsReady()) {
+			input.TryRelease()
+		}
+
+		input.TryClear()
+
+		for (var index = 0; index < 516; index++) {
+			assert input.TryWrite(index, (index % 256) as byte) == PacketDataResult.Success
+		}
+
+		input.TryWrite(0, 0)
+		input.TryWrite(1, 3)
+		input.TryPublish()
+		assert block.Load()
+		input.TryRelease()
+		input.TryWrite(0, 0xFF)
+		assert block.GetOpcode() == 3
+		assert block.GetLength() == 516
+		assert block.GetByte(515) == 3
+		assert block.GetByte(-1) == 0
+		assert block.GetByte(516) == 0
+		assert !block.Load()
+		assert block.GetLength() == 0
+		assert block.GetByte(515) == 0
+	}
+
+	/**
+	 * Distributed storage retains a maximum DATA packet after source reuse and hides invalid bytes.
+	 */
+	@Test
+	fn PreservesDistributedSnapshotContract()
+	{
+		if (input.IsReady()) {
+			input.TryRelease()
+		}
+
+		input.TryClear()
+
+		for (var index = 0; index < 516; index++) {
+			assert input.TryWrite(index, (index % 256) as byte) == PacketDataResult.Success
+		}
+
+		input.TryWrite(0, 0)
+		input.TryWrite(1, 3)
+		input.TryPublish()
+		assert distributed.Load()
+		input.TryRelease()
+		input.TryWrite(0, 0xFF)
+		assert distributed.GetOpcode() == 3
+		assert distributed.GetLength() == 516
+		assert distributed.GetByte(515) == 3
+		assert distributed.GetByte(-1) == 0
+		assert distributed.GetByte(516) == 0
+		assert !distributed.Load()
+		assert distributed.GetLength() == 0
+		assert distributed.GetByte(515) == 0
+	}
+	/**
+	 * Array storage retains a maximum DATA packet after source reuse and hides invalid bytes.
+	 */
+	@Test
+	fn PreservesArraySnapshotContract()
+	{
+		if (input.IsReady()) {
+			input.TryRelease()
+		}
+
+		input.TryClear()
+
+		for (var index = 0; index < 516; index++) {
+			assert input.TryWrite(index, (index % 256) as byte) == PacketDataResult.Success
+		}
+
+		input.TryWrite(0, 0)
+		input.TryWrite(1, 3)
+		input.TryPublish()
+		assert array.Load()
+		input.TryRelease()
+		input.TryWrite(0, 0xFF)
+		assert array.GetOpcode() == 3
+		assert array.GetLength() == 516
+		assert array.GetByte(515) == 3
+		assert array.GetByte(-1) == 0
+		assert array.GetByte(516) == 0
+		assert !array.Load()
+		assert array.GetLength() == 0
+		assert array.GetByte(515) == 0
+	}
+}

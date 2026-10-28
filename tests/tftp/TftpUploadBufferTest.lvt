@@ -1,0 +1,152 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+using Livt.IO
+
+/**
+ * Shared staging keeps filename/data regions disjoint for every supported backend.
+ */
+@Test
+component TftpUploadBufferTest
+{
+	// Independent stores; each test initializes every byte it reads.
+	automatic: TftpUploadBuffer<MemoryStyle.Auto>
+	block: TftpUploadBuffer
+	distributed: TftpUploadBuffer<MemoryStyle.Distributed>
+	array: TftpUploadBuffer<MemoryStyle.Auto, ArrayRam<byte, 576>>
+
+	/**
+	 * Constructs each backend in the same test context.
+	 */
+	new()
+	{
+		automatic = new TftpUploadBuffer<MemoryStyle.Auto>()
+		block = new TftpUploadBuffer()
+		distributed = new TftpUploadBuffer<MemoryStyle.Distributed>()
+		array = new TftpUploadBuffer<MemoryStyle.Auto, ArrayRam<byte, 576>>()
+	}
+
+	/**
+	 * Verifies region isolation and both invalid-address boundaries for automatic storage.
+	 */
+	@Test
+	fn PreservesAutomaticRegions()
+	{
+		for (var index = 0; index < 64; index++) {
+			assert automatic.SetNameByte(index, (index + 128) as byte)
+		}
+
+		for (var index = 0; index < 512; index++) {
+			assert automatic.SetDataByte(index, index as byte)
+		}
+
+		assert !automatic.SetNameByte(-1, 0xFF)
+		assert !automatic.SetNameByte(64, 0xFF)
+		assert !automatic.SetDataByte(-1, 0xFF)
+		assert !automatic.SetDataByte(512, 0xFF)
+
+		for (var index = 0; index < 64; index++) {
+			assert automatic.GetNameByte(index) == ((index + 128) as byte)
+		}
+
+		for (var index = 0; index < 512; index++) {
+			assert automatic.GetDataByte(index) == (index as byte)
+		}
+
+		assert automatic.GetNameByte(-1) == 0 && automatic.GetNameByte(64) == 0
+		assert automatic.GetDataByte(-1) == 0 && automatic.GetDataByte(512) == 0
+	}
+
+	/**
+	 * Verifies region isolation and both invalid-address boundaries for block storage.
+	 */
+	@Test
+	fn PreservesBlockRegions()
+	{
+		for (var index = 0; index < 64; index++) {
+			assert block.SetNameByte(index, (index + 128) as byte)
+		}
+
+		for (var index = 0; index < 512; index++) {
+			assert block.SetDataByte(index, index as byte)
+		}
+
+		assert !block.SetNameByte(-1, 0xFF)
+		assert !block.SetNameByte(64, 0xFF)
+		assert !block.SetDataByte(-1, 0xFF)
+		assert !block.SetDataByte(512, 0xFF)
+
+		for (var index = 0; index < 64; index++) {
+			assert block.GetNameByte(index) == ((index + 128) as byte)
+		}
+
+		for (var index = 0; index < 512; index++) {
+			assert block.GetDataByte(index) == (index as byte)
+		}
+
+		assert block.GetNameByte(-1) == 0 && block.GetNameByte(64) == 0
+		assert block.GetDataByte(-1) == 0 && block.GetDataByte(512) == 0
+	}
+
+	/**
+	 * Verifies region isolation and both invalid-address boundaries for distributed storage.
+	 */
+	@Test
+	fn PreservesDistributedRegions()
+	{
+		for (var index = 0; index < 64; index++) {
+			assert distributed.SetNameByte(index, (index + 128) as byte)
+		}
+
+		for (var index = 0; index < 512; index++) {
+			assert distributed.SetDataByte(index, index as byte)
+		}
+
+		assert !distributed.SetNameByte(-1, 0xFF)
+		assert !distributed.SetNameByte(64, 0xFF)
+		assert !distributed.SetDataByte(-1, 0xFF)
+		assert !distributed.SetDataByte(512, 0xFF)
+
+		for (var index = 0; index < 64; index++) {
+			assert distributed.GetNameByte(index) == ((index + 128) as byte)
+		}
+
+		for (var index = 0; index < 512; index++) {
+			assert distributed.GetDataByte(index) == (index as byte)
+		}
+
+		assert distributed.GetNameByte(-1) == 0 && distributed.GetNameByte(64) == 0
+		assert distributed.GetDataByte(-1) == 0 && distributed.GetDataByte(512) == 0
+	}
+
+	/**
+	 * Verifies region isolation and both invalid-address boundaries for array storage.
+	 */
+	@Test
+	fn PreservesArrayRegions()
+	{
+		for (var index = 0; index < 64; index++) {
+			assert array.SetNameByte(index, (index + 128) as byte)
+		}
+
+		for (var index = 0; index < 512; index++) {
+			assert array.SetDataByte(index, index as byte)
+		}
+
+		assert !array.SetNameByte(-1, 0xFF)
+		assert !array.SetNameByte(64, 0xFF)
+		assert !array.SetDataByte(-1, 0xFF)
+		assert !array.SetDataByte(512, 0xFF)
+
+		for (var index = 0; index < 64; index++) {
+			assert array.GetNameByte(index) == ((index + 128) as byte)
+		}
+
+		for (var index = 0; index < 512; index++) {
+			assert array.GetDataByte(index) == (index as byte)
+		}
+
+		assert array.GetNameByte(-1) == 0 && array.GetNameByte(64) == 0
+		assert array.GetDataByte(-1) == 0 && array.GetDataByte(512) == 0
+	}
+}

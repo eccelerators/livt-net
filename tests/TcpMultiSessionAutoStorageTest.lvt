@@ -1,0 +1,41 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+using Livt.IO
+
+/**
+ * Runs the shared TCP protocol regressions with independently selected byte stores.
+ */
+@Test
+@Context(ClockFrequency = 50MHz)
+component TcpMultiSessionAutoStorageTest
+{
+	// Owned protocol fixture; each scenario initializes its connection state.
+	checks: TcpMultiSessionStorageChecks<Ram<byte, 16, MemoryStyle.Auto>, Ram<byte, 16, MemoryStyle.Auto>>
+
+	/**
+	 * Creates the protocol fixture in this context.
+	 */
+	new()
+	{
+		checks = new TcpMultiSessionStorageChecks<Ram<byte, 16, MemoryStyle.Auto>, Ram<byte, 16, MemoryStyle.Auto>>()
+	}
+
+	/**
+	 * Verifies IsolatesPeersAndReusesClosedSlot against the selected storage backends.
+	 */
+	@Test
+	fn IsolatesPeersAndReusesClosedSlot()
+	{
+		checks.IsolatesPeersAndReusesClosedSlot()
+	}
+
+	/**
+	 * Verifies ring wraparound, capacity and abort with the selected stores.
+	 */
+	@Test
+	fn WrapsReceiveRingAndRejectsOverflow()
+	{
+		checks.WrapsReceiveRingAndRejectsOverflow()
+	}
+}

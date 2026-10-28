@@ -19,17 +19,20 @@ enum TcpStreamState
  * ReleaseFrame ends the transmitter's borrow. Millisecond time is supplied by the owner; reset
  * abandons the connection. An idle stream remains connected; only outstanding transmissions
  * have a retry limit. The application explicitly selects the listening PORT and optional SESSIONS capacity.
+ * RX_STORAGE and TX_STORAGE independently select owned scheduled byte stores, defaulting
+ * to block RAM. Each needs a parameterless constructor and at least its per-session
+ * capacity times SESSIONS addresses. They share this context and have no fixed-cycle
+ * latency contract. Metadata protects unwritten bytes; no payload reset value is required.
  */
-component TcpStreamServer<S: IPacketData, PORT: int, RX_CAPACITY: int = 512, TX_CAPACITY: int = 256, SESSIONS: int = 1> : IPacketData
+component TcpStreamServer<S: IPacketData, PORT: int, RX_CAPACITY: int = 512, TX_CAPACITY: int = 256, SESSIONS: int = 1,
+	RX_STORAGE: IRam<byte> & new() = BlockRam<byte, (RX_CAPACITY * SESSIONS)>,
+	TX_STORAGE: IRam<byte> & new() = BlockRam<byte, (TX_CAPACITY * SESSIONS)>> : IPacketData
 {
 	static assert SESSIONS > 0 && SESSIONS <= 16, "TCP sessions must be 1..16"
 
 	static assert PORT > 0 && PORT <= 65535, "TCP port required"
 
 	static assert RX_CAPACITY > 0 && RX_CAPACITY <= 32768, "TCP receive capacity must be 1..32768"
-
-	// Total bytes across disjoint connection regions.
-	const RX_STORAGE_CAPACITY: int = RX_CAPACITY * SESSIONS
 
 	// Ethernet protocol identifier for IPv4.
 	const ETHER_TYPE_IPV4: int = 0x0800
@@ -84,11 +87,11 @@ component TcpStreamServer<S: IPacketData, PORT: int, RX_CAPACITY: int = 512, TX_
 	// Owned TCP parser, checksum engine, payload RAMs and composed response views.
 	tcp: TcpHeaderParser<Ipv4PacketParser<EthernetFrameParser<S>>>
 	checksum: InternetChecksum
-	rx: BlockRam<byte, RX_STORAGE_CAPACITY>
-	tx: TcpSendBuffer<TX_CAPACITY, SESSIONS>
-	segment: TcpSegment<TcpSendBuffer<TX_CAPACITY, SESSIONS>>
-	packet: TcpIpv4Packet<TcpSendBuffer<TX_CAPACITY, SESSIONS>>
-	frame: TcpIpv4Frame<TcpSendBuffer<TX_CAPACITY, SESSIONS>>
+	rx: RX_STORAGE
+	tx: TcpSendBuffer<TX_CAPACITY, SESSIONS, TX_STORAGE>
+	segment: TcpSegment<TcpSendBuffer<TX_CAPACITY, SESSIONS, TX_STORAGE>>
+	packet: TcpIpv4Packet<TcpSendBuffer<TX_CAPACITY, SESSIONS, TX_STORAGE>>
+	frame: TcpIpv4Frame<TcpSendBuffer<TX_CAPACITY, SESSIONS, TX_STORAGE>>
 	timer: TcpRetryTimer<SESSIONS>
 
 	// Local address bindings; callers keep them stable for the server lifetime.
@@ -147,11 +150,11 @@ component TcpStreamServer<S: IPacketData, PORT: int, RX_CAPACITY: int = 512, TX_
 		this.localIp = localIp
 		this.tcp = new TcpHeaderParser<Ipv4PacketParser<EthernetFrameParser<S>>>(ipv4)
 		this.checksum = new InternetChecksum()
-		this.rx = new BlockRam<byte, RX_STORAGE_CAPACITY>()
-		this.tx = new TcpSendBuffer<TX_CAPACITY, SESSIONS>()
-		this.segment = new TcpSegment<TcpSendBuffer<TX_CAPACITY, SESSIONS>>(this.tx)
-		this.packet = new TcpIpv4Packet<TcpSendBuffer<TX_CAPACITY, SESSIONS>>(this.segment)
-		this.frame = new TcpIpv4Frame<TcpSendBuffer<TX_CAPACITY, SESSIONS>>(this.packet)
+		this.rx = new RX_STORAGE()
+		this.tx = new TcpSendBuffer<TX_CAPACITY, SESSIONS, TX_STORAGE>()
+		this.segment = new TcpSegment<TcpSendBuffer<TX_CAPACITY, SESSIONS, TX_STORAGE>>(this.tx)
+		this.packet = new TcpIpv4Packet<TcpSendBuffer<TX_CAPACITY, SESSIONS, TX_STORAGE>>(this.segment)
+		this.frame = new TcpIpv4Frame<TcpSendBuffer<TX_CAPACITY, SESSIONS, TX_STORAGE>>(this.packet)
 		this.timer = new TcpRetryTimer<SESSIONS>()
 	}
 

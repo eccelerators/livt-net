@@ -2,6 +2,53 @@
 
 All notable changes to this package are documented here.
 
+## 1.4.0
+
+### Added
+
+- `TftpWriteServer`: a bounded RFC 1350 octet-mode upload engine with one active
+  transfer, duplicate-block handling, response retries and final-ACK retention.
+- `ITftpWriteSink`: a transactional storage boundary with begin, chunked write,
+  commit and abort operations, independent of Ethernet and physical storage.
+- `ITftpUploadBuffer` and `TftpUploadBuffer`: shared filename and DATA staging
+  with selectable inferred RAM or consumer-provided `IRam<byte>` storage.
+- `TftpRequest`: bounded WRQ/DATA decoding with an owned packet snapshot and
+  configurable storage backend.
+- Compile-time RX and TX storage providers for `TcpStreamServer` and
+  `TcpSendBuffer`, retaining block RAM as the default.
+- Regression coverage for TFTP request parsing, upload transactions, retries,
+  duplicate blocks and failure paths, plus TCP storage combinations using block,
+  distributed, automatic and array-backed memory.
+
+### Changed
+
+- `RamPacketData` now accepts a `MemoryStyle` parameter for portable inferred,
+  block or distributed RAM preference while retaining its existing behavior.
+- TCP receive and transmit storage may be selected independently without a
+  runtime selector or a change to stream ownership and retransmission semantics.
+- Large TCP tests share reusable storage checks while preserving single-session
+  and multi-session behavior coverage.
+
+### Compatibility and dependencies
+
+- Existing type arguments remain valid because all new storage parameters are
+  trailing and default to block RAM.
+- Require `Livt.IO 1.5.0` for `ArrayRam`, configurable RAM implementations and
+  the SPI-flash building blocks used by downstream TFTP storage sinks.
+- TFTP is an upload engine over a validated UDP payload, not a complete Ethernet
+  endpoint. Applications remain responsible for UDP dispatch, address matching,
+  response transmission, access policy and transactional storage recovery.
+- TFTP supports one baseline octet-mode upload, 512-byte DATA blocks and files
+  that terminate by block 65535. RRQ, negotiated options, authentication and
+  block rollover are not supported.
+
+### Validation
+
+- TFTP and TCP storage tests cover protocol success and failure paths, storage
+  backend combinations and behavior across supported clock contexts.
+- Hardware resource mapping, timing and live-network qualification remain the
+  responsibility of the consuming design.
+
 ## 1.3.1
 
 ### Added

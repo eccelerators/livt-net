@@ -6,8 +6,8 @@
 RMII/MII pin handling or protocol implementations. Existing `NetworkService` and
 `FrameService` supply ARP/ICMP handling and response lifetime management.
 
-See [MII integration](mii.md) for Livt.IO 1.4.0 wiring and the included 10/100 Mb/s
-verification projects. The same frame ownership contract applies to both media.
+See [MII integration](mii.md) for Livt.IO 1.5.0 wiring and the included 10/100 Mb/s
+package tests. The same frame ownership contract applies to both media.
 
 ## Construction and ownership
 
@@ -22,10 +22,9 @@ transmitter = new EthernetFrameTransmitter<NetworkService<EthernetFrameReceiver>
 endpoint = new FrameService<EthernetFrameReceiver, NetworkService<EthernetFrameReceiver>, EthernetFrameTransmitter<NetworkService<EthernetFrameReceiver>>>(receiver, service, transmitter)
 ```
 
-The historical `NetEthernetIntegration.lvt` verification composition (not included
-in this checkout) includes the real IO MACs, RMII adapter and endpoint polling process. Its resolved
-100M link is a simulation fixture; a hardware composition supplies PHY management
-and reset sequencing as documented in Livt.IO. IO remains independent of Net.
+The package MII tests exercise the real IO MACs and frame adapters. A hardware
+composition supplies PHY management and reset sequencing as documented in
+Livt.IO. IO remains independent of Net.
 
 Each adapter exclusively owns its underlying IO capability. Do not call that
 capability from another owner. RX and TX have independent storage and may overlap;

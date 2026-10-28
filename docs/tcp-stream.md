@@ -52,7 +52,7 @@ local state without a graceful exchange. Coordinated reset also abandons work.
 
 ## Storage and protocol bounds
 
-One block-style RAM holds received bytes and one holds outbound bytes until
+By default, one block-style RAM holds received bytes and one holds outbound bytes until
 acknowledged, each partitioned into SESSIONS disjoint regions. Capacities apply per
 connection; small connection metadata remains in registers. Transmissions use a view of the retained RAM, including after a
 partial acknowledgment; there is no additional retransmission payload copy.
@@ -80,6 +80,37 @@ TCP stack. It supports peer-initiated graceful close, not active open or an
 application-initiated FIN before the peer closes. When every slot is occupied, the server ignores additional
 connection attempts. It has no authentication, encryption or cryptographic ISN
 source.
+
+## Storage selection
+
+`TcpStreamServer` appends independent `RX_STORAGE` and `TX_STORAGE` parameters
+implementing `IRam<byte> & new()`. Existing type arguments remain valid. Defaults
+are `BlockRam<byte, (RX_CAPACITY * SESSIONS)>` and
+`BlockRam<byte, (TX_CAPACITY * SESSIONS)>`.
+
+For example, a two-session server with array-backed reception and block-backed
+transmission can use:
+
+```livt
+TcpStreamServer<Source, 23, 512, 256, 2, ArrayRam<byte, 1024>, BlockRam<byte, 512>>
+```
+
+`Source` is the application's `IPacketData` source type. `TcpSendBuffer<CAPACITY,
+SESSIONS, B>` also exposes its owned storage directly, defaulting to
+`BlockRam<byte, (CAPACITY * SESSIONS)>`.
+
+Each backend must have a parameterless constructor and cover every byte address
+in its per-session capacity multiplied by the session count. The components own
+the stores in their inherited clock/reset context. `Ram<byte, N,
+MemoryStyle.Auto>`, `Ram<byte, N, MemoryStyle.Distributed>`, `ArrayRam<byte, N>`
+and custom scheduled implementations are alternatives. Physical mapping depends
+on the selected vendor policy and synthesis tool.
+
+Backend selection does not change the serialized-owner or published-frame
+contracts. Successful writes complete before bytes become available; reads have
+no fixed-cycle latency promise. Reset/abort discards metadata, and callers must
+not depend on payload reset values or retention. Payload is read only within
+initialized ranges. Small session metadata remains in registers.
 
 ## Telnet codec
 

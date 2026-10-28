@@ -1,0 +1,33 @@
+namespace Livt.Net
+
+/**
+ * Shared upload staging with disjoint 64-byte filename and 512-byte data regions.
+ * The composition root owns it and binds the same instance to server and sink.
+ * One caller serializes all access. Write every byte of a supplied prefix before
+ * Begin/Write; unwritten bytes are unspecified. Hold data unchanged until the
+ * sink call returns, including any readback. Retain the filename for the entire
+ * transfer and final-ACK grace period. After reset, stage prefixes again; no
+ * initial cell contents are promised by this interface.
+ */
+interface ITftpUploadBuffer
+{
+	/**
+	 * Stages a filename byte at 0..63. Invalid indices return false without mutation.
+	 */
+	fn SetNameByte(index: int, value: byte) bool
+
+	/**
+	 * Reads a previously staged filename byte; invalid indices return zero.
+	 */
+	fn GetNameByte(index: int) byte
+
+	/**
+	 * Stages a payload byte at 0..511. Invalid indices return false without mutation.
+	 */
+	fn SetDataByte(index: int, value: byte) bool
+
+	/**
+	 * Reads a previously staged payload byte; invalid indices return zero.
+	 */
+	fn GetDataByte(index: int) byte
+}

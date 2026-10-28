@@ -4,7 +4,7 @@
 It supports small Ethernet/IPv4 request/response stacks and bounded TCP control
 streams, IPv4 UDP datagrams, RAM-backed buffering and a Telnet terminal codec.
 
-The 1.3.1 package surface is intentionally narrow and hardware-oriented:
+Version 1.4.0 provides the following hardware-oriented components:
 
 - `Livt.Net.EthernetFrameParser`: fixed Ethernet II header parser.
 - `Livt.Net.EthernetFrameBuilder`: static Ethernet header encoding from explicit addresses.
@@ -17,6 +17,9 @@ The 1.3.1 package surface is intentionally narrow and hardware-oriented:
 - `Livt.Net.IcmpEchoResponder`: ICMP request recognition and prepared reply composition.
 - `Livt.Net.UdpHeader` / `UdpEthernetPacket<P>`: UDP header encoding and prepared Ethernet frames.
 - `Livt.Net.UdpChecksum` / `UdpPacketParser<S>`: IPv4 UDP checksum calculation and validated payload views.
+- `Livt.Net.TftpRequest` / `TftpWriteServer`: bounded RFC 1350 write-request and DATA upload handling.
+- `Livt.Net.ITftpUploadBuffer` / `TftpUploadBuffer`: shared filename and upload-data staging with selectable storage.
+- `Livt.Net.ITftpWriteSink`: transactional destination contract for reusable TFTP upload storage.
 - `Livt.Net.TcpHeaderParser`: bounded TCP header parser.
 - `Livt.Net.TcpConnectionRecognizer`: TCP packet recognizer for local endpoints.
 - `Livt.Net.TcpSegmentBuilder`: static fixed TCP header encoding.
@@ -32,18 +35,19 @@ The 1.3.1 package surface is intentionally narrow and hardware-oriented:
 
 ```toml
 [dependencies]
-"Livt.Net" = "1.3.1"
+"Livt.Net" = "1.4.0"
 ```
 
 See the [changelog](CHANGELOG.md) for release changes.
 
-`Livt.Net` depends on `Livt.IO 1.4.0` for byte-addressable RAM used by the
-Ethernet frame I/O path. Domain applications should depend on `Livt.Net`; add
-`Livt.IO` directly only when the application also uses I/O primitives itself.
+`Livt.Net` depends on `Livt.IO 1.5.0` for byte-addressable RAM and selectable
+storage implementations used by packet, TCP, TFTP and Ethernet frame I/O.
+Domain applications should depend on `Livt.Net`; add `Livt.IO` directly only
+when the application also uses I/O primitives itself.
 
-Version 1.3.1 documents and verifies the existing IO-MAC adapters over
-[MII Ethernet](docs/mii.md) at 10 and 100 Mb/s. No public frame or protocol API
-changes are required; PHY management and media timing belong to Livt.IO.
+Version 1.4.0 adds a reusable TFTP upload engine and compile-time storage
+selection for TCP streams and TFTP staging. PHY management and media timing
+remain in Livt.IO.
 
 ## 📚 Namespaces
 
@@ -61,6 +65,7 @@ protocol responsibilities without imposing extra imports; see
 | IPv4 | `Ipv4Packet`, `Ipv4PacketParser`, `Ipv4HeaderBuilder`, `Ipv4HeaderChecksum` |
 | ICMP | `IcmpEchoReply`, `IcmpEchoResponder<S, FRAME_CAPACITY, B>` |
 | UDP | `UdpHeader`, `UdpEthernetPacket`, `UdpChecksum`, `UdpPacketParser` |
+| TFTP | `TftpRequest`, `TftpWriteServer`, `ITftpUploadBuffer`, `TftpUploadBuffer`, `ITftpWriteSink` |
 | TCP packets | `TcpHeaderParser`, `TcpConnectionRecognizer`, `TcpSegmentBuilder`, `TcpSegment`, `TcpIpv4Packet`, `TcpIpv4Frame`, `TcpChecksum` |
 | TCP streams | `TcpStreamServer`, `TcpSendBuffer`, `TcpRetryTimer` |
 | Telnet | `TelnetSession` |
@@ -141,6 +146,30 @@ target small control streams: one segment is outstanding per connection, gracefu
 close is peer-initiated, and there is no TCP keep-alive, authentication or encryption.
 See [TCP stream ownership and limits](docs/tcp-stream.md).
 
+TCP receive and transmit storage can be selected independently through backend
+generics, with block RAM defaults. See [storage selection](docs/tcp-stream.md#storage-selection).
+
+### TFTP uploads
+
+`TftpWriteServer` implements one bounded octet-mode TFTP upload over a borrowed,
+validated UDP payload. It accepts WRQ and 512-byte DATA packets, acknowledges
+duplicate blocks without repeating writes, retries retained responses and commits
+only after the final short block has reached the transactional sink.
+
+The composition root owns one `TftpUploadBuffer` and binds that same instance to
+the server and its `ITftpWriteSink`. Filename and DATA staging storage defaults
+to block RAM and can be replaced with distributed, automatic, array-backed or
+custom `IRam<byte>` storage. The server's packet snapshot has an independent
+storage selection.
+
+Network integration owns UDP validation, port dispatch, address matching and
+response transmission. Storage integrations own capacity, atomic publication,
+recovery and any flash-specific verification. TFTP provides no authentication;
+gate uploads to the intended network or access policy.
+
+See [TFTP upload engine](docs/tftp.md) for ownership, timing, storage selection,
+protocol limits and a composition example.
+
 ### Buffered link capabilities
 
 `IFrameReceiver` provides acquired, bounded RX data. `IFrameTransmitter` borrows
@@ -185,13 +214,16 @@ live in [`docs/usage.md`](docs/usage.md). Hardware and protocol notes live in
 [`docs/hardware-notes.md`](docs/hardware-notes.md). Package boundary and design
 notes live in [`docs/design-notes.md`](docs/design-notes.md). The package-wide
 resource and scheduling rules are recorded in
-[`docs/resource-optimization.md`](docs/resource-optimization.md).
+[`docs/resource-optimization.md`](docs/resource-optimization.md). TFTP upload
+integration is documented in [`docs/tftp.md`](docs/tftp.md).
 
-The 1.3.0 refactor passed all 18 directly relevant package cases, six demo
-packet/streaming cases and board GHDL elaboration/reset. The full suite reported
-117 passed, 4 failed and 6 skipped; baseline assertions and a reset timeout remain
-unresolved. See [validation details](docs/design-notes.md#ipv4-udp-and-networking-refactor-validation-2026-10-22)
-before publishing. No new FPGA resource or timing result is claimed.
+Release validation covers the TFTP protocol/storage cases and the TCP stream
+suite across block, distributed, automatic, array-backed and mixed storage.
+The storage variants and their shared behavior checks live directly under
+[`tests/`](tests/) and are registered in [`livt.toml`](livt.toml). The earlier
+IPv4/UDP refactor record remains in
+[design notes](docs/design-notes.md#ipv4-udp-and-networking-refactor-validation-2026-10-22).
+No new FPGA resource or timing result is claimed by this package release.
 
 ## 🛠️ Development Notes
 

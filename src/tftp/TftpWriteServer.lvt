@@ -1,0 +1,378 @@
+namespace Livt.Net
+
+using Livt.IO
+
+/**
+ * Single-transfer RFC 1350 octet upload engine, independent of Ethernet and storage.
+ * Borrows a datagram source, transactional sink and shared upload buffer; owns
+ * a packet snapshot. The network owner validates UDP, dispatches port 69 and TRANSFER_PORT,
+ * serializes Receive/Poll/Release, and sends this published payload to responseIp/
+ * responsePort from TRANSFER_PORT. Hold it through transmit completion before Release.
+ * nowMs is a wrapping uint millisecond clock. Poll regularly even without traffic.
+ * Reset abandons protocol state; the sink must recover unpublished writes separately.
+ * No RRQ, option negotiation, authentication or block-number rollover. Uploads must
+ * terminate by block 65535. Use on a trusted network or gate uploads externally.
+ * WRITE_CHUNK_BYTES bounds each staged sink write; DATA packets remain 512 bytes.
+ * Each block is acknowledged only after every chunk succeeds.
+ * STYLE selects default snapshot RAM; B accepts an alternative owned IRam with
+ * at least 516 bytes, including ArrayRam. Shared upload storage is selected by
+ * the composition root and bound to both this engine and its sink.
+ */
+component TftpWriteServer<P: IPacketData, S: ITftpWriteSink,
+	TRANSFER_PORT: int = 1069, RETRY_MS: uint = 1000, MAX_RETRIES: int = 5, WRITE_CHUNK_BYTES: int = 64, STYLE: MemoryStyle = MemoryStyle.Block,
+	B: IRam<byte> & new() = Ram<byte, 516, STYLE>> : IPacketData
+{
+	static assert TRANSFER_PORT > 0 && TRANSFER_PORT <= 65535 && TRANSFER_PORT != 69, "Transfer port must differ from port 69"
+	static assert RETRY_MS > 0 && RETRY_MS < 2147483648, "Retry interval must fit wrapping time comparison"
+	static assert MAX_RETRIES > 0, "At least one retry is required"
+	static assert WRITE_CHUNK_BYTES > 0 && WRITE_CHUNK_BYTES <= 512, "Sink chunks must fit one TFTP block"
+
+	// Baseline opcodes, ports and payload bound.
+	const WRQ: int = 2
+	const DATA: int = 3
+	const ACK: byte = 4
+	const ERROR: byte = 5
+	const LISTEN_PORT: int = 69
+	const BLOCK_SIZE: int = 512
+
+	// Owned decoder and borrowed transactional destination/shared staging.
+	request: TftpRequest<P, STYLE, B>
+	sink: S
+	upload: ITftpUploadBuffer
+	nameLength: int
+
+	// Active peer and last successfully accepted block; completed retains final ACK.
+	active: bool
+	completed: bool
+	peerIp: uint
+	peerPort: int
+	lastBlock: int
+	lastActivity: uint
+	retries: int
+
+	// Stable response publication and its destination, valid until Release.
+	ready: bool
+	responseOpcode: byte
+	responseCode: int
+	public responseIp: uint
+	public responsePort: int
+
+	/**
+	 * Starts idle; borrows source, sink and their shared upload buffer in one context.
+	 */
+	new(source: P, sink: S, upload: ITftpUploadBuffer)
+	{
+		request = new TftpRequest<P, STYLE, B>(source)
+		this.sink = sink
+		this.upload = upload
+	}
+
+	/**
+	 * Publishes a response; caller has already established its destination.
+	 */
+	fn Respond(opcode: byte, code: int)
+	{
+		responseOpcode = opcode
+		responseCode = code
+		ready = true
+	}
+
+	/**
+	 * Handles a validated datagram for either listening or transfer port. Returns
+	 * false while a response is borrowed or for unrelated ports. A true result means
+	 * consumed, not necessarily a reply. Peer IP is a stable network-order uint.
+	 */
+	public fn Receive(ip: uint, port: int, destination: int, nowMs: uint) bool
+	{
+		if (ready || (destination != LISTEN_PORT && destination != TRANSFER_PORT)) {
+			return false
+		}
+
+		responseIp = ip
+		responsePort = port
+
+		if (destination == TRANSFER_PORT && (!active || ip != peerIp || port != peerPort)) {
+			Respond(ERROR, 5)
+			return true
+		}
+
+		if (!request.Load()) {
+			if (destination == TRANSFER_PORT) {
+				Cancel()
+			}
+
+			Respond(ERROR, 4)
+			return true
+		}
+
+		if (destination == LISTEN_PORT) {
+			if (request.GetOpcode() == WRQ) {
+				AcceptRequest(ip, port, nowMs)
+			} else {
+				Respond(ERROR, 4)
+			}
+
+			return true
+		}
+
+		if (request.GetOpcode() == (ERROR as int)) {
+			if (!completed) {
+				sink.Abort()
+			}
+
+			active = false
+			return true
+		}
+
+		if (request.GetOpcode() != DATA || request.GetLength() < 4) {
+			Cancel()
+			Respond(ERROR, 4)
+			return true
+		}
+
+		AcceptData(nowMs)
+		return true
+	}
+
+	/**
+	 * Accepts a new WRQ or repeats ACK zero for an identical initial request.
+	 */
+	fn AcceptRequest(ip: uint, port: int, nowMs: uint)
+	{
+		var count = request.GetWriteNameLength()
+
+		if (count == 0) {
+			Respond(ERROR, 4)
+			return
+		}
+
+		if (active) {
+			if (completed || lastBlock != 0 || ip != peerIp || port != peerPort || count != nameLength) {
+				Respond(ERROR, 0)
+				return
+			}
+
+			var same = true
+
+			for (var index = 0; index < count; index++) {
+				if (upload.GetNameByte(index) != request.GetByte(index + 2)) {
+					same = false
+				}
+			}
+
+			if (same) {
+				Respond(ACK, 0)
+			} else {
+				Respond(ERROR, 0)
+			}
+
+			return
+		}
+
+		for (var index = 0; index < count; index++) {
+			upload.SetNameByte(index, request.GetByte(index + 2))
+		}
+
+		if (!sink.Begin(count)) {
+			Respond(ERROR, 2)
+			return
+		}
+
+		nameLength = count
+		peerIp = ip
+		peerPort = port
+		lastBlock = 0
+		lastActivity = nowMs
+		retries = 0
+		active = true
+		completed = false
+		Respond(ACK, 0)
+	}
+
+	/**
+	 * Appends only the next block, acknowledging duplicates without rewriting.
+	 * Final ACK is published only after successful storage validation and commit.
+	 */
+	fn AcceptData(nowMs: uint)
+	{
+		var block = request.GetBlock()
+
+		if (block == lastBlock && lastBlock != 0) {
+			Respond(ACK, lastBlock)
+			return
+		}
+
+		if (completed || block != lastBlock + 1) {
+			return
+		}
+
+		var length = request.GetLength() - 4
+
+		if (block == 65535 && length == BLOCK_SIZE) {
+			sink.Abort()
+			active = false
+			Respond(ERROR, 3)
+			return
+		}
+
+		var accepted = true
+		var offset = 0
+
+		while (offset < length && accepted) {
+			var count = length - offset
+
+			if (count > WRITE_CHUNK_BYTES) {
+				count = WRITE_CHUNK_BYTES
+			}
+
+			for (var index = 0; index < count; index++) {
+				upload.SetDataByte(index, request.GetByte(offset + index + 4))
+			}
+
+			accepted = sink.Write(count)
+			offset = offset + count
+		}
+
+		if (length == 0) {
+			accepted = sink.Write(0)
+		}
+
+		if (accepted && length < BLOCK_SIZE) {
+			accepted = sink.Commit()
+		}
+
+		if (!accepted) {
+			sink.Abort()
+			active = false
+			Respond(ERROR, 3)
+			return
+		}
+
+		lastBlock = block
+		lastActivity = nowMs
+		retries = 0
+		completed = length < BLOCK_SIZE
+		Respond(ACK, lastBlock)
+	}
+
+	/**
+	 * Retries the last ACK on timeout, aborting an incomplete upload after the retry
+	 * budget. Completed transfers retain a bounded final-ACK grace period.
+	 */
+	public fn Poll(nowMs: uint)
+	{
+		if (ready || !active || nowMs - lastActivity < RETRY_MS) {
+			return
+		}
+
+		if (retries >= MAX_RETRIES) {
+			if (!completed) {
+				sink.Abort()
+			}
+
+			active = false
+			return
+		}
+
+		lastActivity = nowMs
+		retries++
+		responseIp = peerIp
+		responsePort = peerPort
+		Respond(ACK, lastBlock)
+	}
+
+	/**
+	 * Cancels an incomplete upload and clears protocol state. Requires no outstanding
+	 * network borrow; committed data survives cancellation and completed-session expiry.
+	 */
+	public fn Cancel()
+	{
+		if (active && !completed) {
+			sink.Abort()
+		}
+
+		active = false
+		completed = false
+		ready = false
+	}
+
+	/**
+	 * Reports whether the retained transfer belongs to this endpoint, including final-ACK grace.
+	 */
+	public fn IsPeer(ip: uint, port: int) bool
+	{
+		return active && peerIp == ip && peerPort == port
+	}
+
+	/**
+	 * Releases the response only after all network reads have completed.
+	 */
+	public fn Release()
+	{
+		ready = false
+	}
+
+	/**
+	 * Reports whether a response payload is published.
+	 */
+	override fn IsReady() bool
+	{
+		return ready
+	}
+
+	/**
+	 * Returns four ACK bytes or five ERROR bytes including an empty NUL message.
+	 */
+	override fn GetAvailableLength() int
+	{
+		if (!ready) {
+			return 0
+		}
+
+		if (responseOpcode == ERROR) {
+			return 5
+		}
+
+		return 4
+	}
+
+	/**
+	 * Reads opcode at bytes 0..1, block/error code at 2..3, and ERROR NUL at 4.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0
+
+		if (!ready) {
+			return PacketDataResult.NotReady
+		}
+
+		if (index < 0 || index >= GetAvailableLength()) {
+			return PacketDataResult.Invalid
+		}
+
+		match (index)
+		{
+			1 =>
+			{
+				value = responseOpcode
+			}
+
+			2 =>
+			{
+				value = (responseCode >> 8) as byte
+			}
+
+			3 =>
+			{
+				value = responseCode as byte
+			}
+
+			_ =>
+			{
+			}
+		}
+
+		return PacketDataResult.Success
+	}
+}

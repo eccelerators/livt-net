@@ -1,0 +1,106 @@
+namespace Livt.Net.Tests
+
+using Livt.Net
+
+/**
+ * Transactional upload double with explicit reset and commit failure injection.
+ */
+component TftpTestSink : ITftpWriteSink
+{
+	// Borrowed staging shared with the protocol engine.
+	upload: ITftpUploadBuffer
+
+	/**
+	 * Borrows the same staging instance as the tested server.
+	 */
+	new(upload: ITftpUploadBuffer)
+	{
+		this.upload = upload
+	}
+
+	// Test observations and injected commit failure.
+	public begins: int
+	public writes: int
+	public bytes: int
+	public commits: int
+	public aborts: int
+	public rejectCommit: bool
+	public rejectWriteAt: int
+	public firstByte: byte
+	public checksum: int
+	public largestChunk: int
+
+	/**
+	 * Clears observations between tests after the protocol owner has reset.
+	 */
+	public fn Reset()
+	{
+		begins = 0
+		writes = 0
+		bytes = 0
+		commits = 0
+		aborts = 0
+		rejectCommit = false
+		rejectWriteAt = 0
+		checksum = 0
+		largestChunk = 0
+	}
+
+	/**
+	 * Accepts a nonempty filename.
+	 */
+	override fn Begin(length: int) bool
+	{
+		begins++
+		return length > 0
+	}
+
+	/**
+	 * Counts each accepted chunk and captures its first byte when present.
+	 */
+	override fn Write(length: int) bool
+	{
+		writes++
+
+		if (rejectWriteAt == writes) {
+			return false
+		}
+
+		bytes = bytes + length
+
+		if (length > largestChunk) {
+			largestChunk = length
+		}
+
+		for (var index = 0; index < length; index++) {
+			checksum = checksum + (upload.GetDataByte(index) as int)
+		}
+
+		if (length > 0) {
+			firstByte = upload.GetDataByte(0)
+		}
+
+		return true
+	}
+
+	/**
+	 * Records successful commit unless the test injects a validation failure.
+	 */
+	override fn Commit() bool
+	{
+		if (rejectCommit) {
+			return false
+		}
+
+		commits++
+		return true
+	}
+
+	/**
+	 * Counts cancellation without touching previously committed data.
+	 */
+	override fn Abort()
+	{
+		aborts++
+	}
+}
