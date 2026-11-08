@@ -2,6 +2,18 @@
 
 All notable changes to this package are documented here.
 
+## 1.4.1
+
+### Added
+
+- Publish package discovery metadata, the README, the changelog, and the MIT
+  license with this version.
+
+### Changed
+
+- Update the `Livt.IO` dependency to 1.8.1. Existing component APIs remain
+  unchanged from 1.4.0.
+
 ## 1.4.0
 
 ### Added

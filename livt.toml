@@ -1,8 +1,21 @@
 [project]
 name = "Livt.Net"
-version = "1.4.0"
+version = "1.4.1"
+description = "Ethernet, IPv4, TCP, UDP, ARP, TFTP, and Telnet networking components for Livt hardware."
+authors = ["Denis Vasilík"]
+repository = "https://github.com/eccelerators/livt-net"
+homepage = "https://github.com/eccelerators/livt-net"
+keywords = ["fpga", "networking", "ethernet", "ipv4", "tcp", "udp", "tftp"]
+license = "MIT"
 path = "src"
 outdir = "out"
+
+[publish]
+files = ["README.md", "CHANGELOG.md", "LICENSE"]
+
+[project.organization]
+name = "Eccelerators GmbH"
+website = "https://eccelerators.com"
 
 [tests]
 path = "tests"
@@ -68,4 +81,4 @@ components = [
 ]
 
 [dependencies]
-Livt.IO = "1.5.0"
+Livt.IO = "1.8.1"
