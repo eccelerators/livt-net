@@ -1,6 +1,6 @@
 [project]
 name = "Livt.Net"
-version = "1.4.2"
+version = "1.4.3"
 description = "Ethernet, IPv4, TCP, UDP, ARP, TFTP, and Telnet networking components for Livt hardware."
 authors = ["Denis Vasilík"]
 repository = "https://github.com/eccelerators/livt-net"
@@ -81,4 +81,4 @@ components = [
 ]
 
 [dependencies]
-Livt.IO = "1.8.2"
+Livt.IO = "1.8.3"

@@ -2,6 +2,13 @@
 
 All notable changes to this package are documented here.
 
+## 1.4.3
+
+### Changed
+
+- Update `Livt.IO` to 1.8.3 for the current MII and asynchronous FIFO timing
+  contracts. Component APIs and network protocol behavior remain unchanged.
+
 ## 1.4.2
 
 ### Changed
