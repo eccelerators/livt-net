@@ -2,6 +2,13 @@
 
 All notable changes to this package are documented here.
 
+## 1.4.2
+
+### Changed
+
+- Update `Livt.IO` to 1.8.2 to align with the standard-library package set.
+  Component APIs and protocol contracts remain unchanged.
+
 ## 1.4.1
 
 ### Added

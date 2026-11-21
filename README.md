@@ -4,7 +4,7 @@
 It supports small Ethernet/IPv4 request/response stacks and bounded TCP control
 streams, IPv4 UDP datagrams, RAM-backed buffering and a Telnet terminal codec.
 
-Version 1.4.1 provides the following hardware-oriented components:
+Version 1.4.2 provides the following hardware-oriented components:
 
 - `Livt.Net.EthernetFrameParser`: fixed Ethernet II header parser.
 - `Livt.Net.EthernetFrameBuilder`: static Ethernet header encoding from explicit addresses.
@@ -35,15 +35,15 @@ Version 1.4.1 provides the following hardware-oriented components:
 
 ```toml
 [dependencies]
-"Livt.Net" = "1.4.1"
+"Livt.Net" = "1.4.2"
 ```
 
-Version 1.4.1 publishes package discovery metadata, this README, the changelog,
-and the MIT license. Its component API is unchanged from 1.4.0.
+Version 1.4.2 aligns its I/O dependency with the current standard-library
+package set. Component APIs and protocol contracts remain unchanged.
 
 See the [changelog](CHANGELOG.md) for release changes.
 
-`Livt.Net` depends on `Livt.IO 1.8.1` for byte-addressable RAM and selectable
+`Livt.Net` depends on `Livt.IO 1.8.2` for byte-addressable RAM and selectable
 storage implementations used by packet, TCP, TFTP and Ethernet frame I/O.
 Domain applications should depend on `Livt.Net`; add `Livt.IO` directly only
 when the application also uses I/O primitives itself.
