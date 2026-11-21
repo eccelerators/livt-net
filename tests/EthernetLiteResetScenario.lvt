@@ -19,7 +19,7 @@ component EthernetLiteResetScenario
 	/**
 	 * Creates the independent storage/capability graph and hardware boundary.
 	 */
-	new(clk: in clock, resetLine: in logic)
+	new(clk: in clock, resetLine: in reset)
 	{
 		this.context.clk = clk
 		this.context.rst = resetLine

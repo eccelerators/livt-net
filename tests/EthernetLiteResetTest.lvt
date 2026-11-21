@@ -16,7 +16,7 @@ component EthernetLiteResetTest
 	 */
 	new()
 	{
-		this.scenario = new EthernetLiteResetScenario(this.context.clk, this.resetLine)
+		this.scenario = new EthernetLiteResetScenario(this.context.clk, this.resetLine as reset)
 	}
 
 	/**
